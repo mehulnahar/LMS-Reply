@@ -2,14 +2,18 @@
 #  LMS Reply — CI/CD Pipeline
 # ===========================================================================
 #  Triggers:
-#    • Push to main         → Lint + Test + Deploy (Railway auto-deploys)
+#    • Push to main         → Lint + Test → Railway auto-deploys after CI passes
 #    • Pull request to main → Lint + Test (no deploy)
 #
 #  Pipeline stages:
-#    1. Install   — install Node.js dependencies
-#    2. Lint      — run ESLint to catch code issues
-#    3. Test      — run Jest test suite
-#    4. Deploy    — Railway deploys automatically on push to main
+#    1. Lint   — run ESLint to catch code issues
+#    2. Test   — run Jest test suite with Postgres
+#    3. Deploy — Railway auto-deploys when CI passes (via "Wait for CI")
+#
+#  How it works:
+#    Railway is connected to the GitHub repo with "Wait for CI" enabled.
+#    When all GitHub Actions checks pass, Railway triggers a deploy.
+#    No manual deploy step needed — Railway handles it automatically.
 # ===========================================================================
 
 name: CI/CD Pipeline
@@ -86,24 +90,3 @@ jobs:
 
       - name: Run tests
         run: npm test
-
-  # =========================================================================
-  #  Stage 3 — Deploy (only on push to main, after lint + test pass)
-  # =========================================================================
-  deploy:
-    name: Deploy to Railway
-    runs-on: ubuntu-latest
-    needs: [lint, test]
-    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
-
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Install Railway CLI
-        run: npm install -g @railway/cli
-
-      - name: Deploy to Railway
-        run: railway up --service ${{ secrets.RAILWAY_SERVICE_ID }}
-        env:
-          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
