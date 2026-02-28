@@ -18,11 +18,13 @@ When a client emails about an Upwork job, the system instantly surfaces the full
 
 - [ ] Configuration settings (multi-email, API keys, integrations)
 - [ ] Reply Inbox with job context matching
-- [ ] AI-powered Smart Reply Generator
-- [ ] Lead Research & Scoring
+- [ ] AI-powered Smart Reply Generator (contextual — detects intent: question, quote request, availability, etc.)
+- [ ] Lovable Prompt Generator (auto-generates Lovable UI prompt when a visual mockup would help win the deal)
+- [ ] Lead Research & Scoring (based on job description + email domain only — no external enrichment in v1)
 - [ ] User authentication with custom role-based access (owner + VA roles)
 - [ ] Dark/light theme toggle
 - [ ] Minimalist, polished UI
+- [ ] Pre-Call Briefing with LinkedIn enrichment (Proxycurl/Apollo — configurable)
 
 ### Out of Scope
 
@@ -53,6 +55,20 @@ When a client emails about an Upwork job, the system instantly surfaces the full
 - **Deployment**: Railway (API + Frontend services + Postgres)
 - **CI/CD**: GitHub Actions (lint + test) → Railway auto-deploy
 
+### Email Workflow (Critical Design Decisions)
+- **Gmail is READ-ONLY** — system never marks emails as read, never sends through Gmail API
+- **Filter**: Only pull emails with "Upwork" in subject line
+- **Reply output**: Copy-to-clipboard (proper spacing/indentation for Gmail paste)
+- **Intent detection**: AI classifies what client is asking (question, quote, availability, experience, vague interest) and generates appropriate reply type
+- **Lovable prompt**: When AI detects a UI/visual job, auto-generates a Lovable prompt so user can quickly create a mockup to attach with reply
+- **Company**: HipHype Tech (NO MindCrew references anywhere)
+
+### Existing AI Prompts
+- User has battle-tested proposal writing prompt (hook formula, anti-patterns, structured approach)
+- Email reply prompt and follow-up prompt exist but need significant improvement
+- All prompts must be configurable templates stored in database, editable via settings UI
+- Company name, team members, rates, specialties pulled from settings (never hardcoded)
+
 ### PRD Reference
 - Full 25-module PRD exists: `Upwork_Cockpit_PRD_V2.docx`
 - Building incrementally — module by module, test after each
@@ -74,10 +90,13 @@ When a client emails about an Upwork job, the system instantly surfaces the full
 |----------|-----------|---------|
 | Use leadhack.info as external data source | Already operational, handles scraping/ingestion | — Pending |
 | Module-by-module development | User wants to test each module before building next | — Pending |
-| React from scratch (not Lovable) | Full control over UI quality and customization | — Pending |
+| React from scratch for LMS Reply UI | Full control over UI quality and customization | — Pending |
+| Lovable prompts as a FEATURE inside the product | Auto-generate UI mockups for client proposals — differentiator | — Pending |
+| Gmail read-only, copy-to-clipboard for replies | Simpler OAuth, no send risk, user controls the send | — Pending |
+| No Gmail send scope | Easier Google verification, no "sent from wrong account" risk | — Pending |
 | Dark + light mode from day one | User preference, affects all component design | — Pending |
 | Custom roles over simple admin/VA split | User wants granular control over VA permissions | — Pending |
 | Configuration module built first | Foundation for all other modules (API keys, emails) | — Pending |
 
 ---
-*Last updated: 2026-02-28 after initialization*
+*Last updated: 2026-02-28 after questioning (email workflow, Lovable feature, LinkedIn enrichment clarified)*
