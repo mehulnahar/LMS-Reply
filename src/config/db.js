@@ -6,6 +6,8 @@ const pool = new Pool({
     process.env.NODE_ENV === "production"
       ? { rejectUnauthorized: false }
       : false,
+  max: 20,
+  connectionTimeoutMillis: 10000,
 });
 
 pool.on("error", (err) => {
