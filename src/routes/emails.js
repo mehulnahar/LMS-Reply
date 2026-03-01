@@ -288,10 +288,10 @@ router.post("/sync-all", requireAuth, async (req, res, next) => {
 
         const gmail = google.gmail({ version: "v1", auth: oauth2 });
 
-        // Check which emails are still unread in Gmail
+        // Check which emails are still unread in Gmail (Upwork only)
         const listRes = await gmail.users.messages.list({
           userId: "me",
-          q: "is:unread",
+          q: "is:unread subject:Upwork",
           maxResults: 50,
         });
 
