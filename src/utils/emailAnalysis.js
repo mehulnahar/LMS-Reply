@@ -169,6 +169,7 @@ async function analyzeEmail(bodyText, bodyHtml, subject, anthropicKey, { throwOn
     };
   } catch (err) {
     console.error("Email analysis failed:", err.message);
+    if (throwOnError) throw err;
     return null;
   }
 }
