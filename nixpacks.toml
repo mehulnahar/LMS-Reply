@@ -1,0 +1,21 @@
+# ============================================================
+# Nixpacks Config — Explicit build phases for Railway
+#
+# IMPORTANT: Without this, Nixpacks may auto-detect Jest and
+# run "npm test" during the build phase, which connects to
+# the PRODUCTION database and wipes all user data.
+#
+# This file explicitly defines ONLY the steps we want:
+#   1. Install dependencies
+#   2. Build frontend
+#   3. Start server
+# ============================================================
+
+[phases.install]
+cmds = ["npm ci", "cd client && npm install"]
+
+[phases.build]
+cmds = ["cd client && npx vite build"]
+
+[start]
+cmd = "npm start"
