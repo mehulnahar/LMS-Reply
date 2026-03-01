@@ -12,31 +12,57 @@ const express = require("express");
 const { google } = require("googleapis");
 const pool = require("../config/db");
 const { requireAuth } = require("../middleware/auth");
+const { decrypt } = require("../utils/encryption");
 
 const router = express.Router();
 
 // Account color palette for multi-account differentiation
 const ACCOUNT_COLORS = ["#4F46E5", "#059669", "#D97706", "#DC2626", "#7C3AED"];
 
-function getOAuth2Client() {
-  return new google.auth.OAuth2(
-    process.env.GOOGLE_CLIENT_ID,
-    process.env.GOOGLE_CLIENT_SECRET,
-    process.env.GOOGLE_REDIRECT_URI
+/**
+ * Build OAuth2 client from user's stored credentials.
+ * Falls back to env vars if DB creds not found.
+ */
+async function getOAuth2ClientForUser(userId, redirectUri) {
+  let clientId = process.env.GOOGLE_CLIENT_ID;
+  let clientSecret = process.env.GOOGLE_CLIENT_SECRET;
+
+  // Try reading from user's encrypted api_keys first
+  const { rows } = await pool.query(
+    "SELECT service, encrypted_key, iv, auth_tag FROM api_keys WHERE user_id = $1 AND service IN ('google_client_id', 'google_client_secret')",
+    [userId]
   );
+
+  for (const row of rows) {
+    try {
+      const val = decrypt(row.encrypted_key, row.iv, row.auth_tag);
+      if (row.service === "google_client_id") clientId = val;
+      if (row.service === "google_client_secret") clientSecret = val;
+    } catch {
+      // ignore decrypt errors, fall back to env
+    }
+  }
+
+  if (!clientId || !clientSecret) {
+    return null;
+  }
+
+  return new google.auth.OAuth2(clientId, clientSecret, redirectUri);
 }
 
 // ============================================================
 // GET /api/gmail/auth-url — Generate OAuth consent URL
 // ============================================================
-router.get("/auth-url", requireAuth, (req, res) => {
-  if (!process.env.GOOGLE_CLIENT_ID || !process.env.GOOGLE_CLIENT_SECRET) {
-    return res.status(503).json({
-      error: "Google OAuth not configured. Set GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, and GOOGLE_REDIRECT_URI.",
+router.get("/auth-url", requireAuth, async (req, res) => {
+  const redirectUri = `${req.protocol}://${req.get("host")}/api/gmail/callback`;
+  const oauth2 = await getOAuth2ClientForUser(req.user.id, redirectUri);
+
+  if (!oauth2) {
+    return res.status(400).json({
+      error: "Google OAuth not configured. Add your Google Client ID and Client Secret in Settings.",
     });
   }
 
-  const oauth2 = getOAuth2Client();
   const url = oauth2.generateAuthUrl({
     access_type: "offline",
     prompt: "consent",
@@ -45,7 +71,7 @@ router.get("/auth-url", requireAuth, (req, res) => {
       "https://www.googleapis.com/auth/userinfo.email",
       "https://www.googleapis.com/auth/userinfo.profile",
     ],
-    state: req.user.id, // Pass user ID through OAuth flow
+    state: req.user.id,
   });
 
   res.json({ url });
@@ -58,11 +84,17 @@ router.get("/callback", async (req, res) => {
   const { code, state: userId } = req.query;
 
   if (!code || !userId) {
-    return res.redirect("/?error=gmail_auth_failed");
+    return res.redirect("/settings?gmail=error");
   }
 
   try {
-    const oauth2 = getOAuth2Client();
+    const redirectUri = `${req.protocol}://${req.get("host")}/api/gmail/callback`;
+    const oauth2 = await getOAuth2ClientForUser(userId, redirectUri);
+
+    if (!oauth2) {
+      return res.redirect("/settings?gmail=error");
+    }
+
     const { tokens } = await oauth2.getToken(code);
     oauth2.setCredentials(tokens);
 
@@ -79,7 +111,7 @@ router.get("/callback", async (req, res) => {
     const displayName = nameObj?.displayName || email;
 
     if (!email) {
-      return res.redirect("/?error=gmail_no_email");
+      return res.redirect("/settings?gmail=error");
     }
 
     // Pick a color for this account
@@ -113,7 +145,6 @@ router.get("/callback", async (req, res) => {
       ]
     );
 
-    // Redirect back to settings with success
     res.redirect("/settings?gmail=connected");
   } catch (err) {
     console.error("Gmail OAuth callback error:", err.message);
@@ -184,9 +215,13 @@ router.post("/accounts/:id/sync", requireAuth, async (req, res, next) => {
     }
 
     const account = rows[0];
+    const redirectUri = `${req.protocol}://${req.get("host")}/api/gmail/callback`;
+    const oauth2 = await getOAuth2ClientForUser(req.user.id, redirectUri);
 
-    // Refresh token if needed
-    const oauth2 = getOAuth2Client();
+    if (!oauth2) {
+      return res.status(400).json({ error: "Google OAuth credentials not found in Settings." });
+    }
+
     oauth2.setCredentials({
       access_token: account.access_token,
       refresh_token: account.refresh_token,
@@ -217,14 +252,12 @@ router.post("/accounts/:id/sync", requireAuth, async (req, res, next) => {
     let synced = 0;
 
     for (const msg of messages) {
-      // Skip if already in DB
       const existing = await pool.query(
         "SELECT id FROM emails WHERE account_id = $1 AND gmail_id = $2",
         [account.id, msg.id]
       );
       if (existing.rows.length > 0) continue;
 
-      // Fetch full message
       const full = await gmail.users.messages.get({
         userId: "me",
         id: msg.id,
@@ -239,7 +272,6 @@ router.post("/accounts/:id/sync", requireAuth, async (req, res, next) => {
       const fromName = fromMatch ? fromMatch[1].replace(/"/g, "").trim() : fromRaw;
       const fromEmail = fromMatch ? fromMatch[2] : fromRaw;
 
-      // Extract body
       let bodyText = "";
       let bodyHtml = "";
       const extractParts = (payload) => {
@@ -259,23 +291,15 @@ router.post("/accounts/:id/sync", requireAuth, async (req, res, next) => {
          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
          ON CONFLICT (account_id, gmail_id) DO NOTHING`,
         [
-          req.user.id,
-          account.id,
-          msg.id,
-          full.data.threadId,
-          fromEmail,
-          fromName,
-          getHeader("Subject") || "(No subject)",
-          full.data.snippet || "",
-          bodyText,
-          bodyHtml,
+          req.user.id, account.id, msg.id, full.data.threadId,
+          fromEmail, fromName, getHeader("Subject") || "(No subject)",
+          full.data.snippet || "", bodyText, bodyHtml,
           new Date(parseInt(full.data.internalDate)),
         ]
       );
       synced++;
     }
 
-    // Update last sync timestamp
     await pool.query(
       "UPDATE email_accounts SET last_sync_at = NOW(), status = 'connected', error_message = NULL, updated_at = NOW() WHERE id = $1",
       [account.id]
@@ -287,7 +311,6 @@ router.post("/accounts/:id/sync", requireAuth, async (req, res, next) => {
       message: `Synced ${synced} new emails from ${account.email}`,
     });
   } catch (err) {
-    // Update error status on the account
     await pool.query(
       "UPDATE email_accounts SET status = 'error', error_message = $1, updated_at = NOW() WHERE id = $2",
       [err.message, req.params.id]

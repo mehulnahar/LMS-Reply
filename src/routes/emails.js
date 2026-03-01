@@ -11,8 +11,27 @@ const express = require("express");
 const { google } = require("googleapis");
 const pool = require("../config/db");
 const { requireAuth } = require("../middleware/auth");
+const { decrypt } = require("../utils/encryption");
 
 const router = express.Router();
+
+async function getOAuth2ClientForUser(userId, redirectUri) {
+  let clientId = process.env.GOOGLE_CLIENT_ID;
+  let clientSecret = process.env.GOOGLE_CLIENT_SECRET;
+  const { rows } = await pool.query(
+    "SELECT service, encrypted_key, iv, auth_tag FROM api_keys WHERE user_id = $1 AND service IN ('google_client_id', 'google_client_secret')",
+    [userId]
+  );
+  for (const row of rows) {
+    try {
+      const val = decrypt(row.encrypted_key, row.iv, row.auth_tag);
+      if (row.service === "google_client_id") clientId = val;
+      if (row.service === "google_client_secret") clientSecret = val;
+    } catch { /* ignore */ }
+  }
+  if (!clientId || !clientSecret) return null;
+  return new google.auth.OAuth2(clientId, clientSecret, redirectUri);
+}
 
 const VALID_STATUSES = ["new", "replied", "proposal_sent", "won", "lost", "ignored"];
 
@@ -237,13 +256,15 @@ router.post("/sync-all", requireAuth, async (req, res, next) => {
 
     const results = [];
 
+    const redirectUri = `${req.protocol}://${req.get("host")}/api/gmail/callback`;
+
     for (const account of accounts) {
       try {
-        const oauth2 = new (require("googleapis").google.auth.OAuth2)(
-          process.env.GOOGLE_CLIENT_ID,
-          process.env.GOOGLE_CLIENT_SECRET,
-          process.env.GOOGLE_REDIRECT_URI
-        );
+        const oauth2 = await getOAuth2ClientForUser(req.user.id, redirectUri);
+        if (!oauth2) {
+          results.push({ account: account.email, synced: 0, status: "error", error: "Google OAuth not configured" });
+          continue;
+        }
 
         oauth2.setCredentials({
           access_token: account.access_token,
