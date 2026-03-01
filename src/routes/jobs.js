@@ -15,35 +15,36 @@ const router = express.Router();
 const LEADHACK_BASE = "https://app.leadhack.info:3000/api/admin";
 
 // ============================================================
-// Helper: Get LeadHack auth token
+// Helper: Get LeadHack auth token (optional — API works without auth)
 // ============================================================
 async function getLeadHackToken(userId) {
-  const { rows } = await pool.query(
-    "SELECT encrypted_key, iv, auth_tag FROM api_keys WHERE user_id = $1 AND service = 'leadhack'",
-    [userId]
-  );
+  try {
+    const { rows } = await pool.query(
+      "SELECT encrypted_key, iv, auth_tag FROM api_keys WHERE user_id = $1 AND service = 'leadhack'",
+      [userId]
+    );
 
-  if (rows.length === 0) {
-    throw new Error("LeadHack API key not configured. Add it in Settings.");
+    if (rows.length === 0) return null; // No key stored — that's fine, API works without auth
+
+    const apiKey = decrypt(rows[0].encrypted_key, rows[0].iv, rows[0].auth_tag);
+
+    // LeadHack uses email+password auth
+    if (apiKey.includes(":")) {
+      const [email, password] = apiKey.split(":");
+      const res = await fetch(`${LEADHACK_BASE}/getAuthToken`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email, password }),
+      });
+      const data = await res.json();
+      if (!data.token) return null;
+      return data.token;
+    }
+
+    return apiKey; // Assume it's a direct token
+  } catch {
+    return null; // Auth failed — continue without it
   }
-
-  const apiKey = decrypt(rows[0].encrypted_key, rows[0].iv, rows[0].auth_tag);
-
-  // LeadHack uses email+password auth, but the "API key" we store is the auth token directly
-  // If the user stores credentials in format "email:password", we authenticate; otherwise treat as token
-  if (apiKey.includes(":")) {
-    const [email, password] = apiKey.split(":");
-    const res = await fetch(`${LEADHACK_BASE}/getAuthToken`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ email, password }),
-    });
-    const data = await res.json();
-    if (!data.token) throw new Error("LeadHack authentication failed");
-    return data.token;
-  }
-
-  return apiKey; // Assume it's a direct token
 }
 
 // ============================================================
@@ -80,15 +81,18 @@ router.post("/match/:emailId", requireAuth, async (req, res, next) => {
     try {
       const token = await getLeadHackToken(req.user.id);
 
+      // Strip "Re: " and "Fwd: " prefixes from subject for better matching
+      const cleanSubject = email.subject.replace(/^(Re|Fwd|Fw):\s*/i, "").trim();
+
+      const headers = { "Content-Type": "application/json" };
+      if (token) headers.Authorization = `Bearer ${token}`;
+
       const lhRes = await fetch(`${LEADHACK_BASE}/getJobDetails`, {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
-        },
+        headers,
         body: JSON.stringify({
           email_id: email.from_email,
-          email_subject: email.subject,
+          email_subject: cleanSubject,
         }),
       });
 

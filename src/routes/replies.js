@@ -156,39 +156,67 @@ router.put("/:id/copied", requireAuth, async (req, res, next) => {
 // ============================================================
 
 function buildSystemPrompt(tone, email, job) {
-  let prompt = `You are a professional freelancer responding to a client inquiry on Upwork.
+  const clientName = email.from_name?.split(/\s/)[0] || "there";
+
+  let prompt = `You are Ashish, a professional freelancer responding to a client inquiry on Upwork.
 ${TONES[tone]}
 
+STRUCTURE:
+1. Start with a greeting: "Hi ${clientName},"
+2. Main body — address what the client said/asked
+3. End with a clear follow-up/call-to-action (e.g., suggest a call, ask a question, propose next steps)
+4. Sign off with just "Best,\nAshish"
+
 RULES:
-- Write ONLY the reply text. No subject lines, no "Dear", just the direct response.
+- Write PLAIN TEXT only. NO markdown formatting (no **, no ##, no bullets with -, no numbered lists with 1.).
+- The reply will be copied directly into Gmail, so it must look clean as plain text.
+- Use line breaks for paragraph separation, not formatting symbols.
 - Be specific to what the client asked about.
 - Keep replies under 200 words unless the "detailed" tone is selected.
-- Never use placeholder text like [Your Name] — leave the sign-off simple.
+- Never use placeholder text like [Your Name] or [Company].
 - If the client mentioned a specific technology or requirement, address it directly.
-- Sound human, not AI-generated. Avoid corporate jargon.`;
+- Sound human, not AI-generated. Avoid corporate jargon.
+- Always include a follow-up action — never leave the conversation hanging.`;
 
   if (job) {
     prompt += `\n\nJOB CONTEXT:
-- Job Title: ${job.job_heading || "Unknown"}
-- Job Description: ${job.job_description || "Not available"}
-- Client: ${[job.client_first_name, job.client_last_name].filter(Boolean).join(" ") || "Unknown"}`;
+Job Title: ${job.job_heading || "Unknown"}
+Job Description: ${job.job_description || "Not available"}
+Client: ${[job.client_first_name, job.client_last_name].filter(Boolean).join(" ") || "Unknown"}`;
   }
 
   return prompt;
 }
 
 function buildUserMessage(email, _job) {
+  // Get email body — prefer bodyText, fall back to stripping HTML from bodyHtml
+  let body = email.body_text;
+  if (!body && email.body_html) {
+    body = email.body_html
+      .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, "")
+      .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, "")
+      .replace(/<[^>]+>/g, " ")
+      .replace(/&nbsp;/g, " ")
+      .replace(/&amp;/g, "&")
+      .replace(/&lt;/g, "<")
+      .replace(/&gt;/g, ">")
+      .replace(/&quot;/g, '"')
+      .replace(/&#39;/g, "'")
+      .replace(/\s+/g, " ")
+      .trim();
+  }
+
   let msg = `CLIENT EMAIL:
 From: ${email.from_name || email.from_email}
 Subject: ${email.subject}
 
-${email.body_text || email.snippet || "(No body text)"}`;
+${body || email.snippet || "(No body text)"}`;
 
   if (email.extracted_phone) {
     msg += `\n\n[Note: Client included phone number: ${email.extracted_phone}]`;
   }
 
-  msg += "\n\nWrite a reply to this client email.";
+  msg += "\n\nWrite a reply to this client email. Remember: PLAIN TEXT only, no markdown.";
   return msg;
 }
 
