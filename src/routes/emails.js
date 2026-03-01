@@ -437,6 +437,7 @@ router.post("/reanalyze", requireAuth, async (req, res, next) => {
 
     let analyzed = 0;
     let errors = 0;
+    let firstError = null;
 
     for (const email of emails) {
       try {
@@ -452,13 +453,15 @@ router.post("/reanalyze", requireAuth, async (req, res, next) => {
           analyzed++;
         } else {
           errors++;
+          if (!firstError) firstError = "analyzeEmail returned null";
         }
-      } catch {
+      } catch (err) {
         errors++;
+        if (!firstError) firstError = err.message;
       }
     }
 
-    res.json({ total: emails.length, analyzed, errors });
+    res.json({ total: emails.length, analyzed, errors, firstError });
   } catch (err) {
     next(err);
   }

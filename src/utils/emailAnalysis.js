@@ -139,7 +139,8 @@ async function analyzeEmail(bodyText, bodyHtml, subject, anthropicKey) {
     });
 
     if (!response.ok) {
-      console.error(`Email analysis API error: ${response.status} ${response.statusText}`);
+      const errBody = await response.json().catch(() => ({}));
+      console.error(`Email analysis API error: ${response.status} ${response.statusText}`, JSON.stringify(errBody));
       return null;
     }
 
