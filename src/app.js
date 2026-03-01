@@ -95,7 +95,15 @@ app.use((_req, res) => {
 // eslint-disable-next-line no-unused-vars
 app.use((err, _req, res, _next) => {
   console.error(err.stack);
-  res.status(500).json({ error: "Internal server error" });
+
+  // Return useful error detail (safe: never leak stack traces)
+  const status = err.status || 500;
+  const message =
+    err.message && !err.message.includes("secret")
+      ? err.message
+      : "Internal server error";
+
+  res.status(status).json({ error: message });
 });
 
 module.exports = app;

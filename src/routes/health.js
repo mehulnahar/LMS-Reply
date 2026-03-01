@@ -15,6 +15,8 @@ router.get("/", async (_req, res) => {
   res.json({
     status: "healthy",
     database: dbStatus,
+    encryptionKey: process.env.ENCRYPTION_KEY ? "set" : "MISSING",
+    jwtSecret: process.env.JWT_SECRET ? "set" : "MISSING",
     uptime: process.uptime(),
     timestamp: new Date().toISOString(),
   });
