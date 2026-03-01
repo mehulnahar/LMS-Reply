@@ -16,6 +16,9 @@ const replyRoutes = require("./routes/replies");
 
 const app = express();
 
+// Trust Railway's reverse proxy so req.protocol returns "https" (not "http")
+app.set("trust proxy", 1);
+
 // ---------------------------------------------------------------------------
 // Middleware
 // ---------------------------------------------------------------------------
