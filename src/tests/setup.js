@@ -1,6 +1,8 @@
 /**
  * Jest Global Setup
  * Sets env vars, runs migrations, seeds test users.
+ *
+ * SAFETY: Refuses to run against production databases to prevent data loss.
  */
 
 // Load .env first (for DATABASE_URL), then override test-specific vars
@@ -9,6 +11,25 @@ process.env.NODE_ENV = "test";
 process.env.JWT_SECRET = "test-jwt-secret-do-not-use-in-production";
 process.env.ENCRYPTION_KEY =
   "a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6a7b8c9d0e1f2a3b4c5d6a7b8c9d0e1f2";
+
+// ============================================================
+// PRODUCTION SAFETY GUARD — prevents tests from wiping prod DB
+// ============================================================
+const dbUrl = process.env.DATABASE_URL || "";
+const PRODUCTION_HOSTS = ["railway.app", "railway.internal", "neon.tech", "supabase.co"];
+const isProductionDb = PRODUCTION_HOSTS.some((host) => dbUrl.includes(host));
+
+if (isProductionDb) {
+  console.error("\n");
+  console.error("═══════════════════════════════════════════════════════════");
+  console.error("  ❌  REFUSING TO RUN TESTS AGAINST PRODUCTION DATABASE");
+  console.error("═══════════════════════════════════════════════════════════");
+  console.error(`  DATABASE_URL contains: ${dbUrl.replace(/\/\/.*@/, "//***@")}`);
+  console.error("  Tests will DELETE data. Use a local or CI database.");
+  console.error("═══════════════════════════════════════════════════════════");
+  console.error("\n");
+  process.exit(1);
+}
 
 const bcrypt = require("bcrypt");
 const pool = require("../config/db");
