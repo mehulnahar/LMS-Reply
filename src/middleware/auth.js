@@ -51,11 +51,28 @@ async function requireAuth(req, res, next) {
     }
   }
 
-  req.user = {
-    id: payload.userId,
-    email: payload.email,
-    role: payload.role,
-  };
+  // Verify user still exists in DB (catches stale tokens after DB wipe)
+  try {
+    const { rows } = await pool.query(
+      "SELECT id, email, role FROM users WHERE id = $1",
+      [payload.userId]
+    );
+    if (rows.length === 0) {
+      return res.status(401).json({ error: "Account not found. Please sign up again." });
+    }
+    req.user = {
+      id: rows[0].id,
+      email: rows[0].email,
+      role: rows[0].role,
+    };
+  } catch {
+    // If users table doesn't exist yet (pre-migration), use JWT payload
+    req.user = {
+      id: payload.userId,
+      email: payload.email,
+      role: payload.role,
+    };
+  }
 
   next();
 }
