@@ -441,7 +441,7 @@ router.post("/reanalyze", requireAuth, async (req, res, next) => {
 
     for (const email of emails) {
       try {
-        const signals = await analyzeEmail(email.body_text, email.body_html, email.subject, anthropicKey);
+        const signals = await analyzeEmail(email.body_text, email.body_html, email.subject, anthropicKey, { throwOnError: true });
         if (signals) {
           await pool.query(
             `UPDATE emails SET lead_score = $1, has_phone = $2, extracted_phone = $3,

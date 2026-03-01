@@ -83,8 +83,11 @@ async function getAnthropicKey(userId) {
  * @param {string} anthropicKey - Decrypted Anthropic API key
  * @returns {Object|null} Signals object or null
  */
-async function analyzeEmail(bodyText, bodyHtml, subject, anthropicKey) {
-  if (!anthropicKey) return null;
+async function analyzeEmail(bodyText, bodyHtml, subject, anthropicKey, { throwOnError = false } = {}) {
+  if (!anthropicKey) {
+    if (throwOnError) throw new Error("No Anthropic key");
+    return null;
+  }
 
   // Use bodyText if available, otherwise strip HTML tags from bodyHtml
   let content = bodyText;
@@ -140,7 +143,9 @@ async function analyzeEmail(bodyText, bodyHtml, subject, anthropicKey) {
 
     if (!response.ok) {
       const errBody = await response.json().catch(() => ({}));
-      console.error(`Email analysis API error: ${response.status} ${response.statusText}`, JSON.stringify(errBody));
+      const errMsg = `API ${response.status}: ${errBody.error?.message || response.statusText}`;
+      console.error("Email analysis API error:", errMsg);
+      if (throwOnError) throw new Error(errMsg);
       return null;
     }
 
