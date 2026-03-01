@@ -11,18 +11,18 @@ describe("GET /api/health", () => {
   });
 });
 
-describe("GET /", () => {
+describe("GET /api", () => {
   it("returns app info", async () => {
-    const res = await request(app).get("/");
+    const res = await request(app).get("/api");
     expect(res.statusCode).toBe(200);
     expect(res.body.name).toBe("LMS Reply");
     expect(res.body.status).toBe("running");
   });
 });
 
-describe("GET /unknown-route", () => {
+describe("GET /api/unknown-route", () => {
   it("returns 404", async () => {
-    const res = await request(app).get("/does-not-exist");
+    const res = await request(app).get("/api/does-not-exist");
     expect(res.statusCode).toBe(404);
   });
 });

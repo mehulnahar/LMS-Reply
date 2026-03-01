@@ -12,7 +12,8 @@
     "test": "jest --passWithNoTests --forceExit --runInBand",
     "test:watch": "jest --watch",
     "test:coverage": "jest --coverage --forceExit",
-    "build:check": "echo 'Build check passed'"
+    "build:check": "echo 'Build check passed'",
+    "build": "cd client && npm install && npx vite build"
   },
   "keywords": [
     "lms",
