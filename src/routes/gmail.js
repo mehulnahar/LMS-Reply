@@ -157,10 +157,23 @@ router.get("/callback", async (req, res) => {
 // ============================================================
 router.get("/accounts", requireAuth, async (req, res, next) => {
   try {
+    // Fetch accounts with email + reply counts for disconnect confirmation
     const { rows } = await pool.query(
-      `SELECT id, email, display_name, sync_frequency, last_sync_at, status, error_message, color, created_at
-       FROM email_accounts WHERE user_id = $1
-       ORDER BY created_at`,
+      `SELECT ea.id, ea.email, ea.display_name, ea.sync_frequency,
+              ea.last_sync_at, ea.status, ea.error_message, ea.color, ea.created_at,
+              COALESCE(ec.email_count, 0)::int AS email_count,
+              COALESCE(rc.reply_count, 0)::int AS reply_count
+       FROM email_accounts ea
+       LEFT JOIN (
+         SELECT account_id, COUNT(*) AS email_count FROM emails GROUP BY account_id
+       ) ec ON ec.account_id = ea.id
+       LEFT JOIN (
+         SELECT e.account_id, COUNT(*) AS reply_count
+         FROM replies r JOIN emails e ON r.email_id = e.id
+         GROUP BY e.account_id
+       ) rc ON rc.account_id = ea.id
+       WHERE ea.user_id = $1
+       ORDER BY ea.created_at`,
       [req.user.id]
     );
 
@@ -174,6 +187,8 @@ router.get("/accounts", requireAuth, async (req, res, next) => {
       errorMessage: a.error_message,
       color: a.color,
       createdAt: a.created_at,
+      emailCount: a.email_count,
+      replyCount: a.reply_count,
     })));
   } catch (err) {
     next(err);

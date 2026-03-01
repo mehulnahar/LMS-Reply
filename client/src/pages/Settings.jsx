@@ -1,7 +1,10 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback, useRef } from "react";
 import { useSearchParams } from "react-router-dom";
 import { api } from "../api";
 
+/* ================================================================
+   Constants
+   ================================================================ */
 const API_SERVICES = [
   {
     id: "anthropic",
@@ -19,62 +22,277 @@ const API_SERVICES = [
   },
 ];
 
+const GOOGLE_CREDS = [
+  {
+    id: "google_client_id",
+    label: "Client ID",
+    placeholder: "123456789-xxxxx.apps.googleusercontent.com",
+  },
+  {
+    id: "google_client_secret",
+    label: "Client Secret",
+    placeholder: "GOCSPX-...",
+  },
+];
+
+/* ================================================================
+   Validation helpers
+   ================================================================ */
+function validateGoogleCredential(serviceId, value) {
+  if (!value.trim()) return null;
+  if (serviceId === "google_client_id") {
+    // Format: {numbers}-{alphanum}.apps.googleusercontent.com
+    if (!value.includes(".apps.googleusercontent.com")) {
+      return "Doesn't look like a Google Client ID — expected format: 123456789-xxx.apps.googleusercontent.com";
+    }
+  }
+  if (serviceId === "google_client_secret") {
+    // Format: GOCSPX-{alphanum}
+    if (!value.startsWith("GOCSPX-")) {
+      return "Doesn't look like a Google Client Secret — expected format: GOCSPX-...";
+    }
+  }
+  return null;
+}
+
+/** Try to extract client_id and client_secret from a pasted JSON blob */
+function tryParseGoogleJson(text) {
+  try {
+    const obj = JSON.parse(text);
+    // Google Cloud JSON download shape: { web: { client_id, client_secret } }
+    const inner = obj.web || obj.installed || obj;
+    if (inner.client_id && inner.client_secret) {
+      return { clientId: inner.client_id, clientSecret: inner.client_secret };
+    }
+  } catch {
+    // not JSON
+  }
+  return null;
+}
+
+/* ================================================================
+   Main component
+   ================================================================ */
 export default function Settings() {
   const [searchParams] = useSearchParams();
+
+  // Data
   const [keys, setKeys] = useState([]);
   const [gmailAccounts, setGmailAccounts] = useState([]);
   const [loading, setLoading] = useState(true);
+
+  // Edit state
   const [editingService, setEditingService] = useState(null);
   const [keyInput, setKeyInput] = useState("");
+  const [inputWarning, setInputWarning] = useState("");
+
+  // Action states
   const [saving, setSaving] = useState(false);
   const [connecting, setConnecting] = useState(false);
   const [syncing, setSyncing] = useState(null);
+  const [disconnecting, setDisconnecting] = useState(null);
+
+  // Confirmation dialog for disconnect
+  const [disconnectDialog, setDisconnectDialog] = useState(null); // { id, email, emailCount, replyCount }
+
+  // Confirmation dialog for credential change
+  const [credChangeWarning, setCredChangeWarning] = useState(null); // { serviceId, label }
+
+  // JSON paste detection
+  const [jsonDetected, setJsonDetected] = useState(null); // { clientId, clientSecret }
+
+  // Notifications
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
 
-  const fetchKeys = async () => {
+  // Timers ref for cleanup
+  const timerRef = useRef(null);
+
+  const clearNotifications = useCallback(() => {
+    if (timerRef.current) clearTimeout(timerRef.current);
+    setError("");
+    setSuccess("");
+  }, []);
+
+  const showSuccess = useCallback((msg, duration = 4000) => {
+    setError("");
+    setSuccess(msg);
+    if (timerRef.current) clearTimeout(timerRef.current);
+    timerRef.current = setTimeout(() => setSuccess(""), duration);
+  }, []);
+
+  const showError = useCallback((msg, duration = 6000) => {
+    setSuccess("");
+    setError(msg);
+    if (timerRef.current) clearTimeout(timerRef.current);
+    timerRef.current = setTimeout(() => setError(""), duration);
+  }, []);
+
+  /* ============================================================
+     Data fetching
+     ============================================================ */
+  const fetchKeys = useCallback(async () => {
     try {
       const data = await api.getKeys();
       setKeys(data);
     } catch {
-      // ignore
+      // ignore — keys section will just show "Add"
     }
-  };
+  }, []);
 
-  const fetchGmailAccounts = async () => {
+  const fetchGmailAccounts = useCallback(async () => {
     try {
       const data = await api.getGmailAccounts();
       setGmailAccounts(data);
     } catch {
       // ignore
     }
-  };
+  }, []);
 
   useEffect(() => {
     Promise.all([fetchKeys(), fetchGmailAccounts()]).finally(() => setLoading(false));
-  }, []);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Handle Gmail OAuth callback redirect
   useEffect(() => {
     const gmailStatus = searchParams.get("gmail");
     if (gmailStatus === "connected") {
-      setSuccess("Gmail account connected successfully!");
+      showSuccess("Gmail account connected successfully!");
       fetchGmailAccounts();
-      setTimeout(() => setSuccess(""), 4000);
     } else if (gmailStatus === "error") {
-      setError("Failed to connect Gmail account. Check your Google OAuth credentials and try again.");
-      setTimeout(() => setError(""), 6000);
+      showError("Failed to connect Gmail. Check your Google OAuth credentials and try again.");
     }
-  }, [searchParams]);
+  }, [searchParams]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  /* ============================================================
+     Derived state
+     ============================================================ */
   const getKeyForService = (serviceId) => keys.find((k) => k.service === serviceId);
-  const hasGoogleCreds = getKeyForService("google_client_id") && getKeyForService("google_client_secret");
+  const hasGoogleCreds = !!(getKeyForService("google_client_id") && getKeyForService("google_client_secret"));
+  const connectedAccounts = gmailAccounts.filter((a) => a.status === "connected");
+  const errorAccounts = gmailAccounts.filter((a) => a.status === "error");
+  const hasAnyAccounts = gmailAccounts.length > 0;
 
+  // Detect decryption errors (masked key shows gibberish or error indicator)
+  const hasDecryptionError = (maskedKey) => {
+    if (!maskedKey) return true;
+    if (maskedKey.includes("[error]") || maskedKey.includes("[decrypt")) return true;
+    return false;
+  };
+
+  /* Step 2 badge logic:
+     - green: all accounts connected, at least 1 account
+     - amber: some accounts have errors
+     - brand/blue: has creds, ready to connect (0 accounts)
+     - gray: no creds yet */
+  const step2BadgeColor = gmailAccounts.length > 0
+    ? errorAccounts.length > 0
+      ? "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400"
+      : "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400"
+    : hasGoogleCreds
+    ? "bg-brand-100 text-brand-700 dark:bg-brand-900/30 dark:text-brand-400"
+    : "bg-gray-100 text-gray-400 dark:bg-gray-800 dark:text-gray-500";
+
+  /* ============================================================
+     Handlers
+     ============================================================ */
+
+  /** Open edit mode for a credential — with connected-account warning */
+  const startEditing = (serviceId, label) => {
+    // If changing Google creds while accounts are connected, warn first
+    if (
+      (serviceId === "google_client_id" || serviceId === "google_client_secret") &&
+      getKeyForService(serviceId) &&
+      hasAnyAccounts
+    ) {
+      setCredChangeWarning({ serviceId, label });
+      return;
+    }
+    setEditingService(serviceId);
+    setKeyInput("");
+    setInputWarning("");
+    setJsonDetected(null);
+    clearNotifications();
+  };
+
+  /** Confirm credential change despite connected accounts */
+  const confirmCredChange = () => {
+    if (credChangeWarning) {
+      setEditingService(credChangeWarning.serviceId);
+      setKeyInput("");
+      setInputWarning("");
+      setJsonDetected(null);
+      setCredChangeWarning(null);
+      clearNotifications();
+    }
+  };
+
+  /** Cancel edit mode */
+  const cancelEditing = () => {
+    setEditingService(null);
+    setKeyInput("");
+    setInputWarning("");
+    setJsonDetected(null);
+  };
+
+  /** Handle input change with validation + JSON detection */
+  const handleInputChange = (serviceId, value) => {
+    setKeyInput(value);
+
+    // Check for JSON paste (only when editing Google creds)
+    if (serviceId === "google_client_id" || serviceId === "google_client_secret") {
+      const parsed = tryParseGoogleJson(value);
+      if (parsed) {
+        setJsonDetected(parsed);
+        setInputWarning("");
+        return;
+      }
+      setJsonDetected(null);
+
+      // Validate format
+      const warning = validateGoogleCredential(serviceId, value);
+      setInputWarning(warning || "");
+    } else {
+      setInputWarning("");
+      setJsonDetected(null);
+    }
+  };
+
+  /** Apply both values from detected JSON */
+  const applyJsonCredentials = async () => {
+    if (!jsonDetected) return;
+    setSaving(true);
+    clearNotifications();
+    try {
+      // Save client ID
+      const existingId = getKeyForService("google_client_id");
+      if (existingId) {
+        await api.updateKey("google_client_id", jsonDetected.clientId);
+      } else {
+        await api.addKey("google_client_id", jsonDetected.clientId);
+      }
+      // Save client secret
+      const existingSec = getKeyForService("google_client_secret");
+      if (existingSec) {
+        await api.updateKey("google_client_secret", jsonDetected.clientSecret);
+      } else {
+        await api.addKey("google_client_secret", jsonDetected.clientSecret);
+      }
+      showSuccess("Both Google Client ID and Secret saved from JSON");
+      cancelEditing();
+      await fetchKeys();
+    } catch (err) {
+      showError(err.message);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  /** Save a single credential */
   const handleSave = async (serviceId) => {
     if (!keyInput.trim()) return;
     setSaving(true);
-    setError("");
-    setSuccess("");
+    clearNotifications();
     try {
       const existing = getKeyForService(serviceId);
       if (existing) {
@@ -82,91 +300,101 @@ export default function Settings() {
       } else {
         await api.addKey(serviceId, keyInput.trim());
       }
-      const label = serviceId === "google_client_id" ? "Google Client ID"
-        : serviceId === "google_client_secret" ? "Google Client Secret"
-        : serviceId;
-      setSuccess(`${label} saved successfully`);
-      setEditingService(null);
-      setKeyInput("");
+      const label = GOOGLE_CREDS.find((c) => c.id === serviceId)?.label
+        || API_SERVICES.find((s) => s.id === serviceId)?.name
+        || serviceId;
+      showSuccess(`${label} saved successfully`);
+      cancelEditing();
       await fetchKeys();
-      setTimeout(() => setSuccess(""), 3000);
     } catch (err) {
-      setError(err.message);
+      showError(err.message);
     } finally {
       setSaving(false);
     }
   };
 
   const handleDelete = async (serviceId) => {
-    setError("");
-    setSuccess("");
+    clearNotifications();
     try {
       await api.deleteKey(serviceId);
-      setSuccess(`${serviceId} API key removed`);
+      const label = API_SERVICES.find((s) => s.id === serviceId)?.name || serviceId;
+      showSuccess(`${label} API key removed`);
       await fetchKeys();
-      setTimeout(() => setSuccess(""), 3000);
     } catch (err) {
-      setError(err.message);
+      showError(err.message);
     }
   };
 
   const handleVerify = async (serviceId) => {
-    setError("");
-    setSuccess("");
+    clearNotifications();
     try {
       const result = await api.verifyKey(serviceId);
       if (result.status === "verified") {
-        setSuccess(`${serviceId} key verified — encryption intact`);
+        showSuccess(`${serviceId} key verified — encryption intact`);
       } else {
-        setError(`${serviceId} key verification failed`);
+        showError(`${serviceId} key verification failed`);
       }
-      setTimeout(() => { setSuccess(""); setError(""); }, 3000);
     } catch (err) {
-      setError(err.message);
+      showError(err.message);
     }
   };
 
   const handleConnectGmail = async () => {
     setConnecting(true);
-    setError("");
+    clearNotifications();
     try {
       const data = await api.getGmailAuthUrl();
       window.location.href = data.url;
     } catch (err) {
-      setError(err.message);
+      showError(err.message);
       setConnecting(false);
     }
   };
 
-  const handleDisconnectGmail = async (id, email) => {
-    setError("");
-    setSuccess("");
+  /** Open disconnect confirmation dialog */
+  const openDisconnectDialog = (account) => {
+    setDisconnectDialog({
+      id: account.id,
+      email: account.email,
+      emailCount: account.emailCount || 0,
+      replyCount: account.replyCount || 0,
+    });
+  };
+
+  /** Actually disconnect after confirmation */
+  const confirmDisconnect = async () => {
+    if (!disconnectDialog) return;
+    setDisconnecting(disconnectDialog.id);
+    clearNotifications();
     try {
-      await api.disconnectGmail(id);
-      setSuccess(`Disconnected ${email}`);
+      await api.disconnectGmail(disconnectDialog.id);
+      showSuccess(`Disconnected ${disconnectDialog.email}`);
+      setDisconnectDialog(null);
       await fetchGmailAccounts();
-      setTimeout(() => setSuccess(""), 3000);
     } catch (err) {
-      setError(err.message);
+      showError(err.message);
+    } finally {
+      setDisconnecting(null);
     }
   };
 
   const handleSyncAccount = async (id, email) => {
     setSyncing(id);
-    setError("");
-    setSuccess("");
+    clearNotifications();
     try {
       const result = await api.syncGmailAccount(id);
-      setSuccess(`${email}: ${result.message}`);
+      showSuccess(`${email}: ${result.message}`);
       await fetchGmailAccounts();
-      setTimeout(() => setSuccess(""), 4000);
     } catch (err) {
-      setError(`Sync failed for ${email}: ${err.message}`);
+      showError(`Sync failed for ${email}: ${err.message}`);
     } finally {
       setSyncing(null);
     }
   };
 
+  /* ============================================================
+     Render
+     ============================================================ */
   return (
     <>
       <div className="mb-8">
@@ -176,23 +404,31 @@ export default function Settings() {
         </p>
       </div>
 
-      {/* Notifications */}
+      {/* ================================================================ */}
+      {/* Global Notifications                                             */}
+      {/* ================================================================ */}
       {error && (
-        <div className="mb-6 p-3 rounded-lg bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800">
+        <div className="mb-6 p-3 rounded-lg bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 flex items-start gap-2">
+          <svg className="w-4 h-4 text-red-500 flex-shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
+            <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z" />
+          </svg>
           <p className="text-sm text-red-700 dark:text-red-400">{error}</p>
         </div>
       )}
       {success && (
-        <div className="mb-6 p-3 rounded-lg bg-emerald-50 dark:bg-emerald-900/20 border border-emerald-200 dark:border-emerald-800">
+        <div className="mb-6 p-3 rounded-lg bg-emerald-50 dark:bg-emerald-900/20 border border-emerald-200 dark:border-emerald-800 flex items-start gap-2">
+          <svg className="w-4 h-4 text-emerald-500 flex-shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
+            <path strokeLinecap="round" strokeLinejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+          </svg>
           <p className="text-sm text-emerald-700 dark:text-emerald-400">{success}</p>
         </div>
       )}
 
       <div className="space-y-6">
 
-        {/* ============================================================ */}
-        {/* Gmail Integration — Unified 2-step card                      */}
-        {/* ============================================================ */}
+        {/* ================================================================ */}
+        {/* Gmail Integration — Unified 2-step card                         */}
+        {/* ================================================================ */}
         <div className="card">
           <div className="px-6 py-4 border-b border-gray-200 dark:border-gray-800">
             <h2 className="text-base font-semibold flex items-center gap-2">
@@ -210,7 +446,9 @@ export default function Settings() {
             <div className="p-12 flex justify-center"><Spinner /></div>
           ) : (
             <>
-              {/* Step 1: Google OAuth Credentials */}
+              {/* ──────────────────────────────────────────────── */}
+              {/* Step 1: Google OAuth Credentials                 */}
+              {/* ──────────────────────────────────────────────── */}
               <div className="px-6 py-5 border-b border-gray-100 dark:border-gray-800/50">
                 <div className="flex items-start gap-3 mb-4">
                   <div className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold flex-shrink-0 ${
@@ -245,67 +483,150 @@ export default function Settings() {
                   </div>
                 </div>
 
-                {/* Google Client ID */}
+                {/* Credential rows */}
                 <div className="ml-10 space-y-3">
-                  {[
-                    { id: "google_client_id", label: "Client ID", placeholder: "123456789-xxxxx.apps.googleusercontent.com" },
-                    { id: "google_client_secret", label: "Client Secret", placeholder: "GOCSPX-..." },
-                  ].map((cred) => {
+                  {GOOGLE_CREDS.map((cred) => {
                     const existing = getKeyForService(cred.id);
                     const isEditing = editingService === cred.id;
+                    const decryptError = existing && hasDecryptionError(existing.maskedKey);
+
                     return (
-                      <div key={cred.id} className="flex items-center gap-3">
-                        <div className="w-28 flex-shrink-0">
-                          <span className="text-xs font-medium text-gray-600 dark:text-gray-300">{cred.label}</span>
+                      <div key={cred.id}>
+                        <div className="flex items-center gap-3">
+                          <div className="w-28 flex-shrink-0">
+                            <span className="text-xs font-medium text-gray-600 dark:text-gray-300">{cred.label}</span>
+                          </div>
+
+                          {isEditing ? (
+                            <div className="flex-1 space-y-2">
+                              {/* JSON detection banner */}
+                              {jsonDetected && (
+                                <div className="p-2.5 rounded-md bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800">
+                                  <p className="text-xs text-blue-700 dark:text-blue-400 font-medium mb-1">
+                                    Google Cloud JSON detected!
+                                  </p>
+                                  <p className="text-[11px] text-blue-600 dark:text-blue-400/80">
+                                    Found both Client ID and Client Secret. Save them together?
+                                  </p>
+                                  <div className="flex gap-2 mt-2">
+                                    <button
+                                      onClick={applyJsonCredentials}
+                                      disabled={saving}
+                                      className="btn-primary text-xs px-3 py-1"
+                                    >
+                                      {saving ? <Spinner /> : "Save Both"}
+                                    </button>
+                                    <button
+                                      onClick={() => { setJsonDetected(null); setKeyInput(""); }}
+                                      className="btn-secondary text-xs px-2.5 py-1"
+                                    >
+                                      Cancel
+                                    </button>
+                                  </div>
+                                </div>
+                              )}
+
+                              {!jsonDetected && (
+                                <div className="flex gap-2">
+                                  <input
+                                    type="text"
+                                    value={keyInput}
+                                    onChange={(e) => handleInputChange(cred.id, e.target.value)}
+                                    className={`input-field flex-1 font-mono text-xs ${inputWarning ? "border-amber-400 dark:border-amber-600" : ""}`}
+                                    placeholder={cred.placeholder}
+                                    autoFocus
+                                    onKeyDown={(e) => {
+                                      if (e.key === "Enter" && !inputWarning) handleSave(cred.id);
+                                      if (e.key === "Escape") cancelEditing();
+                                    }}
+                                  />
+                                  <button
+                                    onClick={() => handleSave(cred.id)}
+                                    disabled={saving || !keyInput.trim()}
+                                    className="btn-primary text-xs px-3 py-1.5"
+                                  >
+                                    {saving ? <Spinner /> : "Save"}
+                                  </button>
+                                  <button
+                                    onClick={cancelEditing}
+                                    className="btn-secondary text-xs px-2.5 py-1.5"
+                                  >
+                                    Cancel
+                                  </button>
+                                </div>
+                              )}
+
+                              {/* Format warning */}
+                              {inputWarning && !jsonDetected && (
+                                <p className="text-[11px] text-amber-600 dark:text-amber-400 flex items-center gap-1">
+                                  <svg className="w-3 h-3 flex-shrink-0" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
+                                    <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z" />
+                                  </svg>
+                                  {inputWarning}
+                                </p>
+                              )}
+                            </div>
+                          ) : existing ? (
+                            <div className="flex items-center gap-2 flex-1">
+                              {decryptError ? (
+                                <>
+                                  <span className="text-xs text-red-500 dark:text-red-400 italic">
+                                    Decryption error — please re-enter
+                                  </span>
+                                  <button
+                                    onClick={() => startEditing(cred.id, cred.label)}
+                                    className="text-xs text-red-600 dark:text-red-400 hover:underline font-medium"
+                                  >
+                                    Re-enter
+                                  </button>
+                                </>
+                              ) : (
+                                <>
+                                  <code className="text-xs font-mono text-gray-400 dark:text-gray-500">{existing.maskedKey}</code>
+                                  <button
+                                    onClick={() => startEditing(cred.id, cred.label)}
+                                    className="text-xs text-brand-600 dark:text-brand-400 hover:underline"
+                                  >
+                                    Change
+                                  </button>
+                                </>
+                              )}
+                            </div>
+                          ) : (
+                            <button
+                              onClick={() => startEditing(cred.id, cred.label)}
+                              className="btn-primary text-xs px-3 py-1.5"
+                            >
+                              Add
+                            </button>
+                          )}
                         </div>
-                        {isEditing ? (
-                          <div className="flex gap-2 flex-1">
-                            <input
-                              type="text" value={keyInput} onChange={(e) => setKeyInput(e.target.value)}
-                              className="input-field flex-1 font-mono text-xs" placeholder={cred.placeholder} autoFocus
-                              onKeyDown={(e) => {
-                                if (e.key === "Enter") handleSave(cred.id);
-                                if (e.key === "Escape") { setEditingService(null); setKeyInput(""); }
-                              }}
-                            />
-                            <button onClick={() => handleSave(cred.id)} disabled={saving || !keyInput.trim()}
-                              className="btn-primary text-xs px-3 py-1.5">{saving ? <Spinner /> : "Save"}</button>
-                            <button onClick={() => { setEditingService(null); setKeyInput(""); }}
-                              className="btn-secondary text-xs px-2.5 py-1.5">Cancel</button>
-                          </div>
-                        ) : existing ? (
-                          <div className="flex items-center gap-2 flex-1">
-                            <code className="text-xs font-mono text-gray-400 dark:text-gray-500">{existing.maskedKey}</code>
-                            <button onClick={() => { setEditingService(cred.id); setKeyInput(""); setError(""); }}
-                              className="text-xs text-brand-600 dark:text-brand-400 hover:underline">Change</button>
-                          </div>
-                        ) : (
-                          <button onClick={() => { setEditingService(cred.id); setKeyInput(""); setError(""); }}
-                            className="btn-primary text-xs px-3 py-1.5">Add</button>
-                        )}
                       </div>
                     );
                   })}
                 </div>
               </div>
 
-              {/* Step 2: Connected Gmail Accounts */}
+              {/* ──────────────────────────────────────────────── */}
+              {/* Step 2: Connected Gmail Accounts                 */}
+              {/* ──────────────────────────────────────────────── */}
               <div className="px-6 py-5">
                 <div className="flex items-start justify-between gap-3 mb-4">
                   <div className="flex items-start gap-3">
-                    <div className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold flex-shrink-0 ${
-                      gmailAccounts.length > 0
-                        ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400"
-                        : hasGoogleCreds
-                        ? "bg-brand-100 text-brand-700 dark:bg-brand-900/30 dark:text-brand-400"
-                        : "bg-gray-100 text-gray-400 dark:bg-gray-800 dark:text-gray-500"
-                    }`}>2</div>
+                    <div className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold flex-shrink-0 ${step2BadgeColor}`}>
+                      2
+                    </div>
                     <div>
                       <h3 className="text-sm font-semibold flex items-center gap-2">
                         Connected Gmail Accounts
                         {gmailAccounts.length > 0 && (
                           <span className="text-[10px] font-medium text-gray-400 dark:text-gray-500">
-                            {gmailAccounts.length} account{gmailAccounts.length !== 1 ? "s" : ""}
+                            {connectedAccounts.length} of {gmailAccounts.length} connected
+                            {errorAccounts.length > 0 && (
+                              <span className="text-amber-500 ml-1">
+                                ({errorAccounts.length} with errors)
+                              </span>
+                            )}
                           </span>
                         )}
                       </h3>
@@ -319,7 +640,7 @@ export default function Settings() {
                     onClick={handleConnectGmail}
                     disabled={connecting || !hasGoogleCreds}
                     className="btn-primary text-xs px-3 py-1.5 flex-shrink-0"
-                    title={!hasGoogleCreds ? "Add Google OAuth credentials first" : ""}
+                    title={!hasGoogleCreds ? "Add Google OAuth credentials first" : "Connect a new Gmail account"}
                   >
                     {connecting ? <Spinner /> : (
                       <span className="flex items-center gap-1.5">
@@ -344,71 +665,93 @@ export default function Settings() {
                       <path strokeLinecap="round" strokeLinejoin="round" d="M21.75 6.75v10.5a2.25 2.25 0 01-2.25 2.25h-15a2.25 2.25 0 01-2.25-2.25V6.75m19.5 0A2.25 2.25 0 0019.5 4.5h-15a2.25 2.25 0 00-2.25 2.25m19.5 0v.243a2.25 2.25 0 01-1.07 1.916l-7.5 4.615a2.25 2.25 0 01-2.36 0L3.32 8.91a2.25 2.25 0 01-1.07-1.916V6.75" />
                     </svg>
                     <p className="text-sm font-medium text-gray-500 dark:text-gray-400">No Gmail accounts connected yet</p>
-                    <p className="text-xs text-gray-400 dark:text-gray-500 mt-1">Click "Connect Gmail" to authorize your first account</p>
+                    <p className="text-xs text-gray-400 dark:text-gray-500 mt-1">Click &quot;Connect Gmail&quot; to authorize your first account</p>
                   </div>
                 ) : (
                   <div className="ml-10 space-y-2">
-                    {gmailAccounts.map((account) => (
-                      <div key={account.id} className="flex items-center justify-between gap-3 p-3 rounded-lg bg-gray-50 dark:bg-gray-800/30 border border-gray-200 dark:border-gray-700/50">
-                        <div className="flex items-center gap-3 min-w-0">
-                          <div
-                            className="w-3 h-3 rounded-full flex-shrink-0 ring-2 ring-white dark:ring-gray-900"
-                            style={{ backgroundColor: account.color }}
-                            title={`Color: ${account.color}`}
-                          />
-                          <div className="min-w-0">
-                            <div className="flex items-center gap-2">
-                              <p className="text-sm font-medium truncate">{account.email}</p>
-                              <span className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px] font-medium flex-shrink-0
-                                ${account.status === "connected"
-                                  ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400"
-                                  : account.status === "error"
-                                  ? "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400"
-                                  : "bg-gray-100 text-gray-500 dark:bg-gray-800 dark:text-gray-400"
-                                }`}
-                              >
-                                <span className={`w-1 h-1 rounded-full ${
-                                  account.status === "connected" ? "bg-emerald-500" :
-                                  account.status === "error" ? "bg-red-500" : "bg-gray-400"
-                                }`} />
-                                {account.status}
-                              </span>
-                            </div>
-                            <p className="text-[11px] text-gray-400 dark:text-gray-500 mt-0.5 truncate">
-                              {account.lastSyncAt
-                                ? `Synced ${timeAgo(new Date(account.lastSyncAt))}`
-                                : "Never synced"}
-                              {account.errorMessage && (
-                                <span className="text-red-500 ml-2">{account.errorMessage}</span>
+                    {gmailAccounts.map((account) => {
+                      const isSyncing = syncing === account.id;
+                      const isDisconnecting = disconnecting === account.id;
+
+                      return (
+                        <div
+                          key={account.id}
+                          className={`flex items-center justify-between gap-3 p-3 rounded-lg border transition-colors ${
+                            account.status === "error"
+                              ? "bg-red-50/50 dark:bg-red-900/10 border-red-200 dark:border-red-800/50"
+                              : "bg-gray-50 dark:bg-gray-800/30 border-gray-200 dark:border-gray-700/50"
+                          }`}
+                        >
+                          <div className="flex items-center gap-3 min-w-0">
+                            <div
+                              className="w-3 h-3 rounded-full flex-shrink-0 ring-2 ring-white dark:ring-gray-900"
+                              style={{ backgroundColor: account.color }}
+                              title={`Color: ${account.color}`}
+                            />
+                            <div className="min-w-0">
+                              <div className="flex items-center gap-2">
+                                <p className="text-sm font-medium truncate">{account.email}</p>
+                                <span className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px] font-medium flex-shrink-0
+                                  ${account.status === "connected"
+                                    ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400"
+                                    : account.status === "error"
+                                    ? "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400"
+                                    : "bg-gray-100 text-gray-500 dark:bg-gray-800 dark:text-gray-400"
+                                  }`}
+                                >
+                                  <span className={`w-1 h-1 rounded-full ${
+                                    account.status === "connected" ? "bg-emerald-500" :
+                                    account.status === "error" ? "bg-red-500" : "bg-gray-400"
+                                  }`} />
+                                  {account.status}
+                                </span>
+                              </div>
+                              <p className="text-[11px] text-gray-400 dark:text-gray-500 mt-0.5 truncate">
+                                {account.lastSyncAt
+                                  ? `Synced ${timeAgo(new Date(account.lastSyncAt))}`
+                                  : "Never synced"}
+                                {account.emailCount > 0 && (
+                                  <span className="text-gray-400 dark:text-gray-500 ml-2">
+                                    {account.emailCount} email{account.emailCount !== 1 ? "s" : ""}
+                                  </span>
+                                )}
+                              </p>
+                              {account.status === "error" && account.errorMessage && (
+                                <p className="text-[11px] text-red-500 dark:text-red-400 mt-1 truncate">
+                                  {account.errorMessage}
+                                </p>
                               )}
-                            </p>
+                            </div>
+                          </div>
+                          <div className="flex items-center gap-1.5 flex-shrink-0">
+                            <button
+                              onClick={() => handleSyncAccount(account.id, account.email)}
+                              disabled={isSyncing || isDisconnecting}
+                              className="btn-secondary text-xs px-2.5 py-1"
+                              title="Sync now"
+                            >
+                              {isSyncing ? <Spinner /> : (
+                                <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
+                                  <path strokeLinecap="round" strokeLinejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182M2.985 19.644l3.181-3.182" />
+                                </svg>
+                              )}
+                            </button>
+                            <button
+                              onClick={() => openDisconnectDialog(account)}
+                              disabled={isSyncing || isDisconnecting}
+                              className="btn-danger text-xs px-2.5 py-1"
+                              title="Disconnect"
+                            >
+                              {isDisconnecting ? <Spinner /> : (
+                                <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
+                                  <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                                </svg>
+                              )}
+                            </button>
                           </div>
                         </div>
-                        <div className="flex items-center gap-1.5 flex-shrink-0">
-                          <button
-                            onClick={() => handleSyncAccount(account.id, account.email)}
-                            disabled={syncing === account.id}
-                            className="btn-secondary text-xs px-2.5 py-1"
-                            title="Sync now"
-                          >
-                            {syncing === account.id ? <Spinner /> : (
-                              <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
-                                <path strokeLinecap="round" strokeLinejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182M2.985 19.644l3.181-3.182" />
-                              </svg>
-                            )}
-                          </button>
-                          <button
-                            onClick={() => handleDisconnectGmail(account.id, account.email)}
-                            className="btn-danger text-xs px-2.5 py-1"
-                            title="Disconnect"
-                          >
-                            <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
-                              <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
-                            </svg>
-                          </button>
-                        </div>
-                      </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 )}
               </div>
@@ -416,9 +759,9 @@ export default function Settings() {
           )}
         </div>
 
-        {/* ============================================================ */}
-        {/* API Keys Section                                             */}
-        {/* ============================================================ */}
+        {/* ================================================================ */}
+        {/* API Keys Section                                                 */}
+        {/* ================================================================ */}
         <div className="card">
           <div className="px-6 py-4 border-b border-gray-200 dark:border-gray-800">
             <h2 className="text-base font-semibold flex items-center gap-2">
@@ -486,7 +829,7 @@ export default function Settings() {
                             </>
                           )}
                           <button
-                            onClick={() => { setEditingService(service.id); setKeyInput(""); setError(""); }}
+                            onClick={() => { setEditingService(service.id); setKeyInput(""); setInputWarning(""); clearNotifications(); }}
                             className="btn-primary text-xs px-3 py-1.5"
                           >
                             {existing ? "Update" : "Add Key"}
@@ -508,7 +851,7 @@ export default function Settings() {
                             autoFocus
                             onKeyDown={(e) => {
                               if (e.key === "Enter") handleSave(service.id);
-                              if (e.key === "Escape") { setEditingService(null); setKeyInput(""); }
+                              if (e.key === "Escape") cancelEditing();
                             }}
                           />
                           <button
@@ -518,10 +861,7 @@ export default function Settings() {
                           >
                             {saving ? <Spinner /> : "Save"}
                           </button>
-                          <button
-                            onClick={() => { setEditingService(null); setKeyInput(""); }}
-                            className="btn-secondary text-xs px-3 py-2"
-                          >
+                          <button onClick={cancelEditing} className="btn-secondary text-xs px-3 py-2">
                             Cancel
                           </button>
                         </div>
@@ -537,10 +877,130 @@ export default function Settings() {
           )}
         </div>
       </div>
+
+      {/* ================================================================ */}
+      {/* Disconnect Confirmation Dialog (modal overlay)                    */}
+      {/* ================================================================ */}
+      {disconnectDialog && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={() => !disconnecting && setDisconnectDialog(null)} />
+          <div className="relative bg-white dark:bg-gray-900 rounded-xl shadow-2xl border border-gray-200 dark:border-gray-700 max-w-md w-full p-6">
+            {/* Warning icon */}
+            <div className="flex items-center gap-3 mb-4">
+              <div className="w-10 h-10 rounded-full bg-red-100 dark:bg-red-900/30 flex items-center justify-center flex-shrink-0">
+                <svg className="w-5 h-5 text-red-600 dark:text-red-400" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z" />
+                </svg>
+              </div>
+              <div>
+                <h3 className="text-base font-semibold">Disconnect {disconnectDialog.email}?</h3>
+              </div>
+            </div>
+
+            <div className="space-y-3 mb-6">
+              <p className="text-sm text-gray-600 dark:text-gray-300">
+                This will permanently remove the account and <strong>delete all associated data</strong>:
+              </p>
+              <div className="bg-red-50 dark:bg-red-900/10 rounded-lg p-3 space-y-1.5">
+                {disconnectDialog.emailCount > 0 && (
+                  <p className="text-sm text-red-700 dark:text-red-400 flex items-center gap-2">
+                    <svg className="w-4 h-4 flex-shrink-0" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M21.75 6.75v10.5a2.25 2.25 0 01-2.25 2.25h-15a2.25 2.25 0 01-2.25-2.25V6.75" />
+                    </svg>
+                    <strong>{disconnectDialog.emailCount}</strong> synced email{disconnectDialog.emailCount !== 1 ? "s" : ""} will be deleted
+                  </p>
+                )}
+                {disconnectDialog.replyCount > 0 && (
+                  <p className="text-sm text-red-700 dark:text-red-400 flex items-center gap-2">
+                    <svg className="w-4 h-4 flex-shrink-0" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M7.5 8.25h9m-9 3H12m-9.75 1.51c0 1.6 1.123 2.994 2.707 3.227 1.087.16 2.185.283 3.293.369V21l4.076-4.076a1.526 1.526 0 011.037-.443 48.282 48.282 0 005.68-.494c1.584-.233 2.707-1.626 2.707-3.228V6.741c0-1.602-1.123-2.995-2.707-3.228A48.394 48.394 0 0012 3c-2.392 0-4.744.175-7.043.513C3.373 3.746 2.25 5.14 2.25 6.741v6.018z" />
+                    </svg>
+                    <strong>{disconnectDialog.replyCount}</strong> generated repl{disconnectDialog.replyCount !== 1 ? "ies" : "y"} will be deleted
+                  </p>
+                )}
+                {disconnectDialog.emailCount === 0 && disconnectDialog.replyCount === 0 && (
+                  <p className="text-sm text-red-700 dark:text-red-400">
+                    OAuth tokens and account settings will be removed.
+                  </p>
+                )}
+              </div>
+              <p className="text-xs text-gray-500 dark:text-gray-400">
+                You can reconnect this Gmail account later, but deleted data cannot be recovered.
+              </p>
+            </div>
+
+            <div className="flex gap-3 justify-end">
+              <button
+                onClick={() => setDisconnectDialog(null)}
+                disabled={!!disconnecting}
+                className="btn-secondary text-sm px-4 py-2"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={confirmDisconnect}
+                disabled={!!disconnecting}
+                className="bg-red-600 hover:bg-red-700 text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors disabled:opacity-50"
+              >
+                {disconnecting ? (
+                  <span className="flex items-center gap-2"><Spinner /> Disconnecting...</span>
+                ) : (
+                  "Disconnect"
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ================================================================ */}
+      {/* Credential Change Warning Dialog                                  */}
+      {/* ================================================================ */}
+      {credChangeWarning && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={() => setCredChangeWarning(null)} />
+          <div className="relative bg-white dark:bg-gray-900 rounded-xl shadow-2xl border border-gray-200 dark:border-gray-700 max-w-md w-full p-6">
+            <div className="flex items-center gap-3 mb-4">
+              <div className="w-10 h-10 rounded-full bg-amber-100 dark:bg-amber-900/30 flex items-center justify-center flex-shrink-0">
+                <svg className="w-5 h-5 text-amber-600 dark:text-amber-400" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z" />
+                </svg>
+              </div>
+              <div>
+                <h3 className="text-base font-semibold">Change {credChangeWarning.label}?</h3>
+              </div>
+            </div>
+
+            <div className="space-y-3 mb-6">
+              <p className="text-sm text-gray-600 dark:text-gray-300">
+                You have <strong>{gmailAccounts.length} Gmail account{gmailAccounts.length !== 1 ? "s" : ""}</strong> connected.
+                Changing your Google OAuth credentials may <strong>invalidate existing tokens</strong> and require reconnecting.
+              </p>
+              <div className="bg-amber-50 dark:bg-amber-900/10 rounded-lg p-3">
+                <p className="text-xs text-amber-700 dark:text-amber-400">
+                  Connected accounts may stop syncing until you reconnect them with the new credentials.
+                </p>
+              </div>
+            </div>
+
+            <div className="flex gap-3 justify-end">
+              <button onClick={() => setCredChangeWarning(null)} className="btn-secondary text-sm px-4 py-2">
+                Cancel
+              </button>
+              <button onClick={confirmCredChange} className="btn-primary text-sm px-4 py-2">
+                Change Anyway
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </>
   );
 }
 
+/* ================================================================
+   Helper components
+   ================================================================ */
 function timeAgo(date) {
   const seconds = Math.floor((new Date() - date) / 1000);
   if (seconds < 60) return "just now";
