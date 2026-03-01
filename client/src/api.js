@@ -51,6 +51,7 @@ export const api = {
   updateEmailStatus: (id, status) =>
     request(`/api/emails/${id}/status`, { method: "PUT", body: JSON.stringify({ status }) }),
   syncAllEmails: () => request("/api/emails/sync-all", { method: "POST" }),
+  reanalyzeEmails: () => request("/api/emails/reanalyze", { method: "POST" }),
 
   // Jobs
   matchJob: (emailId) => request(`/api/jobs/match/${emailId}`, { method: "POST" }),

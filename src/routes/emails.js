@@ -12,6 +12,7 @@ const { google } = require("googleapis");
 const pool = require("../config/db");
 const { requireAuth } = require("../middleware/auth");
 const { decrypt } = require("../utils/encryption");
+const { analyzeEmail, getAnthropicKey } = require("../utils/emailAnalysis");
 
 const router = express.Router();
 
@@ -271,6 +272,9 @@ router.post("/sync-all", requireAuth, async (req, res, next) => {
 
     const results = [];
 
+    // Get Anthropic key once for AI analysis
+    const anthropicKey = await getAnthropicKey(req.user.id);
+
     const redirectUri = `${req.protocol}://${req.get("host")}/api/gmail/callback`;
 
     for (const account of accounts) {
@@ -362,17 +366,36 @@ router.post("/sync-all", requireAuth, async (req, res, next) => {
           };
           extractParts(full.data.payload);
 
+          const emailSubject = getHeader("Subject") || "(No subject)";
+
           await pool.query(
             `INSERT INTO emails (user_id, account_id, gmail_id, thread_id, from_email, from_name, subject, snippet, body_text, body_html, received_at)
              VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
              ON CONFLICT (account_id, gmail_id) DO NOTHING`,
             [
               req.user.id, account.id, msg.id, full.data.threadId,
-              fromEmail, fromName, getHeader("Subject") || "(No subject)",
+              fromEmail, fromName, emailSubject,
               full.data.snippet || "", bodyText, bodyHtml,
               new Date(parseInt(full.data.internalDate)),
             ]
           );
+
+          // AI-powered signal analysis (non-blocking)
+          try {
+            const signals = await analyzeEmail(bodyText, bodyHtml, emailSubject, anthropicKey);
+            if (signals) {
+              await pool.query(
+                `UPDATE emails SET lead_score = $1, has_phone = $2, extracted_phone = $3,
+                 has_urgency = $4, is_ooo = $5, is_redirect = $6, updated_at = NOW()
+                 WHERE account_id = $7 AND gmail_id = $8`,
+                [signals.lead_score, signals.has_phone, signals.extracted_phone,
+                 signals.has_urgency, signals.is_ooo, signals.is_redirect, account.id, msg.id]
+              );
+            }
+          } catch (analysisErr) {
+            console.error(`Analysis failed for ${msg.id}:`, analysisErr.message);
+          }
+
           synced++;
         }
 
@@ -392,6 +415,50 @@ router.post("/sync-all", requireAuth, async (req, res, next) => {
     }
 
     res.json({ results });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// ============================================================
+// POST /api/emails/reanalyze — Re-analyze all emails with AI
+// ============================================================
+router.post("/reanalyze", requireAuth, async (req, res, next) => {
+  try {
+    const anthropicKey = await getAnthropicKey(req.user.id);
+    if (!anthropicKey) {
+      return res.status(400).json({ error: "Anthropic API key not configured. Add it in Settings." });
+    }
+
+    const { rows: emails } = await pool.query(
+      "SELECT id, body_text, body_html, subject FROM emails WHERE user_id = $1 ORDER BY received_at DESC",
+      [req.user.id]
+    );
+
+    let analyzed = 0;
+    let errors = 0;
+
+    for (const email of emails) {
+      try {
+        const signals = await analyzeEmail(email.body_text, email.body_html, email.subject, anthropicKey);
+        if (signals) {
+          await pool.query(
+            `UPDATE emails SET lead_score = $1, has_phone = $2, extracted_phone = $3,
+             has_urgency = $4, is_ooo = $5, is_redirect = $6, updated_at = NOW()
+             WHERE id = $7`,
+            [signals.lead_score, signals.has_phone, signals.extracted_phone,
+             signals.has_urgency, signals.is_ooo, signals.is_redirect, email.id]
+          );
+          analyzed++;
+        } else {
+          errors++;
+        }
+      } catch {
+        errors++;
+      }
+    }
+
+    res.json({ total: emails.length, analyzed, errors });
   } catch (err) {
     next(err);
   }

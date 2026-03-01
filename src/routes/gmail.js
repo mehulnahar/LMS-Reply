@@ -13,6 +13,7 @@ const { google } = require("googleapis");
 const pool = require("../config/db");
 const { requireAuth } = require("../middleware/auth");
 const { decrypt } = require("../utils/encryption");
+const { analyzeEmail, getAnthropicKey } = require("../utils/emailAnalysis");
 
 const router = express.Router();
 
@@ -254,6 +255,9 @@ router.post("/accounts/:id/sync", requireAuth, async (req, res, next) => {
       oauth2.setCredentials(credentials);
     }
 
+    // Get Anthropic key for AI analysis (once, not per-email)
+    const anthropicKey = await getAnthropicKey(req.user.id);
+
     // Pull UNREAD emails from Gmail
     const gmail = google.gmail({ version: "v1", auth: oauth2 });
 
@@ -301,17 +305,36 @@ router.post("/accounts/:id/sync", requireAuth, async (req, res, next) => {
       };
       extractParts(full.data.payload);
 
+      const emailSubject = getHeader("Subject") || "(No subject)";
+
       await pool.query(
         `INSERT INTO emails (user_id, account_id, gmail_id, thread_id, from_email, from_name, subject, snippet, body_text, body_html, received_at)
          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
          ON CONFLICT (account_id, gmail_id) DO NOTHING`,
         [
           req.user.id, account.id, msg.id, full.data.threadId,
-          fromEmail, fromName, getHeader("Subject") || "(No subject)",
+          fromEmail, fromName, emailSubject,
           full.data.snippet || "", bodyText, bodyHtml,
           new Date(parseInt(full.data.internalDate)),
         ]
       );
+
+      // AI-powered signal analysis (non-blocking — email syncs even if analysis fails)
+      try {
+        const signals = await analyzeEmail(bodyText, bodyHtml, emailSubject, anthropicKey);
+        if (signals) {
+          await pool.query(
+            `UPDATE emails SET lead_score = $1, has_phone = $2, extracted_phone = $3,
+             has_urgency = $4, is_ooo = $5, is_redirect = $6, updated_at = NOW()
+             WHERE account_id = $7 AND gmail_id = $8`,
+            [signals.lead_score, signals.has_phone, signals.extracted_phone,
+             signals.has_urgency, signals.is_ooo, signals.is_redirect, account.id, msg.id]
+          );
+        }
+      } catch (analysisErr) {
+        console.error(`Analysis failed for ${msg.id}:`, analysisErr.message);
+      }
+
       synced++;
     }
 
