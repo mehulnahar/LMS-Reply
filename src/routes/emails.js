@@ -241,6 +241,21 @@ router.put("/:id/status", requireAuth, async (req, res, next) => {
 });
 
 // ============================================================
+// DELETE /api/emails — Clear all emails for authenticated user
+// ============================================================
+router.delete("/", requireAuth, async (req, res, next) => {
+  try {
+    const result = await pool.query(
+      "DELETE FROM emails WHERE user_id = $1",
+      [req.user.id]
+    );
+    res.json({ deleted: result.rowCount });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// ============================================================
 // POST /api/emails/sync-all — Sync all connected accounts
 // ============================================================
 router.post("/sync-all", requireAuth, async (req, res, next) => {
