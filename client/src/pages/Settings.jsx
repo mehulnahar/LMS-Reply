@@ -144,8 +144,10 @@ export default function Settings() {
     try {
       const data = await api.getGmailAccounts();
       setGmailAccounts(data);
+      return data;
     } catch {
       // ignore
+      return [];
     }
   }, []);
 
@@ -153,12 +155,18 @@ export default function Settings() {
     Promise.all([fetchKeys(), fetchGmailAccounts()]).finally(() => setLoading(false));
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Handle Gmail OAuth callback redirect
+  // Handle Gmail OAuth callback redirect — auto-sync new account
   useEffect(() => {
     const gmailStatus = searchParams.get("gmail");
     if (gmailStatus === "connected") {
-      showSuccess("Gmail account connected successfully!");
-      fetchGmailAccounts();
+      showSuccess("Gmail account connected! Syncing emails…");
+      // Fetch accounts, find the new one (never synced), and auto-sync it
+      fetchGmailAccounts().then((accounts) => {
+        const newAccount = (accounts || []).find((a) => !a.lastSyncAt && a.status === "connected");
+        if (newAccount) {
+          handleSyncAccount(newAccount.id, newAccount.email);
+        }
+      });
     } else if (gmailStatus === "error") {
       showError("Failed to connect Gmail. Check your Google OAuth credentials and try again.");
     }
