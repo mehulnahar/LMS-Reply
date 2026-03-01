@@ -259,7 +259,7 @@ router.post("/accounts/:id/sync", requireAuth, async (req, res, next) => {
 
     const listRes = await gmail.users.messages.list({
       userId: "me",
-      q: "is:unread category:primary",
+      q: "is:unread",
       maxResults: 50,
     });
 

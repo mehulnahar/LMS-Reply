@@ -291,7 +291,7 @@ router.post("/sync-all", requireAuth, async (req, res, next) => {
         // Check which emails are still unread in Gmail
         const listRes = await gmail.users.messages.list({
           userId: "me",
-          q: "is:unread category:primary",
+          q: "is:unread",
           maxResults: 50,
         });
 
