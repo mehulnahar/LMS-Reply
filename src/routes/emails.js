@@ -437,11 +437,10 @@ router.post("/reanalyze", requireAuth, async (req, res, next) => {
 
     let analyzed = 0;
     let errors = 0;
-    let firstError = null;
 
     for (const email of emails) {
       try {
-        const signals = await analyzeEmail(email.body_text, email.body_html, email.subject, anthropicKey, { throwOnError: true });
+        const signals = await analyzeEmail(email.body_text, email.body_html, email.subject, anthropicKey);
         if (signals) {
           await pool.query(
             `UPDATE emails SET lead_score = $1, has_phone = $2, extracted_phone = $3,
@@ -453,15 +452,13 @@ router.post("/reanalyze", requireAuth, async (req, res, next) => {
           analyzed++;
         } else {
           errors++;
-          if (!firstError) firstError = "analyzeEmail returned null";
         }
-      } catch (err) {
+      } catch {
         errors++;
-        if (!firstError) firstError = err.message;
       }
     }
 
-    res.json({ total: emails.length, analyzed, errors, firstError });
+    res.json({ total: emails.length, analyzed, errors });
   } catch (err) {
     next(err);
   }
