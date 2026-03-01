@@ -2,22 +2,23 @@ import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 import { api } from "../api";
-import Layout from "../components/Layout";
 
 export default function Dashboard() {
   const { user } = useAuth();
   const [health, setHealth] = useState(null);
   const [keys, setKeys] = useState([]);
+  const [gmailAccounts, setGmailAccounts] = useState([]);
 
   useEffect(() => {
     api.health().then(setHealth).catch(() => {});
     api.getKeys().then(setKeys).catch(() => {});
+    api.getGmailAccounts().then(setGmailAccounts).catch(() => {});
   }, []);
 
   const connectedCount = keys.filter((k) => k.status === "connected").length;
 
   return (
-    <Layout>
+    <>
       {/* Welcome */}
       <div className="mb-8">
         <h1 className="text-2xl font-bold">
@@ -80,19 +81,19 @@ export default function Dashboard() {
             step={2}
             title="Connect Gmail"
             description="Link your Gmail accounts to start pulling Upwork emails"
-            done={false}
-            action={<span className="text-xs text-gray-400 dark:text-gray-500 font-medium">Coming soon</span>}
+            done={gmailAccounts.length > 0}
+            action={<Link to="/settings" className="btn-primary text-xs px-3 py-1.5">Connect</Link>}
           />
           <SetupStep
             step={3}
-            title="Set Reply Templates"
-            description="Customize prompt templates for AI-generated replies"
+            title="Go to Inbox"
+            description="View your unread emails, match jobs, and generate AI replies"
             done={false}
-            action={<span className="text-xs text-gray-400 dark:text-gray-500 font-medium">Coming soon</span>}
+            action={<Link to="/inbox" className="btn-primary text-xs px-3 py-1.5">Open Inbox</Link>}
           />
         </div>
       </div>
-    </Layout>
+    </>
   );
 }
 

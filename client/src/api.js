@@ -36,6 +36,30 @@ export const api = {
   verifyKey: (service) =>
     request(`/api/settings/api-keys/${service}/verify`, { method: "POST" }),
 
+  // Gmail Accounts
+  getGmailAuthUrl: () => request("/api/gmail/auth-url"),
+  getGmailAccounts: () => request("/api/gmail/accounts"),
+  disconnectGmail: (id) => request(`/api/gmail/accounts/${id}`, { method: "DELETE" }),
+  syncGmailAccount: (id) => request(`/api/gmail/accounts/${id}/sync`, { method: "POST" }),
+
+  // Emails
+  getEmails: (params = {}) => {
+    const qs = new URLSearchParams(params).toString();
+    return request(`/api/emails${qs ? `?${qs}` : ""}`);
+  },
+  getEmail: (id) => request(`/api/emails/${id}`),
+  updateEmailStatus: (id, status) =>
+    request(`/api/emails/${id}/status`, { method: "PUT", body: JSON.stringify({ status }) }),
+  syncAllEmails: () => request("/api/emails/sync-all", { method: "POST" }),
+
+  // Jobs
+  matchJob: (emailId) => request(`/api/jobs/match/${emailId}`, { method: "POST" }),
+
+  // Replies
+  generateReply: (emailId, tone = "professional") =>
+    request("/api/replies/generate", { method: "POST", body: JSON.stringify({ emailId, tone }) }),
+  markReplyCopied: (id) => request(`/api/replies/${id}/copied`, { method: "PUT" }),
+
   // Health
   health: () => request("/api/health"),
 };

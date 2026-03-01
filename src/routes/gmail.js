@@ -1,0 +1,300 @@
+/**
+ * Gmail OAuth Routes — CONF-02
+ *
+ * GET    /api/gmail/auth-url         — Get OAuth consent URL
+ * GET    /api/gmail/callback         — Handle OAuth callback
+ * GET    /api/gmail/accounts         — List connected accounts
+ * DELETE /api/gmail/accounts/:id     — Disconnect account
+ * POST   /api/gmail/accounts/:id/sync — Trigger manual sync
+ */
+
+const express = require("express");
+const { google } = require("googleapis");
+const pool = require("../config/db");
+const { requireAuth } = require("../middleware/auth");
+
+const router = express.Router();
+
+// Account color palette for multi-account differentiation
+const ACCOUNT_COLORS = ["#4F46E5", "#059669", "#D97706", "#DC2626", "#7C3AED"];
+
+function getOAuth2Client() {
+  return new google.auth.OAuth2(
+    process.env.GOOGLE_CLIENT_ID,
+    process.env.GOOGLE_CLIENT_SECRET,
+    process.env.GOOGLE_REDIRECT_URI
+  );
+}
+
+// ============================================================
+// GET /api/gmail/auth-url — Generate OAuth consent URL
+// ============================================================
+router.get("/auth-url", requireAuth, (req, res) => {
+  if (!process.env.GOOGLE_CLIENT_ID || !process.env.GOOGLE_CLIENT_SECRET) {
+    return res.status(503).json({
+      error: "Google OAuth not configured. Set GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, and GOOGLE_REDIRECT_URI.",
+    });
+  }
+
+  const oauth2 = getOAuth2Client();
+  const url = oauth2.generateAuthUrl({
+    access_type: "offline",
+    prompt: "consent",
+    scope: [
+      "https://www.googleapis.com/auth/gmail.readonly",
+      "https://www.googleapis.com/auth/userinfo.email",
+      "https://www.googleapis.com/auth/userinfo.profile",
+    ],
+    state: req.user.id, // Pass user ID through OAuth flow
+  });
+
+  res.json({ url });
+});
+
+// ============================================================
+// GET /api/gmail/callback — Handle OAuth callback from Google
+// ============================================================
+router.get("/callback", async (req, res) => {
+  const { code, state: userId } = req.query;
+
+  if (!code || !userId) {
+    return res.redirect("/?error=gmail_auth_failed");
+  }
+
+  try {
+    const oauth2 = getOAuth2Client();
+    const { tokens } = await oauth2.getToken(code);
+    oauth2.setCredentials(tokens);
+
+    // Get user email from Google
+    const people = google.people({ version: "v1", auth: oauth2 });
+    const profile = await people.people.get({
+      resourceName: "people/me",
+      personFields: "emailAddresses,names",
+    });
+
+    const emailObj = profile.data.emailAddresses?.find((e) => e.metadata?.primary) || profile.data.emailAddresses?.[0];
+    const nameObj = profile.data.names?.find((n) => n.metadata?.primary) || profile.data.names?.[0];
+    const email = emailObj?.value;
+    const displayName = nameObj?.displayName || email;
+
+    if (!email) {
+      return res.redirect("/?error=gmail_no_email");
+    }
+
+    // Pick a color for this account
+    const { rows: existingAccounts } = await pool.query(
+      "SELECT color FROM email_accounts WHERE user_id = $1",
+      [userId]
+    );
+    const usedColors = existingAccounts.map((a) => a.color);
+    const color = ACCOUNT_COLORS.find((c) => !usedColors.includes(c)) || ACCOUNT_COLORS[0];
+
+    // Upsert: insert or update if re-connecting
+    await pool.query(
+      `INSERT INTO email_accounts (user_id, email, display_name, access_token, refresh_token, token_expiry, status, color)
+       VALUES ($1, $2, $3, $4, $5, $6, 'connected', $7)
+       ON CONFLICT (user_id, email) DO UPDATE SET
+         access_token = EXCLUDED.access_token,
+         refresh_token = COALESCE(EXCLUDED.refresh_token, email_accounts.refresh_token),
+         token_expiry = EXCLUDED.token_expiry,
+         display_name = EXCLUDED.display_name,
+         status = 'connected',
+         error_message = NULL,
+         updated_at = NOW()`,
+      [
+        userId,
+        email,
+        displayName,
+        tokens.access_token,
+        tokens.refresh_token,
+        tokens.expiry_date ? new Date(tokens.expiry_date) : null,
+        color,
+      ]
+    );
+
+    // Redirect back to settings with success
+    res.redirect("/settings?gmail=connected");
+  } catch (err) {
+    console.error("Gmail OAuth callback error:", err.message);
+    res.redirect("/settings?gmail=error");
+  }
+});
+
+// ============================================================
+// GET /api/gmail/accounts — List connected Gmail accounts
+// ============================================================
+router.get("/accounts", requireAuth, async (req, res, next) => {
+  try {
+    const { rows } = await pool.query(
+      `SELECT id, email, display_name, sync_frequency, last_sync_at, status, error_message, color, created_at
+       FROM email_accounts WHERE user_id = $1
+       ORDER BY created_at`,
+      [req.user.id]
+    );
+
+    res.json(rows.map((a) => ({
+      id: a.id,
+      email: a.email,
+      displayName: a.display_name,
+      syncFrequency: a.sync_frequency,
+      lastSyncAt: a.last_sync_at,
+      status: a.status,
+      errorMessage: a.error_message,
+      color: a.color,
+      createdAt: a.created_at,
+    })));
+  } catch (err) {
+    next(err);
+  }
+});
+
+// ============================================================
+// DELETE /api/gmail/accounts/:id — Disconnect a Gmail account
+// ============================================================
+router.delete("/accounts/:id", requireAuth, async (req, res, next) => {
+  try {
+    const result = await pool.query(
+      "DELETE FROM email_accounts WHERE id = $1 AND user_id = $2 RETURNING email",
+      [req.params.id, req.user.id]
+    );
+
+    if (result.rowCount === 0) {
+      return res.status(404).json({ error: "Account not found" });
+    }
+
+    res.json({ message: `Disconnected ${result.rows[0].email}` });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// ============================================================
+// POST /api/gmail/accounts/:id/sync — Trigger manual sync
+// ============================================================
+router.post("/accounts/:id/sync", requireAuth, async (req, res, next) => {
+  try {
+    const { rows } = await pool.query(
+      "SELECT * FROM email_accounts WHERE id = $1 AND user_id = $2",
+      [req.params.id, req.user.id]
+    );
+
+    if (rows.length === 0) {
+      return res.status(404).json({ error: "Account not found" });
+    }
+
+    const account = rows[0];
+
+    // Refresh token if needed
+    const oauth2 = getOAuth2Client();
+    oauth2.setCredentials({
+      access_token: account.access_token,
+      refresh_token: account.refresh_token,
+      expiry_date: account.token_expiry ? new Date(account.token_expiry).getTime() : null,
+    });
+
+    // Auto-refresh if expired
+    const { credentials } = await oauth2.refreshAccessToken().catch(() => ({ credentials: null }));
+    if (credentials && credentials.access_token !== account.access_token) {
+      await pool.query(
+        `UPDATE email_accounts SET access_token = $1, token_expiry = $2, updated_at = NOW()
+         WHERE id = $3`,
+        [credentials.access_token, credentials.expiry_date ? new Date(credentials.expiry_date) : null, account.id]
+      );
+      oauth2.setCredentials(credentials);
+    }
+
+    // Pull UNREAD emails from Gmail
+    const gmail = google.gmail({ version: "v1", auth: oauth2 });
+
+    const listRes = await gmail.users.messages.list({
+      userId: "me",
+      q: "is:unread category:primary",
+      maxResults: 50,
+    });
+
+    const messages = listRes.data.messages || [];
+    let synced = 0;
+
+    for (const msg of messages) {
+      // Skip if already in DB
+      const existing = await pool.query(
+        "SELECT id FROM emails WHERE account_id = $1 AND gmail_id = $2",
+        [account.id, msg.id]
+      );
+      if (existing.rows.length > 0) continue;
+
+      // Fetch full message
+      const full = await gmail.users.messages.get({
+        userId: "me",
+        id: msg.id,
+        format: "full",
+      });
+
+      const headers = full.data.payload?.headers || [];
+      const getHeader = (name) => headers.find((h) => h.name.toLowerCase() === name.toLowerCase())?.value || "";
+
+      const fromRaw = getHeader("From");
+      const fromMatch = fromRaw.match(/^(.+?)\s*<(.+?)>$/);
+      const fromName = fromMatch ? fromMatch[1].replace(/"/g, "").trim() : fromRaw;
+      const fromEmail = fromMatch ? fromMatch[2] : fromRaw;
+
+      // Extract body
+      let bodyText = "";
+      let bodyHtml = "";
+      const extractParts = (payload) => {
+        if (payload.body?.data) {
+          const decoded = Buffer.from(payload.body.data, "base64url").toString("utf8");
+          if (payload.mimeType === "text/plain") bodyText = decoded;
+          if (payload.mimeType === "text/html") bodyHtml = decoded;
+        }
+        if (payload.parts) {
+          for (const part of payload.parts) extractParts(part);
+        }
+      };
+      extractParts(full.data.payload);
+
+      await pool.query(
+        `INSERT INTO emails (user_id, account_id, gmail_id, thread_id, from_email, from_name, subject, snippet, body_text, body_html, received_at)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+         ON CONFLICT (account_id, gmail_id) DO NOTHING`,
+        [
+          req.user.id,
+          account.id,
+          msg.id,
+          full.data.threadId,
+          fromEmail,
+          fromName,
+          getHeader("Subject") || "(No subject)",
+          full.data.snippet || "",
+          bodyText,
+          bodyHtml,
+          new Date(parseInt(full.data.internalDate)),
+        ]
+      );
+      synced++;
+    }
+
+    // Update last sync timestamp
+    await pool.query(
+      "UPDATE email_accounts SET last_sync_at = NOW(), status = 'connected', error_message = NULL, updated_at = NOW() WHERE id = $1",
+      [account.id]
+    );
+
+    res.json({
+      synced,
+      total: messages.length,
+      message: `Synced ${synced} new emails from ${account.email}`,
+    });
+  } catch (err) {
+    // Update error status on the account
+    await pool.query(
+      "UPDATE email_accounts SET status = 'error', error_message = $1, updated_at = NOW() WHERE id = $2",
+      [err.message, req.params.id]
+    ).catch(() => {});
+
+    next(err);
+  }
+});
+
+module.exports = router;

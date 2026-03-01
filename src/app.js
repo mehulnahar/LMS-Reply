@@ -9,6 +9,10 @@ require("dotenv").config();
 const healthRoutes = require("./routes/health");
 const authRoutes = require("./routes/auth");
 const settingsRoutes = require("./routes/settings");
+const gmailRoutes = require("./routes/gmail");
+const emailRoutes = require("./routes/emails");
+const jobRoutes = require("./routes/jobs");
+const replyRoutes = require("./routes/replies");
 
 const app = express();
 
@@ -50,6 +54,10 @@ if (process.env.NODE_ENV !== "test") {
 app.use("/api/health", healthRoutes);
 app.use("/api/auth", authRoutes);
 app.use("/api/settings", settingsRoutes);
+app.use("/api/gmail", gmailRoutes);
+app.use("/api/emails", emailRoutes);
+app.use("/api/jobs", jobRoutes);
+app.use("/api/replies", replyRoutes);
 
 // ---------------------------------------------------------------------------
 // API root (keep for health probes)

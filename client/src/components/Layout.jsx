@@ -3,11 +3,12 @@ import { useAuth } from "../context/AuthContext";
 import ThemeToggle from "./ThemeToggle";
 
 const NAV_ITEMS = [
+  { path: "/inbox", label: "Inbox", icon: InboxIcon },
   { path: "/dashboard", label: "Dashboard", icon: DashboardIcon },
   { path: "/settings", label: "Settings", icon: SettingsIcon },
 ];
 
-export default function Layout({ children }) {
+export default function Layout({ children, fullWidth }) {
   const { user, logout } = useAuth();
   const location = useLocation();
 
@@ -15,9 +16,9 @@ export default function Layout({ children }) {
     <div className="min-h-screen flex flex-col">
       {/* Header */}
       <header className="sticky top-0 z-50 bg-white/80 dark:bg-gray-900/80 backdrop-blur-lg border-b border-gray-200 dark:border-gray-800">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 h-16 flex items-center justify-between">
+        <div className={`${fullWidth ? "px-4 sm:px-6" : "max-w-7xl mx-auto px-4 sm:px-6"} h-16 flex items-center justify-between`}>
           <div className="flex items-center gap-8">
-            <Link to="/dashboard" className="flex items-center gap-2.5">
+            <Link to="/inbox" className="flex items-center gap-2.5">
               <div className="w-8 h-8 rounded-lg bg-brand-600 flex items-center justify-center">
                 <svg className="w-4.5 h-4.5 text-white" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
@@ -71,10 +72,22 @@ export default function Layout({ children }) {
       </header>
 
       {/* Main */}
-      <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 py-8">
-        {children}
-      </main>
+      {fullWidth ? (
+        <main className="flex-1">{children}</main>
+      ) : (
+        <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 py-8">
+          {children}
+        </main>
+      )}
     </div>
+  );
+}
+
+function InboxIcon({ className }) {
+  return (
+    <svg className={className} fill="none" stroke="currentColor" strokeWidth={1.5} viewBox="0 0 24 24">
+      <path strokeLinecap="round" strokeLinejoin="round" d="M2.25 13.5h3.86a2.25 2.25 0 012.012 1.244l.256.512a2.25 2.25 0 002.013 1.244h3.218a2.25 2.25 0 002.013-1.244l.256-.512a2.25 2.25 0 012.013-1.244h3.859M12 3v8.25m0 0l-3-3m3 3l3-3" />
+    </svg>
   );
 }
 
