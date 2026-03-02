@@ -33,6 +33,241 @@ const TONES = [
   { id: "detailed", label: "Detailed" },
 ];
 
+// ── Timezone helpers ─────────────────────────────────────────────────────────
+const CITY_TZ = {
+  // North America
+  "new york": "America/New_York", "brooklyn": "America/New_York", "manhattan": "America/New_York",
+  "los angeles": "America/Los_Angeles", "la": "America/Los_Angeles", "san francisco": "America/Los_Angeles",
+  "san jose": "America/Los_Angeles", "oakland": "America/Los_Angeles", "seattle": "America/Los_Angeles",
+  "portland": "America/Los_Angeles", "las vegas": "America/Los_Angeles", "sacramento": "America/Los_Angeles",
+  "chicago": "America/Chicago", "houston": "America/Chicago", "dallas": "America/Chicago",
+  "austin": "America/Chicago", "san antonio": "America/Chicago", "minneapolis": "America/Chicago",
+  "st. louis": "America/Chicago", "kansas city": "America/Chicago", "nashville": "America/Chicago",
+  "new orleans": "America/Chicago", "oklahoma city": "America/Chicago",
+  "denver": "America/Denver", "salt lake city": "America/Denver", "albuquerque": "America/Denver",
+  "phoenix": "America/Phoenix", "tucson": "America/Phoenix",
+  "miami": "America/New_York", "atlanta": "America/New_York", "boston": "America/New_York",
+  "washington": "America/New_York", "dc": "America/New_York", "philadelphia": "America/New_York",
+  "charlotte": "America/New_York", "raleigh": "America/New_York", "orlando": "America/New_York",
+  "tampa": "America/New_York", "jacksonville": "America/New_York", "baltimore": "America/New_York",
+  "toronto": "America/Toronto", "ottawa": "America/Toronto", "hamilton": "America/Toronto",
+  "montreal": "America/Toronto", "quebec": "America/Toronto",
+  "vancouver": "America/Vancouver", "victoria": "America/Vancouver",
+  "calgary": "America/Edmonton", "edmonton": "America/Edmonton",
+  "winnipeg": "America/Winnipeg", "saskatoon": "America/Regina",
+  "mexico city": "America/Mexico_City", "guadalajara": "America/Mexico_City",
+  "monterrey": "America/Monterrey",
+  // Europe
+  "london": "Europe/London", "manchester": "Europe/London", "birmingham": "Europe/London",
+  "edinburgh": "Europe/London", "glasgow": "Europe/London", "leeds": "Europe/London",
+  "paris": "Europe/Paris", "lyon": "Europe/Paris", "marseille": "Europe/Paris",
+  "berlin": "Europe/Berlin", "munich": "Europe/Berlin", "hamburg": "Europe/Berlin",
+  "frankfurt": "Europe/Berlin", "cologne": "Europe/Berlin", "stuttgart": "Europe/Berlin",
+  "amsterdam": "Europe/Amsterdam", "rotterdam": "Europe/Amsterdam", "the hague": "Europe/Amsterdam",
+  "madrid": "Europe/Madrid", "barcelona": "Europe/Madrid", "seville": "Europe/Madrid",
+  "rome": "Europe/Rome", "milan": "Europe/Rome", "naples": "Europe/Rome", "turin": "Europe/Rome",
+  "zurich": "Europe/Zurich", "geneva": "Europe/Zurich", "basel": "Europe/Zurich",
+  "vienna": "Europe/Vienna", "graz": "Europe/Vienna",
+  "stockholm": "Europe/Stockholm", "gothenburg": "Europe/Stockholm",
+  "oslo": "Europe/Oslo", "bergen": "Europe/Oslo",
+  "copenhagen": "Europe/Copenhagen", "aarhus": "Europe/Copenhagen",
+  "helsinki": "Europe/Helsinki", "tampere": "Europe/Helsinki",
+  "warsaw": "Europe/Warsaw", "krakow": "Europe/Warsaw",
+  "prague": "Europe/Prague", "brno": "Europe/Prague",
+  "budapest": "Europe/Budapest", "debrecen": "Europe/Budapest",
+  "bucharest": "Europe/Bucharest", "cluj-napoca": "Europe/Bucharest",
+  "athens": "Europe/Athens", "thessaloniki": "Europe/Athens",
+  "istanbul": "Europe/Istanbul", "ankara": "Europe/Istanbul", "izmir": "Europe/Istanbul",
+  "kyiv": "Europe/Kiev", "kharkiv": "Europe/Kiev", "odessa": "Europe/Kiev",
+  "lisbon": "Europe/Lisbon", "porto": "Europe/Lisbon",
+  "brussels": "Europe/Brussels", "antwerp": "Europe/Brussels",
+  "dublin": "Europe/Dublin", "cork": "Europe/Dublin",
+  "moscow": "Europe/Moscow", "saint petersburg": "Europe/Moscow",
+  "zagreb": "Europe/Zagreb", "split": "Europe/Zagreb",
+  "sofia": "Europe/Sofia", "plovdiv": "Europe/Sofia",
+  "belgrade": "Europe/Belgrade", "novi sad": "Europe/Belgrade",
+  "riga": "Europe/Riga", "tallinn": "Europe/Tallinn", "vilnius": "Europe/Vilnius",
+  "bratislava": "Europe/Bratislava", "luxembourg": "Europe/Luxembourg",
+  "reykjavik": "Atlantic/Reykjavik",
+  // Middle East
+  "dubai": "Asia/Dubai", "abu dhabi": "Asia/Dubai", "sharjah": "Asia/Dubai",
+  "riyadh": "Asia/Riyadh", "jeddah": "Asia/Riyadh", "mecca": "Asia/Riyadh",
+  "doha": "Asia/Qatar", "kuwait city": "Asia/Kuwait", "manama": "Asia/Bahrain",
+  "muscat": "Asia/Muscat", "tehran": "Asia/Tehran", "isfahan": "Asia/Tehran",
+  "tel aviv": "Asia/Jerusalem", "jerusalem": "Asia/Jerusalem", "haifa": "Asia/Jerusalem",
+  "amman": "Asia/Amman", "beirut": "Asia/Beirut", "damascus": "Asia/Damascus",
+  "baghdad": "Asia/Baghdad",
+  // Asia — South
+  "delhi": "Asia/Kolkata", "new delhi": "Asia/Kolkata", "mumbai": "Asia/Kolkata",
+  "bangalore": "Asia/Kolkata", "bengaluru": "Asia/Kolkata", "hyderabad": "Asia/Kolkata",
+  "chennai": "Asia/Kolkata", "kolkata": "Asia/Kolkata", "pune": "Asia/Kolkata",
+  "ahmedabad": "Asia/Kolkata", "jaipur": "Asia/Kolkata", "surat": "Asia/Kolkata",
+  "lucknow": "Asia/Kolkata", "kanpur": "Asia/Kolkata", "nagpur": "Asia/Kolkata",
+  "indore": "Asia/Kolkata", "thane": "Asia/Kolkata", "bhopal": "Asia/Kolkata",
+  "visakhapatnam": "Asia/Kolkata", "patiala": "Asia/Kolkata", "vadodara": "Asia/Kolkata",
+  "karachi": "Asia/Karachi", "lahore": "Asia/Karachi", "islamabad": "Asia/Karachi",
+  "faisalabad": "Asia/Karachi", "rawalpindi": "Asia/Karachi",
+  "dhaka": "Asia/Dhaka", "chittagong": "Asia/Dhaka",
+  "colombo": "Asia/Colombo", "kathmandu": "Asia/Kathmandu",
+  // Asia — East / Southeast
+  "beijing": "Asia/Shanghai", "shanghai": "Asia/Shanghai", "shenzhen": "Asia/Shanghai",
+  "guangzhou": "Asia/Shanghai", "chengdu": "Asia/Shanghai", "chongqing": "Asia/Shanghai",
+  "wuhan": "Asia/Shanghai", "tianjin": "Asia/Shanghai", "xian": "Asia/Shanghai",
+  "hong kong": "Asia/Hong_Kong", "kowloon": "Asia/Hong_Kong",
+  "taipei": "Asia/Taipei", "kaohsiung": "Asia/Taipei",
+  "tokyo": "Asia/Tokyo", "osaka": "Asia/Tokyo", "kyoto": "Asia/Tokyo",
+  "yokohama": "Asia/Tokyo", "nagoya": "Asia/Tokyo", "sapporo": "Asia/Tokyo",
+  "seoul": "Asia/Seoul", "busan": "Asia/Seoul", "incheon": "Asia/Seoul",
+  "singapore": "Asia/Singapore",
+  "kuala lumpur": "Asia/Kuala_Lumpur", "penang": "Asia/Kuala_Lumpur", "johor bahru": "Asia/Kuala_Lumpur",
+  "jakarta": "Asia/Jakarta", "surabaya": "Asia/Jakarta", "bandung": "Asia/Jakarta",
+  "manila": "Asia/Manila", "quezon city": "Asia/Manila", "cebu": "Asia/Manila",
+  "bangkok": "Asia/Bangkok", "chiang mai": "Asia/Bangkok", "phuket": "Asia/Bangkok",
+  "hanoi": "Asia/Ho_Chi_Minh", "ho chi minh": "Asia/Ho_Chi_Minh", "hcmc": "Asia/Ho_Chi_Minh",
+  "yangon": "Asia/Rangoon", "phnom penh": "Asia/Phnom_Penh", "vientiane": "Asia/Vientiane",
+  "ulaanbaatar": "Asia/Ulaanbaatar",
+  "tashkent": "Asia/Tashkent", "almaty": "Asia/Almaty", "astana": "Asia/Almaty",
+  "baku": "Asia/Baku", "yerevan": "Asia/Yerevan", "tbilisi": "Asia/Tbilisi",
+  // Africa
+  "cairo": "Africa/Cairo", "alexandria": "Africa/Cairo",
+  "lagos": "Africa/Lagos", "abuja": "Africa/Lagos", "kano": "Africa/Lagos",
+  "nairobi": "Africa/Nairobi", "mombasa": "Africa/Nairobi",
+  "johannesburg": "Africa/Johannesburg", "cape town": "Africa/Johannesburg",
+  "durban": "Africa/Johannesburg", "pretoria": "Africa/Johannesburg",
+  "accra": "Africa/Accra", "addis ababa": "Africa/Addis_Ababa",
+  "casablanca": "Africa/Casablanca", "rabat": "Africa/Casablanca",
+  "tunis": "Africa/Tunis", "algiers": "Africa/Algiers",
+  "khartoum": "Africa/Khartoum", "dar es salaam": "Africa/Dar_es_Salaam",
+  "kampala": "Africa/Kampala", "dakar": "Africa/Dakar", "abidjan": "Africa/Abidjan",
+  // Oceania
+  "sydney": "Australia/Sydney", "canberra": "Australia/Sydney", "newcastle": "Australia/Sydney",
+  "melbourne": "Australia/Melbourne", "geelong": "Australia/Melbourne",
+  "brisbane": "Australia/Brisbane", "gold coast": "Australia/Brisbane",
+  "perth": "Australia/Perth", "adelaide": "Australia/Adelaide",
+  "darwin": "Australia/Darwin", "hobart": "Australia/Hobart",
+  "auckland": "Pacific/Auckland", "wellington": "Pacific/Auckland",
+  "christchurch": "Pacific/Auckland",
+  // South America
+  "sao paulo": "America/Sao_Paulo", "rio de janeiro": "America/Sao_Paulo",
+  "brasilia": "America/Sao_Paulo", "belo horizonte": "America/Sao_Paulo",
+  "buenos aires": "America/Argentina/Buenos_Aires", "cordoba": "America/Argentina/Cordoba",
+  "bogota": "America/Bogota", "medellin": "America/Bogota", "cali": "America/Bogota",
+  "lima": "America/Lima", "arequipa": "America/Lima",
+  "santiago": "America/Santiago", "valparaiso": "America/Santiago",
+  "caracas": "America/Caracas", "quito": "America/Guayaquil",
+  "la paz": "America/La_Paz", "asuncion": "America/Asuncion",
+  "montevideo": "America/Montevideo",
+};
+
+const COUNTRY_TZ = {
+  "united states": "America/New_York", "usa": "America/New_York", "us": "America/New_York",
+  "canada": "America/Toronto",
+  "united kingdom": "Europe/London", "uk": "Europe/London", "great britain": "Europe/London",
+  "england": "Europe/London", "scotland": "Europe/London", "wales": "Europe/London",
+  "ireland": "Europe/Dublin", "northern ireland": "Europe/London",
+  "germany": "Europe/Berlin", "france": "Europe/Paris", "netherlands": "Europe/Amsterdam",
+  "spain": "Europe/Madrid", "italy": "Europe/Rome", "switzerland": "Europe/Zurich",
+  "austria": "Europe/Vienna", "belgium": "Europe/Brussels", "luxembourg": "Europe/Luxembourg",
+  "sweden": "Europe/Stockholm", "norway": "Europe/Oslo", "denmark": "Europe/Copenhagen",
+  "finland": "Europe/Helsinki", "iceland": "Atlantic/Reykjavik",
+  "poland": "Europe/Warsaw", "czech republic": "Europe/Prague", "czechia": "Europe/Prague",
+  "slovakia": "Europe/Bratislava", "hungary": "Europe/Budapest",
+  "romania": "Europe/Bucharest", "bulgaria": "Europe/Sofia",
+  "greece": "Europe/Athens", "croatia": "Europe/Zagreb", "serbia": "Europe/Belgrade",
+  "turkey": "Europe/Istanbul", "ukraine": "Europe/Kiev", "russia": "Europe/Moscow",
+  "portugal": "Europe/Lisbon", "latvia": "Europe/Riga", "estonia": "Europe/Tallinn",
+  "lithuania": "Europe/Vilnius",
+  "united arab emirates": "Asia/Dubai", "uae": "Asia/Dubai",
+  "saudi arabia": "Asia/Riyadh", "qatar": "Asia/Qatar", "kuwait": "Asia/Kuwait",
+  "bahrain": "Asia/Bahrain", "oman": "Asia/Muscat", "iran": "Asia/Tehran",
+  "israel": "Asia/Jerusalem", "jordan": "Asia/Amman", "lebanon": "Asia/Beirut",
+  "syria": "Asia/Damascus", "iraq": "Asia/Baghdad",
+  "india": "Asia/Kolkata", "pakistan": "Asia/Karachi", "bangladesh": "Asia/Dhaka",
+  "sri lanka": "Asia/Colombo", "nepal": "Asia/Kathmandu", "bhutan": "Asia/Thimphu",
+  "myanmar": "Asia/Rangoon", "cambodia": "Asia/Phnom_Penh", "laos": "Asia/Vientiane",
+  "china": "Asia/Shanghai", "hong kong": "Asia/Hong_Kong", "macau": "Asia/Macau",
+  "taiwan": "Asia/Taipei", "japan": "Asia/Tokyo",
+  "south korea": "Asia/Seoul", "korea": "Asia/Seoul",
+  "singapore": "Asia/Singapore", "malaysia": "Asia/Kuala_Lumpur",
+  "indonesia": "Asia/Jakarta", "philippines": "Asia/Manila",
+  "thailand": "Asia/Bangkok", "vietnam": "Asia/Ho_Chi_Minh",
+  "mongolia": "Asia/Ulaanbaatar", "uzbekistan": "Asia/Tashkent",
+  "kazakhstan": "Asia/Almaty", "kyrgyzstan": "Asia/Bishkek",
+  "tajikistan": "Asia/Dushanbe", "turkmenistan": "Asia/Ashgabat",
+  "azerbaijan": "Asia/Baku", "armenia": "Asia/Yerevan", "georgia": "Asia/Tbilisi",
+  "egypt": "Africa/Cairo", "nigeria": "Africa/Lagos", "kenya": "Africa/Nairobi",
+  "south africa": "Africa/Johannesburg", "ghana": "Africa/Accra",
+  "ethiopia": "Africa/Addis_Ababa", "morocco": "Africa/Casablanca",
+  "tunisia": "Africa/Tunis", "algeria": "Africa/Algiers", "sudan": "Africa/Khartoum",
+  "tanzania": "Africa/Dar_es_Salaam", "uganda": "Africa/Kampala",
+  "senegal": "Africa/Dakar", "ivory coast": "Africa/Abidjan",
+  "australia": "Australia/Sydney", "new zealand": "Pacific/Auckland",
+  "brazil": "America/Sao_Paulo", "argentina": "America/Argentina/Buenos_Aires",
+  "colombia": "America/Bogota", "peru": "America/Lima", "chile": "America/Santiago",
+  "venezuela": "America/Caracas", "ecuador": "America/Guayaquil",
+  "bolivia": "America/La_Paz", "paraguay": "America/Asuncion",
+  "uruguay": "America/Montevideo", "mexico": "America/Mexico_City",
+};
+
+function getClientTimezone(city, country) {
+  const cityKey = city?.toLowerCase().trim();
+  const countryKey = country?.toLowerCase().trim();
+  if (cityKey && CITY_TZ[cityKey]) return CITY_TZ[cityKey];
+  if (countryKey && COUNTRY_TZ[countryKey]) return COUNTRY_TZ[countryKey];
+  return null;
+}
+
+// ── ClientLocalTime component ─────────────────────────────────────────────────
+function ClientLocalTime({ city, country }) {
+  const tz = getClientTimezone(city, country);
+  const [timeStr, setTimeStr] = useState("");
+
+  useEffect(() => {
+    if (!tz) return;
+    const update = () => {
+      try {
+        const t = new Intl.DateTimeFormat("en-US", {
+          timeZone: tz,
+          weekday: "short",
+          hour: "numeric",
+          minute: "2-digit",
+          hour12: true,
+        }).format(new Date());
+        setTimeStr(t);
+      } catch {
+        setTimeStr("");
+      }
+    };
+    update();
+    const id = setInterval(update, 60_000);
+    return () => clearInterval(id);
+  }, [tz]);
+
+  if (!tz || !timeStr) return null;
+
+  const offsetStr = (() => {
+    try {
+      const parts = new Intl.DateTimeFormat("en-US", {
+        timeZone: tz,
+        timeZoneName: "shortOffset",
+      }).formatToParts(new Date());
+      return parts.find((p) => p.type === "timeZoneName")?.value || "";
+    } catch {
+      return "";
+    }
+  })();
+
+  return (
+    <p className="text-xs text-gray-500 dark:text-gray-400 flex items-center gap-1 mt-0.5">
+      <svg className="w-3 h-3 shrink-0" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
+        <path strokeLinecap="round" strokeLinejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 11-18 0 9 9 0 0118 0z" />
+      </svg>
+      <span>{timeStr}</span>
+      {offsetStr && <span className="text-gray-400 dark:text-gray-500 ml-0.5">({offsetStr})</span>}
+    </p>
+  );
+}
+
 /**
  * Sanitize HTML to remove dangerous tags and attributes.
  * Keeps formatting tags (p, br, div, span, a, ul, ol, li, h1-h6, strong, em, etc.)
@@ -634,13 +869,16 @@ export default function Inbox() {
                                 <p className="text-xs text-gray-500 dark:text-gray-400">{detail.job.clientEmail}</p>
                               )}
                               {(detail.job.city || detail.job.country) && (
-                                <p className="text-xs text-gray-500 dark:text-gray-400 flex items-center gap-1">
-                                  <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
-                                    <path strokeLinecap="round" strokeLinejoin="round" d="M15 10.5a3 3 0 11-6 0 3 3 0 016 0z" />
-                                    <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 10.5c0 7.142-7.5 11.25-7.5 11.25S4.5 17.642 4.5 10.5a7.5 7.5 0 1115 0z" />
-                                  </svg>
-                                  {[detail.job.city, detail.job.country].filter(Boolean).join(", ")}
-                                </p>
+                                <>
+                                  <p className="text-xs text-gray-500 dark:text-gray-400 flex items-center gap-1">
+                                    <svg className="w-3 h-3 shrink-0" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
+                                      <path strokeLinecap="round" strokeLinejoin="round" d="M15 10.5a3 3 0 11-6 0 3 3 0 016 0z" />
+                                      <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 10.5c0 7.142-7.5 11.25-7.5 11.25S4.5 17.642 4.5 10.5a7.5 7.5 0 1115 0z" />
+                                    </svg>
+                                    {[detail.job.city, detail.job.country].filter(Boolean).join(", ")}
+                                  </p>
+                                  <ClientLocalTime city={detail.job.city} country={detail.job.country} />
+                                </>
                               )}
                               {detail.job.industry && (
                                 <p className="text-xs text-gray-400 dark:text-gray-500">{detail.job.industry}</p>
