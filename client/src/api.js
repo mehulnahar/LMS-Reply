@@ -65,6 +65,12 @@ export const api = {
     request("/api/replies/generate", { method: "POST", body: JSON.stringify({ emailId, tone }) }),
   markReplyCopied: (id) => request(`/api/replies/${id}/copied`, { method: "PUT" }),
 
+  // Timezone (Claude Haiku powered)
+  getTimezone: (city, country) => {
+    const qs = new URLSearchParams({ city: city || "", country: country || "" }).toString();
+    return request(`/api/timezone?${qs}`);
+  },
+
   // Health
   health: () => request("/api/health"),
 };

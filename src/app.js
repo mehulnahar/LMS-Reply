@@ -13,6 +13,7 @@ const gmailRoutes = require("./routes/gmail");
 const emailRoutes = require("./routes/emails");
 const jobRoutes = require("./routes/jobs");
 const replyRoutes = require("./routes/replies");
+const timezoneRoutes = require("./routes/timezone");
 
 const app = express();
 
@@ -61,6 +62,7 @@ app.use("/api/gmail", gmailRoutes);
 app.use("/api/emails", emailRoutes);
 app.use("/api/jobs", jobRoutes);
 app.use("/api/replies", replyRoutes);
+app.use("/api/timezone", timezoneRoutes);
 
 // ---------------------------------------------------------------------------
 // API root (keep for health probes)
