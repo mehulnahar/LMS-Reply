@@ -886,6 +886,27 @@ export default function Settings() {
         </div>
       </div>
 
+        {/* ================================================================ */}
+        {/* Tools Section                                                    */}
+        {/* ================================================================ */}
+        <div className="card">
+          <div className="px-6 py-4 border-b border-gray-200 dark:border-gray-800">
+            <h2 className="text-base font-semibold flex items-center gap-2">
+              <svg className="w-5 h-5 text-gray-400" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M11.42 15.17L17.25 21A2.652 2.652 0 0021 17.25l-5.877-5.877M11.42 15.17l2.496-3.03c.317-.384.74-.626 1.208-.766M11.42 15.17l-4.655 5.653a2.548 2.548 0 11-3.586-3.586l5.654-4.654m5.664-1.329c0 .513-.119 1.008-.337 1.45L17.25 21" />
+              </svg>
+              Tools
+            </h2>
+            <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
+              Maintenance actions for your inbox data
+            </p>
+          </div>
+          <div className="px-6 py-5">
+            <ReanalyzeButton />
+          </div>
+        </div>
+      </div>
+
       {/* ================================================================ */}
       {/* Disconnect Confirmation Dialog (modal overlay)                    */}
       {/* ================================================================ */}
@@ -1018,6 +1039,50 @@ function timeAgo(date) {
   if (hours < 24) return `${hours}h ago`;
   const days = Math.floor(hours / 24);
   return `${days}d ago`;
+}
+
+function ReanalyzeButton() {
+  const [status, setStatus] = useState("idle"); // idle | running | done | error
+  const [result, setResult] = useState(null);
+
+  const handleRun = async () => {
+    setStatus("running");
+    setResult(null);
+    try {
+      const data = await api.reanalyzeEmails();
+      setResult(data);
+      setStatus("done");
+    } catch (err) {
+      setResult({ error: err.message });
+      setStatus("error");
+    }
+  };
+
+  return (
+    <div className="flex items-start justify-between gap-4">
+      <div>
+        <h3 className="text-sm font-semibold">Re-analyze All Emails</h3>
+        <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
+          Run AI analysis on all emails to backfill lead scores, intent, and summary. Required after first setup.
+        </p>
+        {status === "done" && result && (
+          <p className="text-xs text-emerald-600 dark:text-emerald-400 mt-2 font-medium">
+            ✓ Done — {result.analyzed ?? result.updated ?? "?"} emails analyzed
+          </p>
+        )}
+        {status === "error" && (
+          <p className="text-xs text-red-500 mt-2">{result?.error || "Re-analysis failed"}</p>
+        )}
+      </div>
+      <button
+        onClick={handleRun}
+        disabled={status === "running"}
+        className="flex-shrink-0 inline-flex items-center gap-1.5 px-4 py-2 text-xs font-medium rounded-lg bg-brand-600 text-white hover:bg-brand-700 disabled:opacity-50 transition-colors"
+      >
+        {status === "running" ? <><Spinner /> Running...</> : "Re-analyze All"}
+      </button>
+    </div>
+  );
 }
 
 function Spinner() {
