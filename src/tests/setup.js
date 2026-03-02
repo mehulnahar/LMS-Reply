@@ -16,7 +16,7 @@ process.env.ENCRYPTION_KEY =
 // PRODUCTION SAFETY GUARD — prevents tests from wiping prod DB
 // ============================================================
 const dbUrl = process.env.DATABASE_URL || "";
-const PRODUCTION_HOSTS = ["railway.app", "railway.internal", "neon.tech", "supabase.co"];
+const PRODUCTION_HOSTS = ["railway.app", "railway.internal", "rlwy.net", "neon.tech", "supabase.co"];
 const isProductionDb = PRODUCTION_HOSTS.some((host) => dbUrl.includes(host));
 
 if (isProductionDb) {
