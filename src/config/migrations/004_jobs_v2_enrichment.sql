@@ -1,0 +1,26 @@
+-- Migration 004: Add V2 enrichment fields to jobs table
+-- Stores full LeadHack getJobDetailsV2 response alongside V1 data
+
+ALTER TABLE jobs ADD COLUMN IF NOT EXISTS upwork_link        TEXT;
+ALTER TABLE jobs ADD COLUMN IF NOT EXISTS country            VARCHAR(100);
+ALTER TABLE jobs ADD COLUMN IF NOT EXISTS city               VARCHAR(100);
+ALTER TABLE jobs ADD COLUMN IF NOT EXISTS company            VARCHAR(255);
+ALTER TABLE jobs ADD COLUMN IF NOT EXISTS workload           VARCHAR(100);
+ALTER TABLE jobs ADD COLUMN IF NOT EXISTS duration           VARCHAR(100);
+ALTER TABLE jobs ADD COLUMN IF NOT EXISTS payment_type       VARCHAR(50);
+ALTER TABLE jobs ADD COLUMN IF NOT EXISTS amount             VARCHAR(50);
+ALTER TABLE jobs ADD COLUMN IF NOT EXISTS hourly_budget_min  VARCHAR(50);
+ALTER TABLE jobs ADD COLUMN IF NOT EXISTS hourly_budget_max  VARCHAR(50);
+ALTER TABLE jobs ADD COLUMN IF NOT EXISTS hourly_budget_type VARCHAR(100);
+ALTER TABLE jobs ADD COLUMN IF NOT EXISTS is_payment_verified VARCHAR(10);
+ALTER TABLE jobs ADD COLUMN IF NOT EXISTS is_enterprise      VARCHAR(10);
+ALTER TABLE jobs ADD COLUMN IF NOT EXISTS buyer_history_amount VARCHAR(50);
+ALTER TABLE jobs ADD COLUMN IF NOT EXISTS avg_hourly_rate    VARCHAR(50);
+ALTER TABLE jobs ADD COLUMN IF NOT EXISTS total_jobs_posted  VARCHAR(20);
+ALTER TABLE jobs ADD COLUMN IF NOT EXISTS total_jobs_with_hires VARCHAR(20);
+ALTER TABLE jobs ADD COLUMN IF NOT EXISTS contractor_tier    VARCHAR(100);
+ALTER TABLE jobs ADD COLUMN IF NOT EXISTS category           VARCHAR(255);
+ALTER TABLE jobs ADD COLUMN IF NOT EXISTS sub_category       VARCHAR(255);
+ALTER TABLE jobs ADD COLUMN IF NOT EXISTS industry           VARCHAR(255);
+ALTER TABLE jobs ADD COLUMN IF NOT EXISTS lead_id            VARCHAR(50);
+ALTER TABLE jobs ADD COLUMN IF NOT EXISTS v2_enriched_at     TIMESTAMP WITH TIME ZONE;

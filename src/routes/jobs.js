@@ -116,14 +116,66 @@ router.post("/match/:emailId", requireAuth, async (req, res, next) => {
       if (lhData.status && lhData.data && lhData.data.length > 0) {
         const job = lhData.data[0];
 
+        // Call V2 for enriched data (location, budget, client history, etc.)
+        let v2 = null;
+        if (job.link) {
+          try {
+            const v2Res = await fetch(`${LEADHACK_BASE}/getJobDetailsV2`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ link: job.link }),
+            });
+            const v2Data = await v2Res.json();
+            if (v2Data.status && v2Data.data && v2Data.data.length > 0) {
+              v2 = v2Data.data[0];
+            }
+          } catch {
+            // V2 enrichment is best-effort — don't fail the whole match
+          }
+        }
+
         const { rows: inserted } = await pool.query(
-          `INSERT INTO jobs (user_id, email_id, leadhack_id, client_first_name, client_last_name, client_email, email_subject, job_heading, job_description, match_status)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'matched')
-           RETURNING *`,
+          `INSERT INTO jobs (
+            user_id, email_id, leadhack_id, client_first_name, client_last_name, client_email,
+            email_subject, job_heading, job_description, match_status,
+            upwork_link, country, city, company, workload, duration, payment_type,
+            amount, hourly_budget_min, hourly_budget_max, hourly_budget_type,
+            is_payment_verified, is_enterprise, buyer_history_amount, avg_hourly_rate,
+            total_jobs_posted, total_jobs_with_hires, contractor_tier,
+            category, sub_category, industry, lead_id, v2_enriched_at
+          ) VALUES (
+            $1,$2,$3,$4,$5,$6,$7,$8,$9,'matched',
+            $10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,
+            $21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31,$32
+          ) RETURNING *`,
           [
             req.user.id, email.id, job.id?.toString(),
             sanitize(job.first_name), sanitize(job.last_name), sanitize(job.email_id),
             sanitize(job.email_subject), sanitize(job.job_heading), sanitize(job.job_description),
+            // V2 fields — use V2 data if available, else fall back to V1 link
+            sanitize(v2?.link || job.link || ""),
+            sanitize(v2?.country || ""),
+            sanitize(v2?.city || ""),
+            sanitize(v2?.company || ""),
+            sanitize(v2?.workload || ""),
+            sanitize(v2?.duration || ""),
+            sanitize(v2?.payment_type || ""),
+            sanitize(v2?.amount || ""),
+            sanitize(v2?.hourly_budget_min || ""),
+            sanitize(v2?.hourly_budget_max || ""),
+            sanitize(v2?.hourly_budget_type || ""),
+            sanitize(v2?.is_payment_verified || ""),
+            sanitize(v2?.is_enterprise_client || ""),
+            sanitize(v2?.buyer_history_amount || ""),
+            sanitize(v2?.avg_hourly_jobs_rate || ""),
+            sanitize(v2?.posted_count || ""),
+            sanitize(v2?.total_jobs_with_hires || ""),
+            sanitize(v2?.contractor_tier || ""),
+            sanitize(v2?.category || ""),
+            sanitize(v2?.sub_category || ""),
+            sanitize(v2?.industry || ""),
+            sanitize(v2?.lead_id || ""),
+            v2 ? new Date() : null,
           ]
         );
 
@@ -191,6 +243,30 @@ function formatJob(row) {
     jobDescription: row.job_description,
     matchStatus: row.match_status,
     matchedAt: row.matched_at,
+    // V2 enrichment
+    upworkLink: row.upwork_link || null,
+    country: row.country || null,
+    city: row.city || null,
+    company: row.company || null,
+    workload: row.workload || null,
+    duration: row.duration || null,
+    paymentType: row.payment_type || null,
+    amount: row.amount || null,
+    hourlyBudgetMin: row.hourly_budget_min || null,
+    hourlyBudgetMax: row.hourly_budget_max || null,
+    hourlyBudgetType: row.hourly_budget_type || null,
+    isPaymentVerified: row.is_payment_verified || null,
+    isEnterprise: row.is_enterprise || null,
+    buyerHistoryAmount: row.buyer_history_amount || null,
+    avgHourlyRate: row.avg_hourly_rate || null,
+    totalJobsPosted: row.total_jobs_posted || null,
+    totalJobsWithHires: row.total_jobs_with_hires || null,
+    contractorTier: row.contractor_tier || null,
+    category: row.category || null,
+    subCategory: row.sub_category || null,
+    industry: row.industry || null,
+    leadId: row.lead_id || null,
+    v2EnrichedAt: row.v2_enriched_at || null,
   };
 }
 

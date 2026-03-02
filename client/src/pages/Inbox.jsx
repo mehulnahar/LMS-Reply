@@ -547,16 +547,178 @@ export default function Inbox() {
                       </p>
                     )}
                     {detail.job?.matchStatus === "matched" && (
-                      <div className="space-y-2">
-                        <h4 className="text-sm font-semibold">{detail.job.jobHeading}</h4>
-                        <p className="text-xs text-gray-600 dark:text-gray-400 leading-relaxed line-clamp-6">
-                          {detail.job.jobDescription}
-                        </p>
-                        {(detail.job.clientFirstName || detail.job.clientLastName) && (
-                          <p className="text-xs text-gray-500 dark:text-gray-400 mt-2">
-                            Client: {[detail.job.clientFirstName, detail.job.clientLastName].filter(Boolean).join(" ")}
-                          </p>
+                      <div className="space-y-4">
+
+                        {/* Job Title + Upwork Link */}
+                        <div>
+                          <div className="flex items-start justify-between gap-2">
+                            <h4 className="text-sm font-semibold leading-snug">{detail.job.jobHeading}</h4>
+                            {detail.job.upworkLink && (
+                              <a
+                                href={detail.job.upworkLink}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="flex-shrink-0 text-xs text-brand-600 dark:text-brand-400 hover:underline flex items-center gap-1"
+                              >
+                                <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
+                                  <path strokeLinecap="round" strokeLinejoin="round" d="M13.5 6H5.25A2.25 2.25 0 003 8.25v10.5A2.25 2.25 0 005.25 21h10.5A2.25 2.25 0 0018 18.75V10.5m-10.5 6L21 3m0 0h-5.25M21 3v5.25" />
+                                </svg>
+                                Upwork
+                              </a>
+                            )}
+                          </div>
+                          {(detail.job.category || detail.job.subCategory) && (
+                            <p className="text-xs text-gray-400 dark:text-gray-500 mt-0.5">
+                              {[detail.job.category, detail.job.subCategory].filter(Boolean).join(" › ")}
+                            </p>
+                          )}
+                        </div>
+
+                        {/* Client Info */}
+                        <div className="bg-gray-50 dark:bg-gray-800/60 rounded-lg p-3 space-y-2">
+                          <p className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">Client</p>
+                          <div className="space-y-1">
+                            {(detail.job.clientFirstName || detail.job.clientLastName || detail.job.company) && (
+                              <p className="text-sm font-medium">
+                                {detail.job.company && detail.job.company !== detail.job.clientFirstName
+                                  ? detail.job.company
+                                  : [detail.job.clientFirstName, detail.job.clientLastName].filter(Boolean).join(" ")}
+                              </p>
+                            )}
+                            {detail.job.clientEmail && (
+                              <p className="text-xs text-gray-500 dark:text-gray-400">{detail.job.clientEmail}</p>
+                            )}
+                            {(detail.job.city || detail.job.country) && (
+                              <p className="text-xs text-gray-500 dark:text-gray-400 flex items-center gap-1">
+                                <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
+                                  <path strokeLinecap="round" strokeLinejoin="round" d="M15 10.5a3 3 0 11-6 0 3 3 0 016 0z" />
+                                  <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 10.5c0 7.142-7.5 11.25-7.5 11.25S4.5 17.642 4.5 10.5a7.5 7.5 0 1115 0z" />
+                                </svg>
+                                {[detail.job.city, detail.job.country].filter(Boolean).join(", ")}
+                              </p>
+                            )}
+                            {detail.job.industry && (
+                              <p className="text-xs text-gray-400 dark:text-gray-500">{detail.job.industry}</p>
+                            )}
+                          </div>
+                        </div>
+
+                        {/* Budget */}
+                        {(detail.job.hourlyBudgetMin || detail.job.hourlyBudgetMax || detail.job.amount || detail.job.paymentType || detail.job.workload || detail.job.duration) && (
+                          <div className="bg-gray-50 dark:bg-gray-800/60 rounded-lg p-3 space-y-2">
+                            <p className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">Budget & Scope</p>
+                            <div className="grid grid-cols-2 gap-x-4 gap-y-1">
+                              {(detail.job.hourlyBudgetMin || detail.job.hourlyBudgetMax) && (
+                                <div>
+                                  <p className="text-xs text-gray-400 dark:text-gray-500">Hourly Rate</p>
+                                  <p className="text-sm font-medium">
+                                    {detail.job.hourlyBudgetMin && detail.job.hourlyBudgetMax
+                                      ? `$${detail.job.hourlyBudgetMin}–$${detail.job.hourlyBudgetMax}`
+                                      : `$${detail.job.hourlyBudgetMin || detail.job.hourlyBudgetMax}`}
+                                  </p>
+                                </div>
+                              )}
+                              {detail.job.amount && (
+                                <div>
+                                  <p className="text-xs text-gray-400 dark:text-gray-500">Fixed Budget</p>
+                                  <p className="text-sm font-medium">${detail.job.amount}</p>
+                                </div>
+                              )}
+                              {detail.job.paymentType && (
+                                <div>
+                                  <p className="text-xs text-gray-400 dark:text-gray-500">Type</p>
+                                  <p className="text-sm font-medium capitalize">{detail.job.paymentType}</p>
+                                </div>
+                              )}
+                              {detail.job.workload && (
+                                <div>
+                                  <p className="text-xs text-gray-400 dark:text-gray-500">Workload</p>
+                                  <p className="text-sm font-medium">{detail.job.workload}</p>
+                                </div>
+                              )}
+                              {detail.job.duration && (
+                                <div>
+                                  <p className="text-xs text-gray-400 dark:text-gray-500">Duration</p>
+                                  <p className="text-sm font-medium">{detail.job.duration}</p>
+                                </div>
+                              )}
+                              {detail.job.contractorTier && (
+                                <div>
+                                  <p className="text-xs text-gray-400 dark:text-gray-500">Level</p>
+                                  <p className="text-sm font-medium">{detail.job.contractorTier}</p>
+                                </div>
+                              )}
+                            </div>
+                          </div>
                         )}
+
+                        {/* Client History / Trust Signals */}
+                        {(detail.job.isPaymentVerified || detail.job.buyerHistoryAmount || detail.job.totalJobsPosted || detail.job.totalJobsWithHires || detail.job.avgHourlyRate || detail.job.isEnterprise) && (
+                          <div className="bg-gray-50 dark:bg-gray-800/60 rounded-lg p-3 space-y-2">
+                            <p className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">Client History</p>
+                            <div className="grid grid-cols-2 gap-x-4 gap-y-1">
+                              {detail.job.isPaymentVerified && (
+                                <div className="col-span-2 flex items-center gap-1.5">
+                                  {detail.job.isPaymentVerified === "1" || detail.job.isPaymentVerified === "true" ? (
+                                    <>
+                                      <svg className="w-3.5 h-3.5 text-emerald-500" fill="none" viewBox="0 0 24 24" strokeWidth={2.5} stroke="currentColor">
+                                        <path strokeLinecap="round" strokeLinejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                                      </svg>
+                                      <span className="text-xs text-emerald-600 dark:text-emerald-400 font-medium">Payment Verified</span>
+                                    </>
+                                  ) : (
+                                    <>
+                                      <svg className="w-3.5 h-3.5 text-gray-400" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
+                                        <path strokeLinecap="round" strokeLinejoin="round" d="M9.75 9.75l4.5 4.5m0-4.5l-4.5 4.5M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                                      </svg>
+                                      <span className="text-xs text-gray-400 dark:text-gray-500">Payment Not Verified</span>
+                                    </>
+                                  )}
+                                </div>
+                              )}
+                              {detail.job.isEnterprise && (detail.job.isEnterprise === "1" || detail.job.isEnterprise === "true") && (
+                                <div className="col-span-2">
+                                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-medium bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400">
+                                    Enterprise Client
+                                  </span>
+                                </div>
+                              )}
+                              {detail.job.buyerHistoryAmount && (
+                                <div>
+                                  <p className="text-xs text-gray-400 dark:text-gray-500">Total Spent</p>
+                                  <p className="text-sm font-medium">${detail.job.buyerHistoryAmount}</p>
+                                </div>
+                              )}
+                              {detail.job.avgHourlyRate && (
+                                <div>
+                                  <p className="text-xs text-gray-400 dark:text-gray-500">Avg Rate Paid</p>
+                                  <p className="text-sm font-medium">${detail.job.avgHourlyRate}/hr</p>
+                                </div>
+                              )}
+                              {detail.job.totalJobsPosted && (
+                                <div>
+                                  <p className="text-xs text-gray-400 dark:text-gray-500">Jobs Posted</p>
+                                  <p className="text-sm font-medium">{detail.job.totalJobsPosted}</p>
+                                </div>
+                              )}
+                              {detail.job.totalJobsWithHires && (
+                                <div>
+                                  <p className="text-xs text-gray-400 dark:text-gray-500">Jobs Hired</p>
+                                  <p className="text-sm font-medium">{detail.job.totalJobsWithHires}</p>
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        )}
+
+                        {/* Job Description */}
+                        <div>
+                          <p className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-1.5">Job Description</p>
+                          <p className="text-xs text-gray-600 dark:text-gray-400 leading-relaxed whitespace-pre-wrap">
+                            {detail.job.jobDescription}
+                          </p>
+                        </div>
+
                       </div>
                     )}
                     {detail.job?.matchStatus === "no_match" && (
