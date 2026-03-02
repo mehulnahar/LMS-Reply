@@ -71,6 +71,9 @@ export default function Inbox() {
   const [tone, setTone] = useState("professional");
   const [generating, setGenerating] = useState(false);
   const [matching, setMatching] = useState(false);
+  const [manualLink, setManualLink] = useState("");
+  const [matchingByLink, setMatchingByLink] = useState(false);
+  const [manualLinkError, setManualLinkError] = useState("");
   const [copied, setCopied] = useState(false);
   const [replyText, setReplyText] = useState("");
   const [activeReplyId, setActiveReplyId] = useState(null);
@@ -113,6 +116,8 @@ export default function Inbox() {
     setReplyText("");
     setActiveReplyId(null);
     setCopied(false);
+    setManualLink("");
+    setManualLinkError("");
     try {
       const data = await api.getEmail(id);
       setDetail(data);
@@ -144,6 +149,25 @@ export default function Inbox() {
       // silent
     } finally {
       setMatching(false);
+    }
+  };
+
+  const handleMatchByLink = async () => {
+    if (!detail?.email?.id || !manualLink.trim()) return;
+    if (!manualLink.includes("upwork.com")) {
+      setManualLinkError("Please paste a valid Upwork job link");
+      return;
+    }
+    setManualLinkError("");
+    setMatchingByLink(true);
+    try {
+      const data = await api.matchJobByLink(detail.email.id, manualLink.trim());
+      setDetail((prev) => ({ ...prev, job: data.job }));
+      setManualLink("");
+    } catch (err) {
+      setManualLinkError(err.message || "Failed to match job by link");
+    } finally {
+      setMatchingByLink(false);
     }
   };
 
@@ -530,13 +554,13 @@ export default function Inbox() {
                     <span className="text-xs font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400">
                       Job Context
                     </span>
-                    {(!detail.job || detail.job.matchStatus === "error") && (
+                    {(!detail.job || ["error", "no_match"].includes(detail.job.matchStatus)) && (
                       <button
                         onClick={handleMatchJob}
                         disabled={matching}
                         className="text-xs text-brand-600 dark:text-brand-400 hover:underline disabled:opacity-50"
                       >
-                        {matching ? "Matching..." : "Find Match"}
+                        {matching ? "Matching..." : detail.job?.matchStatus === "no_match" ? "Re-match" : "Find Match"}
                       </button>
                     )}
                   </div>
@@ -722,9 +746,37 @@ export default function Inbox() {
                       </div>
                     )}
                     {detail.job?.matchStatus === "no_match" && (
-                      <p className="text-xs text-gray-400 dark:text-gray-500">
-                        No matching job found in LeadHack for this email.
-                      </p>
+                      <div className="space-y-3">
+                        <p className="text-xs text-gray-400 dark:text-gray-500">
+                          No matching job found in LeadHack. Paste the Upwork link to match manually.
+                        </p>
+                        <ManualLinkInput
+                          value={manualLink}
+                          onChange={setManualLink}
+                          onSubmit={handleMatchByLink}
+                          loading={matchingByLink}
+                          error={manualLinkError}
+                        />
+                      </div>
+                    )}
+                    {detail.job?.matchStatus === "needs_manual" && (
+                      <div className="space-y-3">
+                        <div className="flex items-start gap-2 p-3 bg-amber-50 dark:bg-amber-900/20 rounded-lg border border-amber-200 dark:border-amber-800">
+                          <svg className="w-4 h-4 text-amber-500 flex-shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z" />
+                          </svg>
+                          <p className="text-xs text-amber-700 dark:text-amber-400">
+                            Multiple jobs matched this email. Paste the exact Upwork link to resolve.
+                          </p>
+                        </div>
+                        <ManualLinkInput
+                          value={manualLink}
+                          onChange={setManualLink}
+                          onSubmit={handleMatchByLink}
+                          loading={matchingByLink}
+                          error={manualLinkError}
+                        />
+                      </div>
                     )}
                     {detail.job?.matchStatus === "error" && (
                       <p className="text-xs text-amber-500">
@@ -825,6 +877,36 @@ export default function Inbox() {
           </div>
         )}
       </div>
+    </div>
+  );
+}
+
+function ManualLinkInput({ value, onChange, onSubmit, loading, error }) {
+  return (
+    <div className="space-y-2">
+      <div className="flex gap-2">
+        <input
+          type="url"
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          onKeyDown={(e) => e.key === "Enter" && onSubmit()}
+          placeholder="https://www.upwork.com/jobs/~0220..."
+          className="flex-1 text-xs px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-transparent"
+        />
+        <button
+          onClick={onSubmit}
+          disabled={loading || !value.trim()}
+          className="flex-shrink-0 px-3 py-2 text-xs font-medium rounded-lg bg-brand-600 hover:bg-brand-700 text-white disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1.5"
+        >
+          {loading ? <Spinner /> : (
+            <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" strokeWidth={2.5} stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" d="M13.5 4.5L21 12m0 0l-7.5 7.5M21 12H3" />
+            </svg>
+          )}
+          {loading ? "Matching..." : "Match"}
+        </button>
+      </div>
+      {error && <p className="text-xs text-red-500">{error}</p>}
     </div>
   );
 }

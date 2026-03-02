@@ -182,6 +182,17 @@ router.post("/match/:emailId", requireAuth, async (req, res, next) => {
         return res.json({ job: formatJob(inserted[0]), cached: false });
       }
 
+      // Multiple matches — user must resolve manually with a link
+      if (!lhData.status && lhData.message && lhData.message.toLowerCase().includes("multiple")) {
+        const { rows: multiMatch } = await pool.query(
+          `INSERT INTO jobs (user_id, email_id, client_email, email_subject, match_status)
+           VALUES ($1, $2, $3, $4, 'needs_manual')
+           RETURNING *`,
+          [req.user.id, email.id, email.from_email, email.subject]
+        );
+        return res.json({ job: formatJob(multiMatch[0]), cached: false });
+      }
+
       // No match found
       const { rows: noMatch } = await pool.query(
         `INSERT INTO jobs (user_id, email_id, client_email, email_subject, match_status)
@@ -206,6 +217,95 @@ router.post("/match/:emailId", requireAuth, async (req, res, next) => {
         warning: `LeadHack lookup failed: ${err.message}`,
       });
     }
+  } catch (err) {
+    next(err);
+  }
+});
+
+// ============================================================
+// POST /api/jobs/match-by-link/:emailId — Match using Upwork link (V2 only)
+// Used when auto-match returns "Multiple Data found" or no_match
+// ============================================================
+router.post("/match-by-link/:emailId", requireAuth, async (req, res, next) => {
+  try {
+    const { link } = req.body;
+    if (!link || !link.includes("upwork.com")) {
+      return res.status(400).json({ error: "A valid Upwork job link is required" });
+    }
+
+    const { rows: emailRows } = await pool.query(
+      "SELECT * FROM emails WHERE id = $1 AND user_id = $2",
+      [req.params.emailId, req.user.id]
+    );
+    if (emailRows.length === 0) {
+      return res.status(404).json({ error: "Email not found" });
+    }
+    const email = emailRows[0];
+
+    // Delete any existing job record for this email (needs_manual, no_match, error)
+    await pool.query("DELETE FROM jobs WHERE email_id = $1", [email.id]);
+
+    // Call V2 directly — the user has given us the exact link
+    const v2Res = await fetch(`${LEADHACK_BASE}/getJobDetailsV2`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ link }),
+    });
+    const v2Data = await v2Res.json();
+
+    if (!v2Data.status || !v2Data.data || v2Data.data.length === 0) {
+      return res.status(404).json({ error: "No job found for that Upwork link in LeadHack" });
+    }
+
+    const v2 = v2Data.data[0];
+
+    const { rows: inserted } = await pool.query(
+      `INSERT INTO jobs (
+        user_id, email_id, client_email, email_subject, match_status,
+        job_heading, job_description,
+        client_first_name, client_last_name,
+        upwork_link, country, city, company, workload, duration, payment_type,
+        amount, hourly_budget_min, hourly_budget_max, hourly_budget_type,
+        is_payment_verified, is_enterprise, buyer_history_amount, avg_hourly_rate,
+        total_jobs_posted, total_jobs_with_hires, contractor_tier,
+        category, sub_category, industry, lead_id, v2_enriched_at
+      ) VALUES (
+        $1,$2,$3,$4,'matched',$5,$6,$7,$8,
+        $9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,
+        $20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,NOW()
+      ) RETURNING *`,
+      [
+        req.user.id, email.id, email.from_email, email.subject,
+        sanitize(v2.job_heading || ""),
+        sanitize(v2.job_description || ""),
+        sanitize(v2.first_name || ""),
+        sanitize(v2.last_name || ""),
+        sanitize(link),
+        sanitize(v2.country || ""),
+        sanitize(v2.city || ""),
+        sanitize(v2.company || ""),
+        sanitize(v2.workload || ""),
+        sanitize(v2.duration || ""),
+        sanitize(v2.payment_type || ""),
+        sanitize(v2.amount || ""),
+        sanitize(v2.hourly_budget_min || ""),
+        sanitize(v2.hourly_budget_max || ""),
+        sanitize(v2.hourly_budget_type || ""),
+        sanitize(v2.is_payment_verified || ""),
+        sanitize(v2.is_enterprise_client || ""),
+        sanitize(v2.buyer_history_amount || ""),
+        sanitize(v2.avg_hourly_jobs_rate || ""),
+        sanitize(v2.posted_count || ""),
+        sanitize(v2.total_jobs_with_hires || ""),
+        sanitize(v2.contractor_tier || ""),
+        sanitize(v2.category || ""),
+        sanitize(v2.sub_category || ""),
+        sanitize(v2.industry || ""),
+        sanitize(v2.lead_id || ""),
+      ]
+    );
+
+    return res.json({ job: formatJob(inserted[0]), cached: false });
   } catch (err) {
     next(err);
   }
