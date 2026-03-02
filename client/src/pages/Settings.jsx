@@ -905,7 +905,6 @@ export default function Settings() {
             <ReanalyzeButton />
           </div>
         </div>
-      </div>
 
       {/* ================================================================ */}
       {/* Disconnect Confirmation Dialog (modal overlay)                    */}
