@@ -15,6 +15,16 @@ const router = express.Router();
 const LEADHACK_BASE = "https://app.leadhack.info:3000/api/admin";
 
 // ============================================================
+// Helper: Strip null bytes from strings (LeadHack data has encoding artifacts)
+// PostgreSQL rejects \0 in text columns
+// ============================================================
+function sanitize(val) {
+  if (typeof val !== "string") return val;
+  // eslint-disable-next-line no-control-regex
+  return val.replace(/\x00/g, "").replace(/[\x01-\x08\x0B\x0C\x0E-\x1F]/g, "");
+}
+
+// ============================================================
 // Helper: Get LeadHack auth token (optional — API works without auth)
 // ============================================================
 async function getLeadHackToken(userId) {
@@ -112,8 +122,8 @@ router.post("/match/:emailId", requireAuth, async (req, res, next) => {
            RETURNING *`,
           [
             req.user.id, email.id, job.id?.toString(),
-            job.first_name, job.last_name, job.email_id,
-            job.email_subject, job.job_heading, job.job_description,
+            sanitize(job.first_name), sanitize(job.last_name), sanitize(job.email_id),
+            sanitize(job.email_subject), sanitize(job.job_heading), sanitize(job.job_description),
           ]
         );
 
