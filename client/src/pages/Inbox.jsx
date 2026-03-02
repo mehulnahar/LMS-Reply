@@ -41,14 +41,22 @@ function ClientLocalTime({ city, country }) {
   const [timezone, setTimezone] = useState(null);
   const [timeStr,  setTimeStr]  = useState("");
   const [tzAbbr,   setTzAbbr]   = useState("");
+  const [loading,  setLoading]  = useState(true);
 
   // Step 1 — ask Claude Haiku for the IANA timezone
   useEffect(() => {
     if (!city && !country) return;
     let cancelled = false;
+    setLoading(true);
+    setTimezone(null);
+    setTimeStr("");
+    setTzAbbr("");
     api.getTimezone(city, country)
-      .then((data) => { if (!cancelled) setTimezone(data.timezone); })
-      .catch(() => {});
+      .then((data) => {
+        if (!cancelled) setTimezone(data.timezone);
+      })
+      .catch(() => {})
+      .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
   }, [city, country]);
 
@@ -81,6 +89,18 @@ function ClientLocalTime({ city, country }) {
     const id = setInterval(update, 60_000);
     return () => clearInterval(id);
   }, [timezone]);
+
+  // Show a subtle loading dot while Claude resolves the timezone
+  if (loading) {
+    return (
+      <p className="text-xs text-gray-400 dark:text-gray-600 flex items-center gap-1 mt-0.5">
+        <svg className="w-3 h-3 shrink-0" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
+          <path strokeLinecap="round" strokeLinejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 11-18 0 9 9 0 0118 0z" />
+        </svg>
+        <span className="animate-pulse">Loading time…</span>
+      </p>
+    );
+  }
 
   if (!timezone || !timeStr) return null;
 

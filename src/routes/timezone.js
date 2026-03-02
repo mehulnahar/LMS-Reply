@@ -65,7 +65,7 @@ router.get("/", requireAuth, async (req, res, next) => {
         "anthropic-version": "2023-06-01",
       },
       body: JSON.stringify({
-        model:      "claude-haiku-4-20250514",
+        model:      "claude-3-5-haiku-20241022",
         max_tokens: 50,
         messages: [
           {
