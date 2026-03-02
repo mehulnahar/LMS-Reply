@@ -105,6 +105,12 @@ export default function Inbox() {
         setReplyText(latest.editedText || latest.generatedText);
         setActiveReplyId(latest.id);
       }
+      // Mark as read in the sidebar list
+      setEmails((prev) =>
+        prev.map((e) => (e.id === id ? { ...e, isUnread: false } : e))
+      );
+      // Persist to backend (fire-and-forget)
+      api.markEmailRead(id).catch(() => {});
     } catch {
       setDetail(null);
     } finally {
@@ -322,9 +328,12 @@ export default function Inbox() {
                         {email.leadScore}
                       </span>
                     )}
-                    <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-medium ${STATUS_LABELS[email.status]?.color || ""}`}>
-                      {STATUS_LABELS[email.status]?.label || email.status}
-                    </span>
+                    {/* Hide "New" badge once the email has been read; show all other statuses always */}
+                    {(email.status !== "new" || email.isUnread) && (
+                      <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-medium ${STATUS_LABELS[email.status]?.color || ""}`}>
+                        {STATUS_LABELS[email.status]?.label || email.status}
+                      </span>
+                    )}
                     {email.hasUrgency && (
                       <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-red-100 text-red-600 dark:bg-red-900/30 dark:text-red-400 font-medium">
                         Urgent

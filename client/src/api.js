@@ -50,6 +50,8 @@ export const api = {
   getEmail: (id) => request(`/api/emails/${id}`),
   updateEmailStatus: (id, status) =>
     request(`/api/emails/${id}/status`, { method: "PUT", body: JSON.stringify({ status }) }),
+  markEmailRead: (id) =>
+    request(`/api/emails/${id}/read`, { method: "PUT" }),
   syncAllEmails: () => request("/api/emails/sync-all", { method: "POST" }),
   reanalyzeEmails: () => request("/api/emails/reanalyze", { method: "POST" }),
 

@@ -12,7 +12,7 @@ const { google } = require("googleapis");
 const pool = require("../config/db");
 const { requireAuth } = require("../middleware/auth");
 const { decrypt } = require("../utils/encryption");
-const { analyzeEmail, getAnthropicKey } = require("../utils/emailAnalysis");
+const { analyzeEmail, getAnthropicKey, intentToStatus } = require("../utils/emailAnalysis");
 
 const router = express.Router();
 
@@ -75,7 +75,7 @@ router.get("/", requireAuth, async (req, res, next) => {
         e.from_email, e.from_name, e.subject, e.snippet,
         e.received_at, e.is_unread, e.status, e.lead_score,
         e.has_phone, e.has_urgency, e.is_ooo, e.is_redirect,
-        e.extracted_phone,
+        e.extracted_phone, e.intent, e.summary,
         a.email AS account_email, a.color AS account_color,
         j.id AS job_id, j.job_heading, j.match_status
       FROM emails e
@@ -115,6 +115,8 @@ router.get("/", requireAuth, async (req, res, next) => {
         isOoo: r.is_ooo,
         isRedirect: r.is_redirect,
         extractedPhone: r.extracted_phone,
+        intent: r.intent,
+        summary: r.summary,
         jobId: r.job_id,
         jobHeading: r.job_heading,
         jobMatchStatus: r.match_status,
@@ -236,6 +238,23 @@ router.put("/:id/status", requireAuth, async (req, res, next) => {
     }
 
     res.json(result.rows[0]);
+  } catch (err) {
+    next(err);
+  }
+});
+
+// ============================================================
+// PUT /api/emails/:id/read — Mark email as read
+// ============================================================
+router.put("/:id/read", requireAuth, async (req, res, next) => {
+  try {
+    const result = await pool.query(
+      `UPDATE emails SET is_unread = false, updated_at = NOW()
+       WHERE id = $1 AND user_id = $2 AND is_unread = true
+       RETURNING id`,
+      [req.params.id, req.user.id]
+    );
+    res.json({ ok: true, updated: result.rowCount > 0 });
   } catch (err) {
     next(err);
   }
@@ -384,12 +403,18 @@ router.post("/sync-all", requireAuth, async (req, res, next) => {
           try {
             const signals = await analyzeEmail(bodyText, bodyHtml, emailSubject, anthropicKey);
             if (signals) {
+              // Auto-set status based on intent
+              const autoStatus = intentToStatus(signals.intent, signals.is_ooo);
               await pool.query(
                 `UPDATE emails SET lead_score = $1, has_phone = $2, extracted_phone = $3,
-                 has_urgency = $4, is_ooo = $5, is_redirect = $6, updated_at = NOW()
-                 WHERE account_id = $7 AND gmail_id = $8`,
+                 has_urgency = $4, is_ooo = $5, is_redirect = $6,
+                 intent = $7, summary = $8, status = COALESCE($9, status),
+                 updated_at = NOW()
+                 WHERE account_id = $10 AND gmail_id = $11`,
                 [signals.lead_score, signals.has_phone, signals.extracted_phone,
-                 signals.has_urgency, signals.is_ooo, signals.is_redirect, account.id, msg.id]
+                 signals.has_urgency, signals.is_ooo, signals.is_redirect,
+                 signals.intent, signals.summary, autoStatus,
+                 account.id, msg.id]
               );
             }
           } catch (analysisErr) {
@@ -442,12 +467,16 @@ router.post("/reanalyze", requireAuth, async (req, res, next) => {
       try {
         const signals = await analyzeEmail(email.body_text, email.body_html, email.subject, anthropicKey);
         if (signals) {
+          const autoStatus = intentToStatus(signals.intent, signals.is_ooo);
           await pool.query(
             `UPDATE emails SET lead_score = $1, has_phone = $2, extracted_phone = $3,
-             has_urgency = $4, is_ooo = $5, is_redirect = $6, updated_at = NOW()
-             WHERE id = $7`,
+             has_urgency = $4, is_ooo = $5, is_redirect = $6,
+             intent = $7, summary = $8, status = COALESCE($9, status),
+             updated_at = NOW()
+             WHERE id = $10`,
             [signals.lead_score, signals.has_phone, signals.extracted_phone,
-             signals.has_urgency, signals.is_ooo, signals.is_redirect, email.id]
+             signals.has_urgency, signals.is_ooo, signals.is_redirect,
+             signals.intent, signals.summary, autoStatus, email.id]
           );
           analyzed++;
         } else {

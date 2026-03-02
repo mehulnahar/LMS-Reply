@@ -13,7 +13,7 @@ const { google } = require("googleapis");
 const pool = require("../config/db");
 const { requireAuth } = require("../middleware/auth");
 const { decrypt } = require("../utils/encryption");
-const { analyzeEmail, getAnthropicKey } = require("../utils/emailAnalysis");
+const { analyzeEmail, getAnthropicKey, intentToStatus } = require("../utils/emailAnalysis");
 
 const router = express.Router();
 
@@ -323,12 +323,17 @@ router.post("/accounts/:id/sync", requireAuth, async (req, res, next) => {
       try {
         const signals = await analyzeEmail(bodyText, bodyHtml, emailSubject, anthropicKey);
         if (signals) {
+          const autoStatus = intentToStatus(signals.intent, signals.is_ooo);
           await pool.query(
             `UPDATE emails SET lead_score = $1, has_phone = $2, extracted_phone = $3,
-             has_urgency = $4, is_ooo = $5, is_redirect = $6, updated_at = NOW()
-             WHERE account_id = $7 AND gmail_id = $8`,
+             has_urgency = $4, is_ooo = $5, is_redirect = $6,
+             intent = $7, summary = $8, status = COALESCE($9, status),
+             updated_at = NOW()
+             WHERE account_id = $10 AND gmail_id = $11`,
             [signals.lead_score, signals.has_phone, signals.extracted_phone,
-             signals.has_urgency, signals.is_ooo, signals.is_redirect, account.id, msg.id]
+             signals.has_urgency, signals.is_ooo, signals.is_redirect,
+             signals.intent, signals.summary, autoStatus,
+             account.id, msg.id]
           );
         }
       } catch (analysisErr) {

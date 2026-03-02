@@ -174,4 +174,16 @@ async function analyzeEmail(bodyText, bodyHtml, subject, anthropicKey, { throwOn
   }
 }
 
-module.exports = { analyzeEmail, getAnthropicKey, ANALYSIS_MODEL };
+/**
+ * Map AI-detected intent to an auto-status for the email.
+ * Returns null if no auto-status change is warranted.
+ */
+function intentToStatus(intent, isOoo) {
+  if (isOoo) return "ignored";
+  switch (intent) {
+    case "rejection": return "lost";
+    default: return null;
+  }
+}
+
+module.exports = { analyzeEmail, getAnthropicKey, intentToStatus, ANALYSIS_MODEL };
