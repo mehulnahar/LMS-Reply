@@ -599,31 +599,53 @@ export default function Inbox() {
                         </div>
 
                         {/* Client Info */}
-                        <div className="bg-gray-50 dark:bg-gray-800/60 rounded-lg p-3 space-y-2">
-                          <p className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">Client</p>
-                          <div className="space-y-1">
-                            {(detail.job.clientFirstName || detail.job.clientLastName || detail.job.company) && (
-                              <p className="text-sm font-medium">
-                                {detail.job.company && detail.job.company !== detail.job.clientFirstName
-                                  ? detail.job.company
-                                  : [detail.job.clientFirstName, detail.job.clientLastName].filter(Boolean).join(" ")}
-                              </p>
-                            )}
-                            {detail.job.clientEmail && (
-                              <p className="text-xs text-gray-500 dark:text-gray-400">{detail.job.clientEmail}</p>
-                            )}
-                            {(detail.job.city || detail.job.country) && (
-                              <p className="text-xs text-gray-500 dark:text-gray-400 flex items-center gap-1">
-                                <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
-                                  <path strokeLinecap="round" strokeLinejoin="round" d="M15 10.5a3 3 0 11-6 0 3 3 0 016 0z" />
-                                  <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 10.5c0 7.142-7.5 11.25-7.5 11.25S4.5 17.642 4.5 10.5a7.5 7.5 0 1115 0z" />
-                                </svg>
-                                {[detail.job.city, detail.job.country].filter(Boolean).join(", ")}
-                              </p>
-                            )}
-                            {detail.job.industry && (
-                              <p className="text-xs text-gray-400 dark:text-gray-500">{detail.job.industry}</p>
-                            )}
+                        <div className="bg-gray-50 dark:bg-gray-800/60 rounded-lg p-3 space-y-3">
+
+                          {/* Replying To — shown only when email sender ≠ Upwork account holder */}
+                          {detail.email?.fromEmail &&
+                           detail.job.clientEmail &&
+                           detail.email.fromEmail.toLowerCase() !== detail.job.clientEmail.toLowerCase() && (
+                            <div className="pb-3 border-b border-gray-200 dark:border-gray-700">
+                              <p className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-1">Replying To</p>
+                              <p className="text-sm font-medium">{detail.email.fromName || detail.email.fromEmail}</p>
+                              <p className="text-xs text-gray-500 dark:text-gray-400">{detail.email.fromEmail}</p>
+                              <p className="text-xs text-gray-400 dark:text-gray-500 mt-0.5 italic">Team member — communicating on behalf of the client</p>
+                            </div>
+                          )}
+
+                          {/* Upwork Account / Job Poster */}
+                          <div>
+                            <p className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-1">
+                              {detail.email?.fromEmail &&
+                               detail.job.clientEmail &&
+                               detail.email.fromEmail.toLowerCase() !== detail.job.clientEmail.toLowerCase()
+                                ? "Upwork Account"
+                                : "Client"}
+                            </p>
+                            <div className="space-y-1">
+                              {(detail.job.clientFirstName || detail.job.clientLastName || detail.job.company) && (
+                                <p className="text-sm font-medium">
+                                  {detail.job.company && detail.job.company !== detail.job.clientFirstName
+                                    ? detail.job.company
+                                    : [detail.job.clientFirstName, detail.job.clientLastName].filter(Boolean).join(" ")}
+                                </p>
+                              )}
+                              {detail.job.clientEmail && (
+                                <p className="text-xs text-gray-500 dark:text-gray-400">{detail.job.clientEmail}</p>
+                              )}
+                              {(detail.job.city || detail.job.country) && (
+                                <p className="text-xs text-gray-500 dark:text-gray-400 flex items-center gap-1">
+                                  <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
+                                    <path strokeLinecap="round" strokeLinejoin="round" d="M15 10.5a3 3 0 11-6 0 3 3 0 016 0z" />
+                                    <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 10.5c0 7.142-7.5 11.25-7.5 11.25S4.5 17.642 4.5 10.5a7.5 7.5 0 1115 0z" />
+                                  </svg>
+                                  {[detail.job.city, detail.job.country].filter(Boolean).join(", ")}
+                                </p>
+                              )}
+                              {detail.job.industry && (
+                                <p className="text-xs text-gray-400 dark:text-gray-500">{detail.job.industry}</p>
+                              )}
+                            </div>
                           </div>
                         </div>
 

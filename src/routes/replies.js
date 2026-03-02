@@ -179,10 +179,35 @@ RULES:
 - Always include a follow-up action — never leave the conversation hanging.`;
 
   if (job) {
+    // Determine if email sender is different from the Upwork job poster
+    const senderEmail = email.from_email?.toLowerCase();
+    const jobClientEmail = job.client_email?.toLowerCase();
+    const isDifferentPerson = senderEmail && jobClientEmail && senderEmail !== jobClientEmail;
+
+    const jobClient = [job.client_first_name, job.client_last_name].filter(Boolean).join(" ") || "Unknown";
+    const jobCompany = job.company && job.company !== job.client_first_name ? ` (${job.company})` : "";
+
     prompt += `\n\nJOB CONTEXT:
 Job Title: ${job.job_heading || "Unknown"}
-Job Description: ${job.job_description || "Not available"}
-Client: ${[job.client_first_name, job.client_last_name].filter(Boolean).join(" ") || "Unknown"}`;
+Job Description: ${(job.job_description || "Not available").substring(0, 800)}`;
+
+    if (isDifferentPerson) {
+      prompt += `\n\nIMPORTANT — Two people involved:
+- You are REPLYING TO: ${email.from_name || senderEmail} (${senderEmail}) — they are a team member communicating on behalf of the client
+- UPWORK ACCOUNT / JOB POSTER: ${jobClient}${jobCompany} (${jobClientEmail})
+Address your reply to ${email.from_name?.split(/\s/)[0] || "them"} directly, but the job requirements belong to ${job.client_first_name || jobClient}.`;
+    } else {
+      prompt += `\nClient: ${jobClient}${jobCompany}`;
+    }
+
+    if (job.country || job.city) {
+      prompt += `\nClient Location: ${[job.city, job.country].filter(Boolean).join(", ")}`;
+    }
+    if (job.hourly_budget_min || job.hourly_budget_max) {
+      prompt += `\nBudget: $${job.hourly_budget_min}–$${job.hourly_budget_max}/hr`;
+    } else if (job.amount) {
+      prompt += `\nBudget: $${job.amount} fixed`;
+    }
   }
 
   return prompt;
