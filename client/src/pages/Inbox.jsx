@@ -1,6 +1,22 @@
 import { useEffect, useState, useCallback, useMemo } from "react";
 import { api } from "../api";
 
+const INTENT_LABELS = {
+  pricing_inquiry:   { label: "Pricing",    color: "bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400" },
+  requirements:      { label: "Requirements", color: "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400" },
+  schedule_call:     { label: "Schedule Call", color: "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400" },
+  portfolio_request: { label: "Portfolio",   color: "bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400" },
+  urgent:            { label: "Urgent",      color: "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400" },
+  positive_feedback: { label: "Positive",   color: "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400" },
+  rejection:         { label: "Rejection",  color: "bg-gray-100 text-gray-500 dark:bg-gray-800 dark:text-gray-400" },
+  proposal_request:  { label: "Proposal Req", color: "bg-indigo-100 text-indigo-700 dark:bg-indigo-900/30 dark:text-indigo-400" },
+  status_update:     { label: "Status",     color: "bg-sky-100 text-sky-700 dark:bg-sky-900/30 dark:text-sky-400" },
+  change_request:    { label: "Change Req", color: "bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400" },
+  ooo:               { label: "OOO",        color: "bg-gray-100 text-gray-400 dark:bg-gray-800 dark:text-gray-500" },
+  forwarded:         { label: "Forwarded",  color: "bg-gray-100 text-gray-400 dark:bg-gray-800 dark:text-gray-500" },
+  general:           { label: "General",    color: "bg-gray-100 text-gray-500 dark:bg-gray-800 dark:text-gray-400" },
+};
+
 const STATUS_LABELS = {
   new: { label: "New", color: "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400" },
   replied: { label: "Replied", color: "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400" },
@@ -334,6 +350,11 @@ export default function Inbox() {
                         {STATUS_LABELS[email.status]?.label || email.status}
                       </span>
                     )}
+                    {email.intent && email.intent !== "general" && INTENT_LABELS[email.intent] && (
+                      <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-medium ${INTENT_LABELS[email.intent].color}`}>
+                        {INTENT_LABELS[email.intent].label}
+                      </span>
+                    )}
                     {email.hasUrgency && (
                       <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-red-100 text-red-600 dark:bg-red-900/30 dark:text-red-400 font-medium">
                         Urgent
@@ -418,7 +439,7 @@ export default function Inbox() {
             <div className="flex-1 overflow-y-auto">
               <div className="p-6 space-y-4">
                 {/* Signals Panel */}
-                {(detail.email.leadScore != null || detail.email.hasPhone || detail.email.hasUrgency || detail.email.isOoo || detail.email.isRedirect) && (
+                {(detail.email.leadScore != null || detail.email.intent || detail.email.hasPhone || detail.email.hasUrgency || detail.email.isOoo || detail.email.isRedirect) && (
                   <div className="card px-5 py-3">
                     <div className="flex flex-wrap items-center gap-2">
                       {detail.email.leadScore != null && (
@@ -433,6 +454,16 @@ export default function Inbox() {
                             <path strokeLinecap="round" strokeLinejoin="round" d="M3 13.125C3 12.504 3.504 12 4.125 12h2.25c.621 0 1.125.504 1.125 1.125v6.75C7.5 20.496 6.996 21 6.375 21h-2.25A1.125 1.125 0 013 19.875v-6.75zM9.75 8.625c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125v11.25c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V8.625zM16.5 4.125c0-.621.504-1.125 1.125-1.125h2.25C20.496 3 21 3.504 21 4.125v15.75c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V4.125z" />
                           </svg>
                           Lead: {detail.email.leadScore}
+                        </span>
+                      )}
+                      {detail.email.intent && INTENT_LABELS[detail.email.intent] && (
+                        <span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold ${INTENT_LABELS[detail.email.intent].color}`}>
+                          {INTENT_LABELS[detail.email.intent].label}
+                        </span>
+                      )}
+                      {detail.email.summary && (
+                        <span className="text-xs text-gray-500 dark:text-gray-400 italic">
+                          {detail.email.summary}
                         </span>
                       )}
                       {detail.email.hasUrgency && (
