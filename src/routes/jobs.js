@@ -64,17 +64,22 @@ router.post("/match/:emailId", requireAuth, async (req, res, next) => {
 
     const email = emailRows[0];
 
-    // Check if already matched
+    // Check if already matched (skip cache if previous attempt was an error)
     const { rows: existingJobs } = await pool.query(
       "SELECT * FROM jobs WHERE email_id = $1",
       [email.id]
     );
 
-    if (existingJobs.length > 0) {
+    if (existingJobs.length > 0 && existingJobs[0].match_status !== "error") {
       return res.json({
         job: formatJob(existingJobs[0]),
         cached: true,
       });
+    }
+
+    // Delete old error records before retrying
+    if (existingJobs.length > 0 && existingJobs[0].match_status === "error") {
+      await pool.query("DELETE FROM jobs WHERE email_id = $1", [email.id]);
     }
 
     // Query LeadHack API
