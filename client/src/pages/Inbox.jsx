@@ -207,6 +207,13 @@ export default function Inbox() {
   const [mockupDeclined, setMockupDeclined] = useState(null); // Holds { reason, alternativeSuggestion } or null
   const [promptCopied, setPromptCopied] = useState(false);    // Track Lovable prompt copy
   const [messageCopied, setMessageCopied] = useState(false);  // Track send message copy
+  // UIUP-01/05: Analysis panel + variant A/B selector state
+  const [jobAnalysisBlock, setJobAnalysisBlock] = useState(null);
+  const [linkAnalysisBlock, setLinkAnalysisBlock] = useState(null);
+  const [variantA, setVariantA] = useState(null);
+  const [variantB, setVariantB] = useState(null);
+  const [selectedVariant, setSelectedVariant] = useState(null); // 'A' or 'B' or null
+  const [analysisOpen, setAnalysisOpen] = useState(false);     // Session-persistent panel state
 
   const fetchEmails = useCallback(async () => {
     try {
@@ -267,6 +274,13 @@ export default function Inbox() {
     setMockupDeclined(null);
     setPromptCopied(false);
     setMessageCopied(false);
+    // UIUP-01/05: Clear analysis/variant state on email switch
+    setJobAnalysisBlock(null);
+    setLinkAnalysisBlock(null);
+    setVariantA(null);
+    setVariantB(null);
+    setSelectedVariant(null);
+    // NOTE: Do NOT clear analysisOpen — it persists for the session
     try {
       const data = await api.getEmail(id);
       setDetail(data);
@@ -393,7 +407,23 @@ export default function Inbox() {
         return;
       }
 
-      setReplyText(data.reply.generatedText);
+      // UIUP-01: Extract analysis blocks
+      setJobAnalysisBlock(data.reply.jobAnalysisBlock || null);
+      setLinkAnalysisBlock(data.reply.linkAnalysisBlock || null);
+
+      // UIUP-05: Handle variant A/B selection
+      if (data.reply.variantA && data.reply.variantB) {
+        setVariantA(data.reply.variantA);
+        setVariantB(data.reply.variantB);
+        setSelectedVariant(null);
+        setReplyText('');  // Force user to pick a variant
+      } else {
+        setVariantA(null);
+        setVariantB(null);
+        setSelectedVariant(null);
+        setReplyText(data.reply.generatedText);
+      }
+
       setActiveReplyId(data.reply.id);
       setActivePromptType(data.reply.promptTypeUsed || null);
       if (data.warning) setGenerationWarning(data.warning);
@@ -422,7 +452,18 @@ export default function Inbox() {
     }
   };
 
+  // UIUP-05: Variant selection handler
+  const handleVariantSelect = (variant) => {
+    setSelectedVariant(variant);
+    setReplyText(variant === 'A' ? variantA : variantB);
+    if (activeReplyId) {
+      api.recordVariantSelected(activeReplyId, variant).catch(() => {});
+    }
+  };
+
   const handleCopy = async () => {
+    // Guard: don't allow copy if variants exist but none selected
+    if (variantA && variantB && !selectedVariant) return;
     try {
       await navigator.clipboard.writeText(replyText);
       setCopied(true);
