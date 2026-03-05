@@ -73,6 +73,10 @@ export const api = {
     }),
   markReplyCopied: (id) => request(`/api/replies/${id}/copied`, { method: "PUT" }),
 
+  // MOCKUP-05: Mark mockup as sent (set mockup_sent=true on job)
+  markMockupSent: (jobId) =>
+    request(`/api/jobs/${jobId}/mockup-sent`, { method: "PUT" }),
+
   // Timezone (Claude Haiku powered)
   getTimezone: (city, country) => {
     const qs = new URLSearchParams({ city: city || "", country: country || "" }).toString();

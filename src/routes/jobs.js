@@ -355,6 +355,25 @@ router.put('/:id/client-proposal-toggle', requireAuth, async (req, res, next) =>
 });
 
 // ============================================================
+// PUT /api/jobs/:id/mockup-sent — MOCKUP-05
+// Marks mockup_sent=true for a job (after user copies send message)
+// ============================================================
+router.put('/:id/mockup-sent', requireAuth, async (req, res, next) => {
+  try {
+    const result = await pool.query(
+      'UPDATE jobs SET mockup_sent = true WHERE id = $1 AND user_id = $2 RETURNING id, mockup_sent',
+      [req.params.id, req.user.id]
+    );
+    if (result.rowCount === 0) {
+      return res.status(404).json({ error: 'Job not found' });
+    }
+    res.json({ message: 'Mockup marked as sent', mockupSent: true });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// ============================================================
 // GET /api/jobs/:id/next-steps — THREAD-09
 // Returns next_steps rows for a job, newest first
 // ============================================================
@@ -413,6 +432,8 @@ function formatJob(row) {
     // Phase 15: Thread continuation fields
     threadStage: row.thread_stage || null,
     clientRequestedProposal: row.client_requested_proposal || false,
+    // Phase 16: Mockup tracking
+    mockupSent: row.mockup_sent || false,
   };
 }
 

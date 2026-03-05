@@ -225,6 +225,8 @@ router.get("/:id", requireAuth, async (req, res, next) => {
         // Phase 15: Thread continuation fields
         threadStage: jobRows[0].thread_stage || null,
         clientRequestedProposal: jobRows[0].client_requested_proposal || false,
+        // Phase 16: Mockup tracking
+        mockupSent: jobRows[0].mockup_sent || false,
       } : null,
       replies: replyRows.map((r) => ({
         id: r.id,
