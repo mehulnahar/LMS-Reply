@@ -285,6 +285,38 @@ router.put("/:id/read", requireAuth, async (req, res, next) => {
 });
 
 // ============================================================
+// POST /api/emails/:id/open-count — THREAD-07: Manual open count increment
+// Increments open_count by 1; sets hot_signal_flagged = true when count >= 10.
+// Manual-only path for Phase 15 (no pixel tracking infrastructure yet).
+// ============================================================
+router.post('/:id/open-count', requireAuth, async (req, res, next) => {
+  try {
+    const { rows } = await pool.query(
+      `UPDATE emails
+       SET
+         open_count         = open_count + 1,
+         hot_signal_flagged = CASE WHEN (open_count + 1) >= 10 THEN true ELSE hot_signal_flagged END,
+         updated_at         = NOW()
+       WHERE id = $1 AND user_id = $2
+       RETURNING id, open_count, hot_signal_flagged`,
+      [req.params.id, req.user.id]
+    );
+
+    if (rows.length === 0) {
+      return res.status(404).json({ error: 'Email not found' });
+    }
+
+    const row = rows[0];
+    res.json({
+      openCount: row.open_count,
+      hotSignalFlagged: row.hot_signal_flagged,
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// ============================================================
 // DELETE /api/emails — Clear all emails for authenticated user
 // ============================================================
 router.delete("/", requireAuth, async (req, res, next) => {
