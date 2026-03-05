@@ -11,12 +11,12 @@ See: .planning/PROJECT.md (updated 2026-03-05)
 ## Current Position
 
 Phase: 15 of 17 (Thread Continuation Engine)
-Plan: 4 of 5 in current phase
-Status: In progress — Plan 04 complete
-Last activity: 2026-03-06 -- Phase 15 Plan 04 complete (POST /api/emails/:id/open-count endpoint for THREAD-07 hot signal detection)
+Plan: 5 of 5 in current phase -- PHASE COMPLETE
+Status: Phase 15 complete -- all 5 plans delivered
+Last activity: 2026-03-06 -- Phase 15 Plan 05 complete (thread awareness UI: stage badge, hot signal, post-call toggle, next steps panel)
 
-Progress (v2.0): [█░░░░░░░░░] 14% (1/7 phases)
-Progress (overall): [███████░░░] Phase 11 of 17 complete
+Progress (v2.0): [██░░░░░░░░] 28% (2/7 phases)
+Progress (overall): [████████░░] Phase 15 of 17 complete
 
 ## Performance Metrics
 
@@ -42,6 +42,7 @@ Progress (overall): [███████░░░] Phase 11 of 17 complete
 | Phase 15-thread-continuation-engine P02 | 3 | 2 tasks | 3 files |
 | Phase 15-thread-continuation-engine P03 | 5 | 2 tasks | 1 files |
 | Phase 15 P04 | 5 | 1 tasks | 1 files |
+| Phase 15 P05 | 3 | 3 tasks | 4 files |
 
 ## Accumulated Context
 
@@ -77,6 +78,9 @@ Recent decisions affecting current work:
 - [Phase 15-03]: reply_generation_id passed as null in next_steps INSERT — integer FK linking not required in Phase 15 (BLOCKER-01 fix)
 - [Phase 15-04]: CASE uses (open_count + 1) not open_count — reads post-increment value so hot_signal_flagged fires at exactly 10 opens
 - [Phase 15-04]: hot_signal_flagged uses ELSE hot_signal_flagged (not ELSE false) — once flagged, stays flagged permanently
+- [Phase 15-05]: API helpers added as methods on existing api object (not standalone exports) — matches codebase convention
+- [Phase 15-05]: GET /api/emails/:id job object extended with threadStage and clientRequestedProposal — detail view loads from this endpoint
+- [Phase 15-05]: Next steps fetched in selectEmail callback alongside detail load (fire-and-forget pattern)
 
 ### Pending Todos
 
@@ -90,5 +94,5 @@ Recent decisions affecting current work:
 ## Session Continuity
 
 Last session: 2026-03-06
-Stopped at: Completed 15-03-PLAN.md (replies.js full thread-continuation pipeline: 8 hooks for THREAD_CONTINUATION_V1)
+Stopped at: Completed 15-05-PLAN.md (Phase 15 complete — thread awareness UI surfaced in Inbox.jsx)
 Resume file: None
