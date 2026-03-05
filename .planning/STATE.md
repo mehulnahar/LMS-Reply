@@ -11,9 +11,9 @@ See: .planning/PROJECT.md (updated 2026-03-05)
 ## Current Position
 
 Phase: 15 of 17 (Thread Continuation Engine)
-Plan: 2 of 5 in current phase
-Status: In progress — Plan 02 complete
-Last activity: 2026-03-05 -- Phase 15 Plan 02 complete (detectThreadContext.js utility module + cc_raw in both Gmail sync paths)
+Plan: 4 of 5 in current phase
+Status: In progress — Plan 04 complete
+Last activity: 2026-03-06 -- Phase 15 Plan 04 complete (POST /api/emails/:id/open-count endpoint for THREAD-07 hot signal detection)
 
 Progress (v2.0): [█░░░░░░░░░] 14% (1/7 phases)
 Progress (overall): [███████░░░] Phase 11 of 17 complete
@@ -40,6 +40,7 @@ Progress (overall): [███████░░░] Phase 11 of 17 complete
 | Phase 14-objection-handling-thread-engine P03 | 15 | 1 tasks | 3 files |
 | Phase 15-thread-continuation-engine P01 | 8 | 1 tasks | 1 files |
 | Phase 15-thread-continuation-engine P02 | 3 | 2 tasks | 3 files |
+| Phase 15 P04 | 5 | 1 tasks | 1 files |
 
 ## Accumulated Context
 
@@ -69,20 +70,20 @@ Recent decisions affecting current work:
 - [Phase 15]: classifyThreadStage returns DISCOVERY immediately if emailText is falsy — avoids unnecessary Haiku call on null/empty email body
 - [Phase 15]: detectStallType checks THINKING pattern first before inspecting job state columns — explicit client language is the most reliable stall signal
 - [Phase 15]: cc_raw uses getHeader('Cc') || null pattern to avoid storing empty string when Cc header is absent
+- [Phase 15-04]: CASE uses (open_count + 1) not open_count — reads post-increment value so hot_signal_flagged fires at exactly 10 opens
+- [Phase 15-04]: hot_signal_flagged uses ELSE hot_signal_flagged (not ELSE false) — once flagged, stays flagged permanently
 
 ### Pending Todos
 
 - Confirm LeadHack error response shapes for pre-fetch failure handling (Phase 12)
-- Confirm email open tracking data availability for Hot Signal Detection (THREAD-07 in Phase 15) — may require Mailsuite/tracking integration or manual input
 - Run production seed after Railway deploys Phase 11: `node src/config/seeds/seed_v2_foundation.js`
 
 ### Blockers/Concerns
 
-- Email open tracking (THREAD-07) may require a third-party integration (Mailsuite) not yet connected — clarify data source before Phase 15 planning
 - Link analysis (PREFETCH-03) fetches external URLs: need to decide if this runs server-side (privacy, rate limits) or client-side (CORS); Railway server-side is safer
 
 ## Session Continuity
 
-Last session: 2026-03-05
-Stopped at: Completed 15-02-PLAN.md (Phase 15 detectThreadContext.js utility module + cc_raw in both Gmail sync paths)
+Last session: 2026-03-06
+Stopped at: Completed 15-04-PLAN.md (POST /api/emails/:id/open-count endpoint for THREAD-07 hot signal detection)
 Resume file: None
