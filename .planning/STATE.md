@@ -10,10 +10,10 @@ See: .planning/PROJECT.md (updated 2026-03-05)
 
 ## Current Position
 
-Phase: 12 of 17 (Prompt Routing + Pre-Generation)
-Plan: 0 of TBD in current phase
-Status: Ready to plan
-Last activity: 2026-03-05 -- Phase 11 complete (migration, seed, prompt template CRUD, 40+ tests)
+Phase: 15 of 17 (Thread Continuation Engine)
+Plan: 1 of TBD in current phase
+Status: In progress — Plan 01 complete
+Last activity: 2026-03-05 -- Phase 15 Plan 01 complete (migration 009: 5 schema columns for thread continuation engine)
 
 Progress (v2.0): [█░░░░░░░░░] 14% (1/7 phases)
 Progress (overall): [███████░░░] Phase 11 of 17 complete
@@ -36,6 +36,9 @@ Progress (overall): [███████░░░] Phase 11 of 17 complete
 - Trend: On track
 
 *Updated after each plan completion*
+| Phase 14-objection-handling-thread-engine P01 | 20 | 2 tasks | 2 files |
+| Phase 14-objection-handling-thread-engine P03 | 15 | 1 tasks | 3 files |
+| Phase 15-thread-continuation-engine P01 | 8 | 1 tasks | 1 files |
 
 ## Accumulated Context
 
@@ -52,6 +55,16 @@ Recent decisions affecting current work:
 - [Phase 11]: Counter-moves seeded from Email_Reply_Prompt_V2 Instruction 6 + Thread_Continuation_Prompt_V1 Instruction 4 (10 moves)
 - [Phase 11]: System prompt templates stored per-user for the first owner account (is_system=true, not deletable)
 - [v2.0 Roadmap]: Phase 12 (Prompt Routing + Pre-Generation) is the dependency gateway — Phases 13, 14, 15, 16 all depend on it
+- [Phase 14]: WHERE NOT EXISTS pattern for counter_moves seed — table has no UNIQUE constraint on counter_move_name (only PRIMARY KEY on id)
+- [Phase 14]: detectAgencySensitivity reads job post text (not email body) — input distinction documented in JSDoc
+- [Phase 14]: ALREADY_HIRED priority first in detectObjection — closed deals short-circuit before counter-move logic
+- [Phase 14-objection-handling-thread-engine]: ALREADY_HIRED regex narrowed with negative lookahead to exclude 'found someone cheaper' — price-comparison case belongs to COMPARISON not ALREADY_HIRED
+- [Phase 14-objection-handling-thread-engine]: detect-signals.test.js uses Jest unit project (no setup.js) — pure-function tests don't need DB
+- [Phase 14-objection-handling-thread-engine]: Kill Switch panel is purely informational — no action button, user re-engages manually after 30 days
+- [Phase 14-objection-handling-thread-engine]: killSwitch check placed before suppressed check in handleGenerate — DORMANT state is higher severity than OOO suppression
+- [Phase 15-thread-continuation-engine]: Migration 009 uses IF NOT EXISTS guards throughout — safe to re-run on any environment
+- [Phase 15-thread-continuation-engine]: open_count stored per email message (not per job) — hot_signal_flagged set by application when count >= 10
+- [Phase 15-thread-continuation-engine]: Sparse index on hot_signal_flagged (WHERE = true) avoids bloating index with majority-false rows
 
 ### Pending Todos
 
@@ -67,5 +80,5 @@ Recent decisions affecting current work:
 ## Session Continuity
 
 Last session: 2026-03-05
-Stopped at: Phase 11 complete. Pushed to GitHub. CI will run and Railway will auto-deploy migration.
+Stopped at: Completed 15-01-PLAN.md (Phase 15 schema migration 009 — all 5 thread continuation columns applied to Railway PostgreSQL)
 Resume file: None
