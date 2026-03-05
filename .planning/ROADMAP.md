@@ -279,7 +279,13 @@ Plans:
   - Positive: Set follow_up_count = 2 on a test lead; attempt to generate follow-up; verify Kill Switch notice returned, no AI call made, lead status = DORMANT
   - Negative: Set follow_up_count = 2 and attempt generation twice more (Day 32 and Day 15); verify Day 32 is unblocked (30 days elapsed), Day 15 still blocked
   - Edge case: Email containing both Pricing and Agency objection keywords; verify system picks the dominant objection (first detected or highest priority) and does not crash with ambiguous classification
-**Plans**: TBD
+**Plans**: 4 plans
+
+Plans:
+- [ ] 14-01-PLAN.md — detectSignals.js module (pure sync detection functions) + Migration 008 (kill_switch_at column)
+- [ ] 14-02-PLAN.md — replies.js pipeline extension: Step 0.5 signal detection, Step 2.5 kill switch, prompt augmentation, follow_up_count increment fix
+- [ ] 14-03-PLAN.md — Unit tests for detectSignals.js (TDD)
+- [ ] 14-04-PLAN.md — Inbox.jsx: Kill Switch notice panel (red panel, DORMANT notice, state management)
 
 ### Phase 15: Thread Continuation Engine
 **Goal**: Ongoing conversations are automatically classified into 6 stages, tone shifts with thread depth, post-call replies default to recap format, CC'd contacts are addressed, stall recovery strategies vary by stall type, and every reply ends with a tracked next step stored in the next_steps table
@@ -367,7 +373,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 →
 | 11. DB + Prompt Foundation | 0/TBD | Not started | - |
 | 12. Prompt Routing + Pre-Generation | 0/4 | Not started | - |
 | 13. Post-Generation Validation | 0/4 | Ready to execute | - |
-| 14. Objection Handling + Kill Switch | 0/TBD | Not started | - |
+| 14. Objection Handling + Kill Switch | 0/4 | Ready to execute | - |
 | 15. Thread Continuation Engine | 0/TBD | Not started | - |
 | 16. Lovable Mockup Generator | 0/TBD | Not started | - |
 | 17. UI Upgrades | 0/TBD | Not started | - |
