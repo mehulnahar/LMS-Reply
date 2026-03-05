@@ -24,6 +24,7 @@
   "license": "MIT",
   "dependencies": {
     "bcrypt": "^6.0.0",
+    "cheerio": "^1.2.0",
     "cors": "^2.8.5",
     "dotenv": "^16.4.7",
     "express": "^4.21.2",
@@ -46,10 +47,28 @@
     "node": ">=18.0.0"
   },
   "jest": {
-    "testEnvironment": "node",
-    "setupFilesAfterEnv": [
-      "<rootDir>/src/tests/setup.js"
-    ],
-    "testTimeout": 30000
+    "testTimeout": 30000,
+    "projects": [
+      {
+        "displayName": "unit",
+        "testEnvironment": "node",
+        "testMatch": [
+          "<rootDir>/src/tests/prompt-routing.test.js"
+        ]
+      },
+      {
+        "displayName": "integration",
+        "testEnvironment": "node",
+        "testMatch": [
+          "<rootDir>/src/tests/**/*.test.js"
+        ],
+        "testPathIgnorePatterns": [
+          "<rootDir>/src/tests/prompt-routing.test.js"
+        ],
+        "setupFilesAfterEnv": [
+          "<rootDir>/src/tests/setup.js"
+        ]
+      }
+    ]
   }
 }

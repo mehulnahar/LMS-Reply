@@ -33,6 +33,23 @@ const TONES = [
   { id: "detailed", label: "Detailed" },
 ];
 
+const PROMPT_TYPE_LABELS = {
+  'EMAIL_REPLY_V2':         'First Reply',
+  'THREAD_CONTINUATION_V1': 'Thread Continuation',
+  'FOLLOW_UP_V2':           'Follow-Up',
+  'PROPOSAL_V4':            'Proposal',
+  'LOVABLE_MOCKUP_V1':      'Lovable Mockup',
+};
+
+const PROMPT_OPTIONS = [
+  { value: '',                       label: 'Auto-detect' },
+  { value: 'EMAIL_REPLY_V2',         label: 'First Reply (V2)' },
+  { value: 'THREAD_CONTINUATION_V1', label: 'Thread Continuation (V1)' },
+  { value: 'FOLLOW_UP_V2',           label: 'Follow-Up (V2)' },
+  { value: 'PROPOSAL_V4',            label: 'Proposal (V4)' },
+  { value: 'LOVABLE_MOCKUP_V1',      label: 'Lovable Mockup (V1)' },
+];
+
 // ── ClientLocalTime component ─────────────────────────────────────────────────
 // Uses the /api/timezone endpoint (Claude Haiku) to resolve city+country to an
 // IANA timezone, then displays the client's current local time + abbreviation
@@ -161,6 +178,11 @@ export default function Inbox() {
   const [copied, setCopied] = useState(false);
   const [replyText, setReplyText] = useState("");
   const [activeReplyId, setActiveReplyId] = useState(null);
+  const [promptOverride, setPromptOverride] = useState('');
+  const [activePromptType, setActivePromptType] = useState(null);
+  const [generationWarning, setGenerationWarning] = useState('');
+  const [suppressed, setSuppressed] = useState(false);
+  const [suppressedReason, setSuppressedReason] = useState('');
 
   const fetchEmails = useCallback(async () => {
     try {
@@ -202,6 +224,10 @@ export default function Inbox() {
     setCopied(false);
     setManualLink("");
     setManualLinkError("");
+    setActivePromptType(null);
+    setGenerationWarning('');
+    setSuppressed(false);
+    setSuppressedReason('');
     try {
       const data = await api.getEmail(id);
       setDetail(data);
@@ -255,13 +281,16 @@ export default function Inbox() {
     }
   };
 
-  const handleGenerate = async () => {
+  const handleGenerate = async (source = null) => {
     if (!detail?.email?.id) return;
     setGenerating(true);
     setCopied(false);
+    setSuppressed(false);
+    setSuppressedReason('');
+    setGenerationWarning('');
     try {
       // Auto-match job first if not matched
-      if (!detail.job || detail.job.matchStatus === "error") {
+      if (!detail.job || detail.job.matchStatus === 'error') {
         try {
           const jobData = await api.matchJob(detail.email.id);
           setDetail((prev) => ({ ...prev, job: jobData.job }));
@@ -269,9 +298,27 @@ export default function Inbox() {
           // continue without job context
         }
       }
-      const data = await api.generateReply(detail.email.id, tone);
+
+      const data = await api.generateReply(detail.email.id, {
+        tone,
+        promptOverride: promptOverride || null,
+        source,
+      });
+
+      // Handle STOP suppression
+      if (data.suppressed) {
+        setSuppressed(true);
+        setSuppressedReason(data.reason || 'Generation suppressed — OOO or STOP classification');
+        setReplyText('');
+        setActiveReplyId(null);
+        return;
+      }
+
       setReplyText(data.reply.generatedText);
       setActiveReplyId(data.reply.id);
+      setActivePromptType(data.reply.promptTypeUsed || null);
+      if (data.warning) setGenerationWarning(data.warning);
+
       setDetail((prev) => ({
         ...prev,
         replies: [data.reply, ...(prev.replies || [])],
@@ -897,11 +944,29 @@ export default function Inbox() {
 
                 {/* Reply Generator */}
                 <div className="card">
-                  <div className="px-5 py-3 border-b border-gray-200 dark:border-gray-800 flex items-center justify-between">
-                    <span className="text-xs font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400">
-                      Reply
-                    </span>
+                  <div className="px-5 py-3 border-b border-gray-200 dark:border-gray-800 flex items-center justify-between gap-2 flex-wrap">
                     <div className="flex items-center gap-2">
+                      <span className="text-xs font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400">
+                        Reply
+                      </span>
+                      {/* Prompt badge — shown after first generation */}
+                      {activePromptType && !suppressed && (
+                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400 border border-blue-200 dark:border-blue-800">
+                          Using: {PROMPT_TYPE_LABELS[activePromptType] || activePromptType}
+                        </span>
+                      )}
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <select
+                        value={promptOverride}
+                        onChange={(e) => setPromptOverride(e.target.value)}
+                        title="Override auto-detected prompt"
+                        className="text-xs px-2 py-1 rounded-md border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900"
+                      >
+                        {PROMPT_OPTIONS.map((o) => (
+                          <option key={o.value} value={o.value}>{o.label}</option>
+                        ))}
+                      </select>
                       <select
                         value={tone}
                         onChange={(e) => setTone(e.target.value)}
@@ -912,7 +977,7 @@ export default function Inbox() {
                         ))}
                       </select>
                       <button
-                        onClick={handleGenerate}
+                        onClick={() => handleGenerate(null)}
                         disabled={generating}
                         className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md bg-brand-600 text-white hover:bg-brand-700 disabled:opacity-50 transition-colors"
                       >
@@ -932,8 +997,26 @@ export default function Inbox() {
                     </div>
                   </div>
                   <div className="p-5">
-                    {replyText ? (
+                    {suppressed ? (
+                      <div className="flex items-start gap-3 p-4 rounded-lg bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800">
+                        <svg className="w-4 h-4 text-amber-500 flex-shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z" />
+                        </svg>
+                        <div>
+                          <p className="text-sm font-medium text-amber-800 dark:text-amber-300">Generation Suppressed</p>
+                          <p className="text-xs text-amber-700 dark:text-amber-400 mt-0.5">{suppressedReason}</p>
+                        </div>
+                      </div>
+                    ) : replyText ? (
                       <div className="space-y-3">
+                        {generationWarning && (
+                          <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800">
+                            <svg className="w-3.5 h-3.5 text-yellow-500 flex-shrink-0" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
+                              <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z" />
+                            </svg>
+                            <p className="text-xs text-yellow-700 dark:text-yellow-400">{generationWarning}</p>
+                          </div>
+                        )}
                         <textarea
                           value={replyText}
                           onChange={(e) => setReplyText(e.target.value)}
@@ -966,7 +1049,7 @@ export default function Inbox() {
                             )}
                           </button>
                           <button
-                            onClick={handleGenerate}
+                            onClick={() => handleGenerate(null)}
                             disabled={generating}
                             className="text-xs text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300"
                           >

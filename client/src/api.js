@@ -61,8 +61,16 @@ export const api = {
     request(`/api/jobs/match-by-link/${emailId}`, { method: "POST", body: JSON.stringify({ link }) }),
 
   // Replies
-  generateReply: (emailId, tone = "professional") =>
-    request("/api/replies/generate", { method: "POST", body: JSON.stringify({ emailId, tone }) }),
+  generateReply: (emailId, options = {}) =>
+    request('/api/replies/generate', {
+      method: 'POST',
+      body: JSON.stringify({
+        emailId,
+        tone: options.tone || 'professional',
+        promptOverride: options.promptOverride || null,
+        source: options.source || null,
+      }),
+    }),
   markReplyCopied: (id) => request(`/api/replies/${id}/copied`, { method: "PUT" }),
 
   // Timezone (Claude Haiku powered)
