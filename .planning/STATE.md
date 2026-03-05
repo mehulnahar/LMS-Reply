@@ -11,9 +11,9 @@ See: .planning/PROJECT.md (updated 2026-03-05)
 ## Current Position
 
 Phase: 17 of 17 (UI Upgrades)
-Plan: 2 of 4 in current phase (2 complete)
-Status: Phase 17 in progress -- Plan 02 complete (analysis panel + variant A/B selector UI)
-Last activity: 2026-03-06 -- Phase 17 Plan 02 complete (collapsible analysis panel + variant selector in inbox)
+Plan: 3 of 4 in current phase (3 complete)
+Status: Phase 17 in progress -- Plan 03 complete (banned phrase inline highlights + mode toggle + copy-blocking)
+Last activity: 2026-03-06 -- Phase 17 Plan 03 complete (textarea overlay highlights, settings toggle, stats endpoint)
 
 Progress (v2.0): [████░░░░░░] 42% (3/7 phases)
 Progress (overall): [█████████░] Phase 17 of 17 in progress
@@ -49,6 +49,7 @@ Progress (overall): [█████████░] Phase 17 of 17 in progress
 | Phase 16-lovable-mockup-generator P04 | 4 | 2 tasks | 4 files |
 | Phase 17 P01 | 2 | 2 tasks | 2 files |
 | Phase 17 P02 | 3 | 2 tasks | 1 files |
+| Phase 17 P03 | 4 | 2 tasks | 4 files |
 
 ## Accumulated Context
 
@@ -103,6 +104,9 @@ Recent decisions affecting current work:
 - [Phase 17]: Variant parsing only for EMAIL_REPLY_V2 and FOLLOW_UP_V2; validation runs on Variant A; variant fields omitted when no delimiter found (backwards compatible)
 - [Phase 17]: analysisOpen persists across email switches (session-level, not per-email) for consistent UX
 - [Phase 17]: Ternary condition expanded to (replyText || (variantA && variantB)) to handle variant-only state where replyText is empty
+- [Phase 17]: bannedPhraseMode persisted via localStorage (not server-side) for instant UX without API round-trip
+- [Phase 17]: Stats route placed before /:id routes in replies.js to avoid Express param collision
+- [Phase 17]: Textarea overlay pattern (transparent text + absolute-positioned highlight div) for inline banned phrase marking
 
 ### Pending Todos
 
@@ -116,5 +120,5 @@ Recent decisions affecting current work:
 ## Session Continuity
 
 Last session: 2026-03-06
-Stopped at: Completed 17-02-PLAN.md (analysis panel + variant A/B selector UI in inbox)
+Stopped at: Completed 17-03-PLAN.md (banned phrase inline highlights + mode toggle + copy-blocking)
 Resume file: None
