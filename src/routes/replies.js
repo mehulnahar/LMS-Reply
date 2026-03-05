@@ -297,6 +297,39 @@ router.post("/generate", requireAuth, async (req, res, next) => {
             ['dormant', job.id]
           ).catch(() => {});
         }
+        // THREAD-06: Generate re_engagement_strategy via Haiku (fire-and-forget — never blocks kill switch response)
+        if (job && job.id) {
+          (async () => {
+            try {
+              const reEngagePrompt = `In ONE sentence (max 15 words), what specific value could reignite ${job.client_first_name || "this client"}'s interest in their ${job.job_heading || "project"}? Be concrete, not generic.`;
+              const reEngageRes = await fetch('https://api.anthropic.com/v1/messages', {
+                method: 'POST',
+                headers: {
+                  'Content-Type': 'application/json',
+                  'x-api-key': anthropicKey,
+                  'anthropic-version': '2023-06-01',
+                },
+                body: JSON.stringify({
+                  model: 'claude-3-5-haiku-20241022',
+                  max_tokens: 50,
+                  messages: [{ role: 'user', content: reEngagePrompt }],
+                }),
+              });
+              if (reEngageRes.ok) {
+                const reEngageData = await reEngageRes.json();
+                const strategy = (reEngageData.content?.[0]?.text || '').trim();
+                if (strategy) {
+                  await pool.query(
+                    'UPDATE jobs SET re_engagement_strategy = $1 WHERE id = $2',
+                    [strategy, job.id]
+                  );
+                }
+              }
+            } catch (e) {
+              console.error('replies: re_engagement_strategy generation failed:', e.message);
+            }
+          })();
+        }
         return res.json({
           killSwitch: true,
           reason: 'Maximum follow-ups reached (2). Lead moved to DORMANT. Re-engage after 30 days.',
@@ -361,7 +394,8 @@ router.post("/generate", requireAuth, async (req, res, next) => {
     // ──────────────────────────────────────────────────────────
     // Step 5: Build context + call Claude (PREFETCH-04)
     // ──────────────────────────────────────────────────────────
-    const systemPrompt = buildPromptWithContext(templateContent, email, job, linkAnalysis, tone, promptType, objectionContext);
+    const threadContext = { threadStage, clientMessageLength, stallType, ccContacts };
+    const systemPrompt = buildPromptWithContext(templateContent, email, job, linkAnalysis, tone, promptType, objectionContext, threadContext);
     const userMessage = buildUserMessage(email, job);
 
     const claudeController = new AbortController();
@@ -411,7 +445,7 @@ router.post("/generate", requireAuth, async (req, res, next) => {
     // ──────────────────────────────────────────────────────────
     // Step 6: Extract internal blocks + get clean text (PREFETCH-05)
     // ──────────────────────────────────────────────────────────
-    const { cleanText, jobAnalysisBlock, linkAnalysisBlock } = extractInternalBlocks(rawText);
+    const { cleanText, jobAnalysisBlock, linkAnalysisBlock, nextStepRawBlock } = extractInternalBlocks(rawText);
 
     // Detect intent from email
     const intent = detectIntent(email.body_text || email.snippet);
@@ -628,6 +662,34 @@ router.post("/generate", requireAuth, async (req, res, next) => {
       }
     }
 
+    // THREAD-09: next_steps INSERT for THREAD_CONTINUATION_V1 (fire-and-forget)
+    if (job && job.id && promptType === 'THREAD_CONTINUATION_V1' && nextStepRawBlock) {
+      const nextStepData = parseNextStepBlock(nextStepRawBlock);
+      // Guard: our_action is NOT NULL in DB — skip INSERT if missing (BLOCKER-02 fix)
+      if (nextStepData && nextStepData.our_action) {
+        pool.query(
+          `INSERT INTO next_steps (lead_id, reply_generation_id, our_action, their_action, followup_approach, followup_date)
+           VALUES ($1, $2, $3, $4, $5, $6::DATE)`,
+          [
+            job.id,
+            null, // reply_generation_id is INTEGER FK to reply_generations table (not replies UUID) — pass null (BLOCKER-01 fix)
+            nextStepData.our_action,
+            nextStepData.their_action || null,
+            nextStepData.followup_approach || null,
+            nextStepData.followup_date || null,
+          ]
+        ).catch((err) => console.error('replies: next_steps insert failed:', err.message));
+      }
+    }
+
+    // THREAD-01: Persist final thread_stage to jobs (fire-and-forget)
+    if (job && job.id && promptType === 'THREAD_CONTINUATION_V1') {
+      pool.query(
+        'UPDATE jobs SET thread_stage = $1::thread_stage_enum WHERE id = $2',
+        [threadStage, job.id]
+      ).catch((err) => console.error('replies: thread_stage persist failed:', err.message));
+    }
+
     const reply = replyRows[0];
     const responseBody = {
       reply: {
@@ -733,7 +795,7 @@ async function getPromptTemplate(promptType, userId, dbPool) {
  * @param {string} promptType - Current prompt type (for FOLLOW_UP_V2 angle injection)
  * @returns {string}
  */
-function buildPromptWithContext(templateContent, email, job, linkAnalysis, tone, promptType, objectionContext = {}) {
+function buildPromptWithContext(templateContent, email, job, linkAnalysis, tone, promptType, objectionContext = {}, threadContext = {}) {
   let prompt = templateContent;
 
   // Append tone modifier
@@ -839,6 +901,82 @@ Use the key finding above naturally in your reply when appropriate — don't for
     }
   }
 
+  // THREAD-02 + THREAD-03 + THREAD-08: Thread depth, tone, energy, post-call gate
+  if (promptType === 'THREAD_CONTINUATION_V1' && job) {
+    const depth = job.thread_depth || 0;
+    const stage = threadContext.threadStage || job.thread_stage || 'DISCOVERY';
+    const clientName = job.client_first_name || 'the client';
+    const energy = threadContext.clientMessageLength || 'MEDIUM';
+
+    let toneInstruction;
+    if (stage === 'POST_CALL') {
+      toneInstruction = 'Match the tone of the call. Reference specifics from the call. Lead with a recap.';
+    } else if (depth <= 3) {
+      toneInstruction = 'Slightly formal. Lead with a project-specific insight. Do not use first name yet.';
+    } else if (depth <= 6) {
+      toneInstruction = `Use first name (${clientName}). Shorter sentences. More direct. Less preamble.`;
+    } else {
+      toneInstruction = 'Ultra-casual. Drop all sales tone. Write like you already know this person well.';
+    }
+
+    const energyInstruction = energy === 'SHORT'
+      ? 'Client sent a SHORT message (< 30 words). Your reply MUST be under 60 words. Match their brevity.'
+      : energy === 'MEDIUM'
+      ? 'Client sent a MEDIUM message. Keep reply under 100 words.'
+      : 'Client sent a LONG message. Match their level of detail.';
+
+    // THREAD-03: Post-call recap gate
+    let postCallInstruction = '';
+    if (stage === 'POST_CALL') {
+      const clientRequestedProposal = job.client_requested_proposal === true;
+      if (!clientRequestedProposal) {
+        postCallInstruction = '\nPOST-CALL FORMAT: Write a RECAP reply only (under 100 words, 3-4 bullet points summarising what was discussed, next step). Do NOT write a full proposal unless the <thread_context> says proposal requested.';
+      } else {
+        postCallInstruction = '\nPOST-CALL FORMAT: Client requested a full proposal. Write a complete proposal (normal length, structured).';
+      }
+    }
+
+    prompt += `\n\n<thread_context>
+Current Stage: ${stage}
+Thread Depth: ${depth} exchanges
+Tone Instruction: ${toneInstruction}
+Energy: ${energyInstruction}${postCallInstruction}
+</thread_context>`;
+  }
+
+  // THREAD-05: Stall recovery strategy injection (STALLED stage only)
+  if (promptType === 'THREAD_CONTINUATION_V1' && (threadContext.threadStage === 'STALLED' || (job && job.thread_stage === 'STALLED'))) {
+    const stall = threadContext.stallType || (job && job.stall_type) || 'UNKNOWN';
+    const stallInstructions = {
+      THINKING:        'Wait approach. Add ONE project-specific insight that adds new value. NO call CTA in this message. Day 3 follow-up carries CTA.',
+      PRICING_SILENCE: 'Day 3: Offer a Phase 1 scoped option only (smaller scope, lower price). Day 7: Graceful close. Never defend price directly.',
+      CALL_SILENCE:    'Day 2: Recap the call highlights in 3 bullets. Day 5: Add a value insight. Day 10: Graceful close if still no response.',
+      NO_COMMITMENT:   'Offer a tangible attachment — a mockup, an audit finding, or a relevant case study. No pressure close. Make it easy to say yes.',
+      UNKNOWN:         'Add project-specific value. No CTA pressure. Keep under 60 words.',
+    };
+
+    prompt += `\n\n<stall_recovery>
+Stall Type: ${stall}
+Recovery Strategy: ${stallInstructions[stall] || stallInstructions['UNKNOWN']}
+CRITICAL: Do not push. Do not guilt. Add value only.
+</stall_recovery>`;
+  }
+
+  // THREAD-04: CC contact injection (when CC contacts exist)
+  if (promptType === 'THREAD_CONTINUATION_V1') {
+    const contacts = threadContext.ccContacts || [];
+    if (Array.isArray(contacts) && contacts.length > 0) {
+      const newPerson = contacts[0];
+      const displayName = newPerson.name || newPerson.email;
+      prompt += `\n\n<cc_handling>
+A new person (${displayName}) has been CC'd on this thread.
+In your FIRST sentence, address them by name and provide brief context:
+"Hi ${newPerson.name || 'there'}, quick context — [your name] and I have been discussing [project summary] and the next step is [next action]."
+Do not assume they have read the previous emails.
+</cc_handling>`;
+    }
+  }
+
   return prompt;
 }
 
@@ -851,23 +989,34 @@ Use the key finding above naturally in your reply when appropriate — don't for
  */
 function extractInternalBlocks(rawText) {
   if (!rawText) {
-    return { cleanText: "", jobAnalysisBlock: null, linkAnalysisBlock: null };
+    return { cleanText: "", jobAnalysisBlock: null, linkAnalysisBlock: null, nextStepRawBlock: null };
+  }
+
+  // Strip --- NEXT STEP SUMMARY (Internal) --- block before extracting clean text
+  // This block uses dash delimiters (not bracket markers) — must be handled separately
+  let processedText = rawText;
+  let nextStepRawBlock = null;
+  const nextStepBlockMatch = rawText.match(/---\s*NEXT STEP SUMMARY[^-]*---[\s\S]*?(?=---|$)/i);
+  if (nextStepBlockMatch) {
+    nextStepRawBlock = nextStepBlockMatch[0];
+    processedText = rawText.slice(0, nextStepBlockMatch.index).trim();
   }
 
   // Find the first occurrence of either block marker
-  const blockStart = rawText.search(/\[JOB ANALYSIS\]|\[LINK ANALYSIS\]/i);
+  const blockStart = processedText.search(/\[JOB ANALYSIS\]|\[LINK ANALYSIS\]/i);
 
   if (blockStart === -1) {
     // No blocks present — entire text is the clean reply
     return {
-      cleanText: rawText.trim(),
+      cleanText: processedText.trim(),
       jobAnalysisBlock: null,
       linkAnalysisBlock: null,
+      nextStepRawBlock,
     };
   }
 
-  const cleanText = rawText.substring(0, blockStart).trim();
-  const blocksSection = rawText.substring(blockStart);
+  const cleanText = processedText.substring(0, blockStart).trim();
+  const blocksSection = processedText.substring(blockStart);
 
   // Extract [JOB ANALYSIS] block content
   let jobAnalysisBlock = null;
@@ -885,7 +1034,7 @@ function extractInternalBlocks(rawText) {
     linkAnalysisBlock = linkMatch[1].trim() || null;
   }
 
-  return { cleanText, jobAnalysisBlock, linkAnalysisBlock };
+  return { cleanText, jobAnalysisBlock, linkAnalysisBlock, nextStepRawBlock };
 }
 
 function buildUserMessage(email, _job) {
