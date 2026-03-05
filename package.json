@@ -55,7 +55,8 @@
         "testMatch": [
           "<rootDir>/src/tests/prompt-routing.test.js",
           "<rootDir>/src/tests/validate-reply.test.js",
-          "<rootDir>/src/tests/detect-signals.test.js"
+          "<rootDir>/src/tests/detect-signals.test.js",
+          "<rootDir>/src/tests/lovable-generator.test.js"
         ]
       },
       {
@@ -67,7 +68,8 @@
         "testPathIgnorePatterns": [
           "<rootDir>/src/tests/prompt-routing.test.js",
           "<rootDir>/src/tests/validate-reply.test.js",
-          "<rootDir>/src/tests/detect-signals.test.js"
+          "<rootDir>/src/tests/detect-signals.test.js",
+          "<rootDir>/src/tests/lovable-generator.test.js"
         ],
         "setupFilesAfterEnv": [
           "<rootDir>/src/tests/setup.js"
