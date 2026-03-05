@@ -35,7 +35,7 @@ const OBJECTION_PATTERNS = [
   {
     type: 'ALREADY_HIRED',
     patterns: [
-      /\bfound someone\b/i,
+      /\bfound someone(?!\s+cheaper)\b/i,
       /\balready (?:hired|resolved|found)\b/i,
       /\bwent with (?:someone|another)\b/i,
       /\bno longer (?:need|looking)\b/i,

@@ -16,6 +16,7 @@ const {
   analyzeAllUrls,
 } = require("../utils/prefetch");
 const { proposalGate, bannedPhraseScanner, nextStepScanner } = require("../utils/validateReply");
+const { detectObjection, detectAgencySensitivity, detectScopeFraming } = require("../utils/detectSignals");
 
 const router = express.Router();
 
@@ -140,6 +141,60 @@ router.post("/generate", requireAuth, async (req, res, next) => {
     }
 
     // ──────────────────────────────────────────────────────────
+    // Step 0.5: Signal detection + DB persist (fire-and-forget)
+    // ──────────────────────────────────────────────────────────
+    const emailText = email.body_text || email.snippet || '';
+    const jobText = job ? (job.job_description_raw || job.job_description || '') : '';
+
+    const objectionType = detectObjection(emailText);
+
+    // Use stored agency_sensitive if already flagged — avoid overwriting with false negative
+    const agencySensitive =
+      (job && job.agency_sensitive === true)
+        ? true
+        : detectAgencySensitivity(jobText);
+
+    // Use stored scope framing if already detected — avoid overwriting a known value
+    const scopeFraming =
+      (job && job.client_scope_framing && job.client_scope_framing !== 'UNKNOWN')
+        ? job.client_scope_framing
+        : detectScopeFraming(emailText);
+
+    const currentFollowUpCount = job ? (job.follow_up_count || 0) : 0;
+
+    // Fire-and-forget DB update — never blocks response
+    if (job) {
+      pool.query(
+        `UPDATE jobs SET
+           objection_detected = $1::objection_type_enum,
+           agency_sensitive   = $2,
+           client_scope_framing = $3::scope_framing_enum
+         WHERE id = $4`,
+        [objectionType, agencySensitive, scopeFraming, job.id]
+      ).catch((err) => console.error('replies: signal update failed:', err.message));
+    }
+
+    // Load counter-move template (awaited — needed for prompt building)
+    let counterMove = null;
+    if (objectionType !== 'NONE' && job) {
+      try {
+        const { rows: cmRows } = await pool.query(
+          `SELECT counter_move_template, max_words, counter_move_name
+           FROM counter_moves
+           WHERE objection_type = $1::objection_type_enum AND active = true
+           ORDER BY id ASC LIMIT 1`,
+          [objectionType]
+        );
+        counterMove = cmRows.length > 0 ? cmRows[0] : null;
+      } catch (cmErr) {
+        console.error('replies: counter-move lookup failed:', cmErr.message);
+        // Fail open — proceed without counter-move
+      }
+    }
+
+    const objectionContext = { objectionType, agencySensitive, scopeFraming, counterMove };
+
+    // ──────────────────────────────────────────────────────────
     // Step 2: Prompt routing
     // ──────────────────────────────────────────────────────────
     const promptType = determinePromptType(email, job, { promptOverride, source });
@@ -150,6 +205,40 @@ router.post("/generate", requireAuth, async (req, res, next) => {
         reason: "OOO or suppressed intent — no reply generated",
         promptType: null,
       });
+    }
+
+    // ──────────────────────────────────────────────────────────
+    // Step 2.5: Kill Switch with 30-day re-engagement gate (OBJECTION-06)
+    // ──────────────────────────────────────────────────────────
+    if (promptType === 'FOLLOW_UP_V2' && currentFollowUpCount >= 2) {
+      // 30-day re-engagement gate: if kill_switch_at is set but more than 30 days old,
+      // allow generation and clear the kill switch to start a fresh sequence.
+      const THIRTY_DAYS_MS = 30 * 24 * 60 * 60 * 1000;
+      const killSwitchAt = job && job.kill_switch_at ? new Date(job.kill_switch_at) : null;
+      const isReEngageable = killSwitchAt && (Date.now() - killSwitchAt.getTime()) > THIRTY_DAYS_MS;
+
+      if (isReEngageable) {
+        // Clear kill switch — lead is re-entering the follow-up sequence
+        pool.query(
+          'UPDATE jobs SET kill_switch_at = NULL, match_status = $1, follow_up_count = 0 WHERE id = $2',
+          ['matched', job.id]
+        ).catch(() => {});
+        // Fall through to normal generation (do NOT return here)
+      } else {
+        // Kill switch fires: record timestamp (only if not already set)
+        if (job) {
+          pool.query(
+            'UPDATE jobs SET kill_switch_at = NOW(), match_status = $1 WHERE id = $2 AND kill_switch_at IS NULL',
+            ['dormant', job.id]
+          ).catch(() => {});
+        }
+        return res.json({
+          killSwitch: true,
+          reason: 'Maximum follow-ups reached (2). Lead moved to DORMANT. Re-engage after 30 days.',
+          followUpCount: currentFollowUpCount,
+          promptType,
+        });
+      }
     }
 
     // ──────────────────────────────────────────────────────────
@@ -207,7 +296,7 @@ router.post("/generate", requireAuth, async (req, res, next) => {
     // ──────────────────────────────────────────────────────────
     // Step 5: Build context + call Claude (PREFETCH-04)
     // ──────────────────────────────────────────────────────────
-    const systemPrompt = buildPromptWithContext(templateContent, email, job, linkAnalysis, tone, promptType);
+    const systemPrompt = buildPromptWithContext(templateContent, email, job, linkAnalysis, tone, promptType, objectionContext);
     const userMessage = buildUserMessage(email, job);
 
     const claudeController = new AbortController();
@@ -437,6 +526,19 @@ router.post("/generate", requireAuth, async (req, res, next) => {
       }
     }
 
+    // Increment follow_up_count when FOLLOW_UP_V2 is generated (OBJECTION-06)
+    // Note: This was missing from Phase 12/13 — kill switch requires accurate count
+    if (job && promptType === 'FOLLOW_UP_V2') {
+      try {
+        await pool.query(
+          'UPDATE jobs SET follow_up_count = follow_up_count + 1 WHERE id = $1',
+          [job.id]
+        );
+      } catch (fcErr) {
+        console.error('replies: failed to increment follow_up_count:', fcErr.message);
+      }
+    }
+
     // Write generation audit record to reply_generations (fail-open — never blocks response)
     // Note: lead_id is NOT NULL in reply_generations — only write when job exists
     if (job && job.id) {
@@ -566,7 +668,7 @@ async function getPromptTemplate(promptType, userId, dbPool) {
  * @param {string} promptType - Current prompt type (for FOLLOW_UP_V2 angle injection)
  * @returns {string}
  */
-function buildPromptWithContext(templateContent, email, job, linkAnalysis, tone, promptType) {
+function buildPromptWithContext(templateContent, email, job, linkAnalysis, tone, promptType, objectionContext = {}) {
   let prompt = templateContent;
 
   // Append tone modifier
@@ -615,6 +717,49 @@ Client: ${clientName}`;
     if (promptType === "FOLLOW_UP_V2" && job.follow_up_1_angle && job.follow_up_count >= 1) {
       prompt += `\n\nIMPORTANT: Follow-Up 1 used the angle: "${job.follow_up_1_angle}". Use a DIFFERENT angle for this reply.`;
     }
+  }
+
+  // OBJECTION-02: Counter-move template injection (soft instruction — Claude follows as guidance)
+  if (objectionContext.counterMove) {
+    const cm = objectionContext.counterMove;
+    prompt += `\n\n<counter_move>
+Objection type detected: ${objectionContext.objectionType}
+Counter-move strategy: ${cm.counter_move_template}
+CRITICAL: Keep your reply under ${cm.max_words} words. Follow the counter-move strategy above.
+</counter_move>`;
+  }
+
+  // OBJECTION-03: Technical Q structure enforcement
+  if (objectionContext.objectionType === 'TECHNICAL_Q') {
+    prompt += `\n\n<technical_q_pattern>
+MANDATORY STRUCTURE for this technical question reply:
+1. Answer their question directly in 1-2 sentences
+2. Ask exactly ONE curiosity question about their specific use case (not a generic question)
+3. End with a call-to-action (suggest a call)
+DO NOT ask more than one question. One question only.
+</technical_q_pattern>`;
+  }
+
+  // OBJECTION-04: Agency disclosure injection
+  if (objectionContext.agencySensitive) {
+    prompt += `\n\n<agency_disclosure>
+The client's job post signals agency sensitivity. You MUST include this disclosure in the first paragraph:
+"To be upfront — we're an agency, but for this project you'd work directly with [Name], a dedicated [role]. Same person from day one, direct Slack access."
+Replace [Name] and [role] with appropriate values from the job context. Do not omit this disclosure.
+</agency_disclosure>`;
+  }
+
+  // OBJECTION-05: Scope framing mirroring
+  if (objectionContext.scopeFraming && objectionContext.scopeFraming !== 'UNKNOWN') {
+    const framingInstructions = {
+      HOURS:  'The client thinks in HOURS. Structure your reply with hourly estimates. Never use phases or milestones.',
+      PHASES: 'The client thinks in PHASES/MILESTONES. Structure your reply with phase-based breakdown.',
+      FIXED:  'The client has a FIXED BUDGET mindset. Structure your reply around a fixed-price outcome.',
+    };
+    prompt += `\n\n<scope_framing>
+${framingInstructions[objectionContext.scopeFraming]}
+Mirror the client's structure exactly. Never impose a different framing.
+</scope_framing>`;
   }
 
   // Append link analysis block if a finding exists
