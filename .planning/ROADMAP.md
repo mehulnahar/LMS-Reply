@@ -362,7 +362,13 @@ Plans:
   - Negative: Generate a reply with no next step; verify yellow warning bar present; edit the reply to include "Can we jump on a call Thursday at 2pm?"; verify warning bar disappears without page refresh
   - Negative: Verify analysis panel content is never serialized into the clipboard payload regardless of panel expand/collapse state
   - Edge case: Generate a reply using a prompt that produces only 1 variant (Thread Continuation, Proposal V4); verify no variant selection UI appears; copy is available immediately after generation
-**Plans**: TBD
+**Plans**: 4 plans
+
+Plans:
+- [ ] 17-01-PLAN.md — Backend: analysis blocks in API response + variant A/B parsing + variant selection endpoint
+- [ ] 17-02-PLAN.md — Frontend: collapsible analysis panel (UIUP-01) + variant A/B selector (UIUP-05) + verify UIUP-03/04/06
+- [ ] 17-03-PLAN.md — Frontend: banned phrase inline highlights + mode toggle + copy-blocking (UIUP-02)
+- [ ] 17-04-PLAN.md — Lint/build verification + human verification checkpoint for all 6 UIUP requirements
 
 ---
 
@@ -389,4 +395,4 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 →
 | 14. Objection Handling + Kill Switch | 0/4 | Ready to execute | - |
 | 15. Thread Continuation Engine | 0/5 | Planned | - |
 | 16. Lovable Mockup Generator | 0/4 | Complete    | 2026-03-05 |
-| 17. UI Upgrades | 0/TBD | Not started | - |
+| 17. UI Upgrades | 0/4 | Planned | - |
