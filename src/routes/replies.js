@@ -484,6 +484,26 @@ router.post("/generate", requireAuth, async (req, res, next) => {
       }
     }
 
+    // ──────────────────────────────────────────────────────────
+    // Step 6a: Parse dual variants for V2 prompt types (UIUP-05)
+    // ──────────────────────────────────────────────────────────
+    let variantA = null;
+    let variantB = null;
+
+    if (promptType === 'EMAIL_REPLY_V2' || promptType === 'FOLLOW_UP_V2') {
+      const variantDelimiter = /---\s*VARIANT\s*B\s*---/i;
+      const parts = cleanText.split(variantDelimiter);
+
+      if (parts.length >= 2) {
+        // Strip VARIANT A marker from the first part
+        variantA = parts[0].replace(/---\s*VARIANT\s*A\s*---/i, '').trim();
+        variantB = parts[1].trim();
+
+        // Validation runs on Variant A (the primary text)
+        cleanText = variantA;
+      }
+    }
+
     // Detect intent from email
     const intent = detectIntent(email.body_text || email.snippet);
 
@@ -756,8 +776,17 @@ router.post("/generate", requireAuth, async (req, res, next) => {
         specificityFlag: specificityFlag,
         followUpSequence: followUpSequence,
         validationWarnings: validationWarnings,
+        // UIUP-01: Analysis blocks for collapsible panel
+        jobAnalysisBlock: jobAnalysisBlock || null,
+        linkAnalysisBlock: linkAnalysisBlock || null,
       },
     };
+
+    // UIUP-05: Add variant fields when dual variants were parsed
+    if (variantA && variantB) {
+      responseBody.reply.variantA = variantA;
+      responseBody.reply.variantB = variantB;
+    }
 
     // Add mockup-specific data if this was a mockup generation
     if (promptType === 'LOVABLE_MOCKUP_V1' && mockupData) {
