@@ -79,6 +79,21 @@ export const api = {
     return request(`/api/timezone?${qs}`);
   },
 
+  // THREAD-07: Increment email open count (manual hot signal tracking)
+  incrementOpenCount: (emailId) =>
+    request(`/api/emails/${emailId}/open-count`, { method: "POST" }),
+
+  // THREAD-03: Toggle client_requested_proposal flag on job (post-call recap mode)
+  togglePostCallRecap: (jobId, clientRequestedProposal) =>
+    request(`/api/jobs/${jobId}/client-proposal-toggle`, {
+      method: "PUT",
+      body: JSON.stringify({ clientRequestedProposal }),
+    }),
+
+  // THREAD-09: Fetch next steps for a job
+  getNextSteps: (jobId) =>
+    request(`/api/jobs/${jobId}/next-steps`),
+
   // Health
   health: () => request("/api/health"),
 };

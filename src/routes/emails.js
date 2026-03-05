@@ -184,6 +184,8 @@ router.get("/:id", requireAuth, async (req, res, next) => {
         isOoo: email.is_ooo,
         isRedirect: email.is_redirect,
         extractedPhone: email.extracted_phone,
+        openCount: email.open_count || 0,
+        hotSignalFlagged: email.hot_signal_flagged || false,
       },
       job: jobRows.length > 0 ? {
         id: jobRows[0].id,
@@ -220,6 +222,9 @@ router.get("/:id", requireAuth, async (req, res, next) => {
         industry: jobRows[0].industry || null,
         leadId: jobRows[0].lead_id || null,
         v2EnrichedAt: jobRows[0].v2_enriched_at || null,
+        // Phase 15: Thread continuation fields
+        threadStage: jobRows[0].thread_stage || null,
+        clientRequestedProposal: jobRows[0].client_requested_proposal || false,
       } : null,
       replies: replyRows.map((r) => ({
         id: r.id,

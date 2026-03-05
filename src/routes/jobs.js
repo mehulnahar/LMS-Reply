@@ -331,6 +331,29 @@ router.get("/:id", requireAuth, async (req, res, next) => {
   }
 });
 
+// ============================================================
+// PUT /api/jobs/:id/client-proposal-toggle — THREAD-03
+// Persists the client_requested_proposal flag per lead
+// ============================================================
+router.put('/:id/client-proposal-toggle', requireAuth, async (req, res, next) => {
+  try {
+    const { clientRequestedProposal } = req.body;
+    if (typeof clientRequestedProposal !== 'boolean') {
+      return res.status(400).json({ error: 'clientRequestedProposal must be a boolean' });
+    }
+    const { rows } = await pool.query(
+      'UPDATE jobs SET client_requested_proposal = $1 WHERE id = $2 AND user_id = $3 RETURNING id, client_requested_proposal',
+      [clientRequestedProposal, req.params.id, req.user.id]
+    );
+    if (rows.length === 0) {
+      return res.status(404).json({ error: 'Job not found' });
+    }
+    res.json({ id: rows[0].id, clientRequestedProposal: rows[0].client_requested_proposal });
+  } catch (err) {
+    next(err);
+  }
+});
+
 function formatJob(row) {
   return {
     id: row.id,
@@ -367,6 +390,9 @@ function formatJob(row) {
     industry: row.industry || null,
     leadId: row.lead_id || null,
     v2EnrichedAt: row.v2_enriched_at || null,
+    // Phase 15: Thread continuation fields
+    threadStage: row.thread_stage || null,
+    clientRequestedProposal: row.client_requested_proposal || false,
   };
 }
 

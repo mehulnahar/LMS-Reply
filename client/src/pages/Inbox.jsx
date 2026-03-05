@@ -198,6 +198,10 @@ export default function Inbox() {
   const [specificityFlag, setSpecificityFlag] = useState(false);
   const [followUpSequence, setFollowUpSequence] = useState(null); // 1 or 2 or null
   const [replyIntent, setReplyIntent] = useState(null);        // 'positive', 'neutral', etc.
+  const [emailOpenCount, setEmailOpenCount] = useState(0);
+  const [hotSignalFlagged, setHotSignalFlagged] = useState(false);
+  const [clientRequestedProposal, setClientRequestedProposal] = useState(false);
+  const [nextSteps, setNextSteps] = useState([]);
 
   const fetchEmails = useCallback(async () => {
     try {
@@ -250,6 +254,10 @@ export default function Inbox() {
     setSpecificityFlag(false);
     setFollowUpSequence(null);
     setReplyIntent(null);
+    setEmailOpenCount(0);
+    setHotSignalFlagged(false);
+    setClientRequestedProposal(false);
+    setNextSteps([]);
     try {
       const data = await api.getEmail(id);
       setDetail(data);
@@ -257,6 +265,18 @@ export default function Inbox() {
         const latest = data.replies[0];
         setReplyText(latest.editedText || latest.generatedText);
         setActiveReplyId(latest.id);
+      }
+      // Initialize thread awareness state from loaded data
+      if (data?.email) {
+        setEmailOpenCount(data.email.openCount || 0);
+        setHotSignalFlagged(data.email.hotSignalFlagged || false);
+      }
+      if (data?.job) {
+        setClientRequestedProposal(data.job.clientRequestedProposal || false);
+        // THREAD-09: Fetch next steps for the job
+        if (data.job.id) {
+          api.getNextSteps(data.job.id).then(d => setNextSteps(d.nextSteps || [])).catch(() => {});
+        }
       }
       // Mark as read in the sidebar list
       setEmails((prev) =>
@@ -783,6 +803,79 @@ export default function Inbox() {
                             <p className="text-xs text-gray-400 dark:text-gray-500 mt-0.5">
                               {[detail.job.category, detail.job.subCategory].filter(Boolean).join(" › ")}
                             </p>
+                          )}
+                          {/* Thread Stage Badge — THREAD-01 */}
+                          {detail.job.threadStage && (
+                            <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium mt-1 ${
+                              {
+                                DISCOVERY: 'bg-gray-100 text-gray-700 dark:bg-gray-700 dark:text-gray-300',
+                                CALL_BOOKING: 'bg-blue-100 text-blue-700 dark:bg-blue-900 dark:text-blue-300',
+                                POST_CALL: 'bg-purple-100 text-purple-700 dark:bg-purple-900 dark:text-purple-300',
+                                NEGOTIATION: 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900 dark:text-yellow-300',
+                                CLOSING: 'bg-green-100 text-green-700 dark:bg-green-900 dark:text-green-300',
+                                STALLED: 'bg-red-100 text-red-700 dark:bg-red-900 dark:text-red-300',
+                              }[detail.job.threadStage] || 'bg-gray-100 text-gray-700'
+                            }`}>
+                              {detail.job.threadStage.replace('_', ' ')}
+                            </span>
+                          )}
+                          {/* Open Count + Hot Signal Badge — THREAD-07 */}
+                          <div className="flex items-center gap-2 mt-1">
+                            <button
+                              onClick={async () => {
+                                try {
+                                  const result = await api.incrementOpenCount(detail.email.id);
+                                  setEmailOpenCount(result.openCount);
+                                  setHotSignalFlagged(result.hotSignalFlagged);
+                                } catch { /* silent */ }
+                              }}
+                              className="text-xs text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 underline"
+                              title="Increment email open count manually"
+                            >
+                              Opens: {emailOpenCount}
+                            </button>
+                            {hotSignalFlagged && (
+                              <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-orange-100 text-orange-700 dark:bg-orange-900 dark:text-orange-300">
+                                Sharing Internally
+                              </span>
+                            )}
+                          </div>
+                          {/* Post-Call Recap Toggle — THREAD-03 */}
+                          {detail.job && detail.job.threadStage === 'POST_CALL' && (
+                            <div className="mt-2 flex items-center gap-2">
+                              <span className="text-xs text-gray-500 dark:text-gray-400">Post-call format:</span>
+                              <button
+                                onClick={async () => {
+                                  const newVal = !clientRequestedProposal;
+                                  setClientRequestedProposal(newVal);
+                                  try {
+                                    await api.togglePostCallRecap(detail.job.id, newVal);
+                                  } catch {
+                                    setClientRequestedProposal(!newVal);
+                                  }
+                                }}
+                                className={`text-xs px-2 py-0.5 rounded border transition-colors ${
+                                  clientRequestedProposal
+                                    ? 'border-blue-400 bg-blue-50 text-blue-700 dark:bg-blue-900 dark:text-blue-300 dark:border-blue-600'
+                                    : 'border-gray-300 bg-white text-gray-600 dark:bg-gray-800 dark:text-gray-400 dark:border-gray-600'
+                                }`}
+                              >
+                                {clientRequestedProposal ? 'Full Proposal' : 'Recap Only'}
+                              </button>
+                            </div>
+                          )}
+                          {/* Next Steps Panel — THREAD-09 */}
+                          {nextSteps.length > 0 && (
+                            <div className="mt-3 border-t border-gray-200 dark:border-gray-700 pt-2">
+                              <p className="text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Next Steps</p>
+                              {nextSteps.slice(0, 3).map((ns) => (
+                                <div key={ns.id} className="mb-2 text-xs text-gray-700 dark:text-gray-300">
+                                  {ns.our_action && <p><span className="font-medium">We:</span> {ns.our_action}</p>}
+                                  {ns.their_action && <p><span className="font-medium">Them:</span> {ns.their_action}</p>}
+                                  {ns.followup_date && <p className="text-gray-400 dark:text-gray-500">Follow up: {ns.followup_date}</p>}
+                                </div>
+                              ))}
+                            </div>
                           )}
                         </div>
 
