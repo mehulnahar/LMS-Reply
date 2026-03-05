@@ -10,13 +10,13 @@ See: .planning/PROJECT.md (updated 2026-03-05)
 
 ## Current Position
 
-Phase: 16 of 17 (Lovable Mockup Generator) -- COMPLETE
-Plan: 4 of 4 in current phase (all complete)
-Status: Phase 16 complete -- all 4 plans executed (decision matrix, pipeline, tests, frontend UI)
-Last activity: 2026-03-06 -- Phase 16 Plan 04 complete (Generate Mockup button + dual clipboard + mockup_sent tracking)
+Phase: 17 of 17 (UI Upgrades)
+Plan: 1 of 4 in current phase (1 complete)
+Status: Phase 17 in progress -- Plan 01 complete (analysis blocks + variant A/B parsing)
+Last activity: 2026-03-06 -- Phase 17 Plan 01 complete (reply API extensions for analysis panel + variant selector)
 
 Progress (v2.0): [████░░░░░░] 42% (3/7 phases)
-Progress (overall): [█████████░] Phase 16 of 17 complete
+Progress (overall): [█████████░] Phase 17 of 17 in progress
 
 ## Performance Metrics
 
@@ -47,6 +47,7 @@ Progress (overall): [█████████░] Phase 16 of 17 complete
 | Phase 16-lovable-mockup-generator P02 | 3 | 1 tasks | 1 files |
 | Phase 16-lovable-mockup-generator P03 | 3 | 1 tasks | 2 files |
 | Phase 16-lovable-mockup-generator P04 | 4 | 2 tasks | 4 files |
+| Phase 17 P01 | 2 | 2 tasks | 2 files |
 
 ## Accumulated Context
 
@@ -98,6 +99,7 @@ Recent decisions affecting current work:
 - [Phase 16-04]: Mockup-sent endpoint in jobs.js (not replies.js) -- follows existing /api/jobs/:id/* route pattern
 - [Phase 16-04]: mockupSent added to both formatJob and emails.js detail response -- ensures visibility from both endpoints
 - [Phase 16-04]: Ternary chain extended (killSwitch > suppressed > mockupDeclined > mockupData > replyText > fallback)
+- [Phase 17]: Variant parsing only for EMAIL_REPLY_V2 and FOLLOW_UP_V2; validation runs on Variant A; variant fields omitted when no delimiter found (backwards compatible)
 
 ### Pending Todos
 
@@ -111,5 +113,5 @@ Recent decisions affecting current work:
 ## Session Continuity
 
 Last session: 2026-03-06
-Stopped at: Completed 16-04-PLAN.md (Phase 16 complete -- all 4 plans executed)
+Stopped at: Completed 17-01-PLAN.md (analysis blocks + variant A/B parsing in reply API)
 Resume file: None

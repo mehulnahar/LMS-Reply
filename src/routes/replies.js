@@ -1,8 +1,9 @@
 /**
  * Reply Generation Routes — REPLY-01 + Phase 12 Pipeline
  *
- * POST /api/replies/generate    — Generate AI reply (full pipeline with Step 6b validation)
- * PUT  /api/replies/:id/copied  — Mark reply as copied
+ * POST /api/replies/generate     — Generate AI reply (full pipeline with Step 6b validation)
+ * PUT  /api/replies/:id/copied   — Mark reply as copied
+ * PUT  /api/replies/:id/variant  — Record variant selection (A/B)
  */
 
 const express = require("express");
