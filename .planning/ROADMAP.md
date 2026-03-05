@@ -224,7 +224,13 @@ Plans:
   - Negative: Mock LeadHack to return a 500 error; verify generation still proceeds with warning, not hard error
   - Negative: Test with a job description containing no URLs and emails with no URLs; verify link_analysis_json is empty array, not null/undefined; verify generation still completes
   - Edge case: Test STOP classification scenario; verify no AI call is made and no reply is generated; verify user sees explanation, not blank reply area
-**Plans**: TBD
+**Plans**: 4 plans
+
+Plans:
+- [ ] 12-01-PLAN.md — Migration 006 + promptRouter.js utility + prefetch.js utility (foundation infrastructure)
+- [ ] 12-02-PLAN.md — Extend POST /api/replies/generate as full pre-generation pipeline
+- [ ] 12-03-PLAN.md — Unit tests for prompt routing and URL extraction/analysis (TDD)
+- [ ] 12-04-PLAN.md — Frontend prompt badge, override dropdown, suppression UI (Inbox.jsx + api.js)
 
 ### Phase 13: Post-Generation Validation
 **Goal**: Every generated reply passes 4 validation gates before reaching the user — Proposal Gate, Banned Phrase Scanner, Word Count Enforcement, and Next-Step Enforcement — plus 4 quality gates for follow-up and proposal output: Specificity Test, Angle Differentiation, Pricing Intelligence, and Proof Quality Gate
@@ -353,7 +359,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 →
 | 9. Team & VA Access | 0/1 | Not started | - |
 | 10. UI Polish | 0/2 | Not started | - |
 | 11. DB + Prompt Foundation | 0/TBD | Not started | - |
-| 12. Prompt Routing + Pre-Generation | 0/TBD | Not started | - |
+| 12. Prompt Routing + Pre-Generation | 0/4 | Not started | - |
 | 13. Post-Generation Validation | 0/TBD | Not started | - |
 | 14. Objection Handling + Kill Switch | 0/TBD | Not started | - |
 | 15. Thread Continuation Engine | 0/TBD | Not started | - |
