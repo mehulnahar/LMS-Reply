@@ -186,7 +186,7 @@ Plans:
 
 ---
 
-## v2.0 — Full Pipeline Upgrade (Phases 11–17)
+## v2.0 — Full Pipeline Upgrade (Phases 11-17)
 
 ### Phase 11: DB + Prompt Foundation
 **Goal**: All v2.0 database schema changes are deployed (4 new tables + leads table extended) and all 5 prompt documents are stored as editable, versioned templates in the database — the foundation every downstream phase depends on
@@ -335,7 +335,13 @@ Plans:
   - Negative: Set lead to Follow-Up Day 7 context; verify Generate Mockup button is grayed out; verify clicking it shows tooltip and does not call the AI
   - Negative: Run against a content writing job; verify NO classification, no Lovable prompt generated, alternative suggestion displayed
   - Edge case: Client site URL in link_analysis_json returns no color data (site blocked or CSS not parseable); verify system falls back to sensible design defaults without error; generated prompt is still valid
-**Plans**: TBD
+**Plans**: 4 plans
+
+Plans:
+- [ ] 16-01-PLAN.md — Decision matrix utility (mockupDecision.js) + color extraction in prefetch.js
+- [ ] 16-02-PLAN.md — replies.js pipeline extension: decision gate, mockup context injection, output parser, DB persist
+- [ ] 16-03-PLAN.md — Unit tests for mockupDecision.js decision matrix (TDD)
+- [ ] 16-04-PLAN.md — Inbox.jsx: Generate Mockup button, dual clipboard, mockup decline display, Day 7 disabled state
 
 ### Phase 17: UI Upgrades
 **Goal**: The reply editor surfaces all v2.0 intelligence in a clean, non-intrusive way — analysis panel above the editor, prompt badge with manual override, variant A/B selection for prompts that produce two variants, banned phrase highlights with mode toggle, live word count with dynamic limit, and next-step warning bar
@@ -382,5 +388,5 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 →
 | 13. Post-Generation Validation | 0/4 | Ready to execute | - |
 | 14. Objection Handling + Kill Switch | 0/4 | Ready to execute | - |
 | 15. Thread Continuation Engine | 0/5 | Planned | - |
-| 16. Lovable Mockup Generator | 0/TBD | Not started | - |
+| 16. Lovable Mockup Generator | 0/4 | Planned | - |
 | 17. UI Upgrades | 0/TBD | Not started | - |
