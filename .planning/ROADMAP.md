@@ -308,7 +308,14 @@ Plans:
   - Negative: Single-email thread (first contact from client); verify prompt routing selects Reply V2, not Thread Continuation; verify no thread_stage stored
   - Negative: Create a client email of 25 words; generate reply; verify word count is under 60; create a client email of 150 words; verify reply is not capped at 60
   - Edge case: Thread stage = STALLED after "let me think" response; verify system generates a Day 3 value-add reply with no call CTA (not a hard close); verify different strategy fires for "after pricing silence" stall vs "after call silence"
-**Plans**: TBD
+**Plans**: 5 plans
+
+Plans:
+- [ ] 15-01-PLAN.md — Migration 009: schema additions for Phase 15 (client_requested_proposal, cc_raw, stall_type, open_count, hot_signal_flagged)
+- [ ] 15-02-PLAN.md — detectThreadContext.js utility module + CC header extraction in both Gmail sync paths
+- [ ] 15-03-PLAN.md — replies.js pipeline extension: stage detection, tone injection, CC handling, stall recovery, re-engagement, NEXT STEP block, next_steps INSERT
+- [ ] 15-04-PLAN.md — POST /api/emails/:id/open-count endpoint for manual hot signal tracking
+- [ ] 15-05-PLAN.md — Inbox.jsx UI: thread stage badge, hot signal badge, post-call recap toggle
 
 ### Phase 16: Lovable Mockup Generator
 **Goal**: System evaluates every job against a decision matrix to determine if a mockup is appropriate, then generates a complete Lovable-compatible prompt with design specs (including colors from client site), sections list, and realistic sample data, plus a stage-appropriate send message under 60 words
@@ -374,6 +381,6 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 →
 | 12. Prompt Routing + Pre-Generation | 0/4 | Not started | - |
 | 13. Post-Generation Validation | 0/4 | Ready to execute | - |
 | 14. Objection Handling + Kill Switch | 0/4 | Ready to execute | - |
-| 15. Thread Continuation Engine | 0/TBD | Not started | - |
+| 15. Thread Continuation Engine | 0/5 | Planned | - |
 | 16. Lovable Mockup Generator | 0/TBD | Not started | - |
 | 17. UI Upgrades | 0/TBD | Not started | - |
