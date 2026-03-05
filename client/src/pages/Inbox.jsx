@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback, useMemo } from "react";
+import { useEffect, useState, useCallback, useMemo, useRef } from "react";
 import { api } from "../api";
 
 const INTENT_LABELS = {
@@ -214,6 +214,11 @@ export default function Inbox() {
   const [variantB, setVariantB] = useState(null);
   const [selectedVariant, setSelectedVariant] = useState(null); // 'A' or 'B' or null
   const [analysisOpen, setAnalysisOpen] = useState(false);     // Session-persistent panel state
+  // UIUP-03: Banned phrase mode (flag vs auto-rewrite) + overlay ref
+  const [bannedPhraseMode, setBannedPhraseMode] = useState(
+    () => localStorage.getItem('bannedPhraseMode') || 'auto_rewrite'
+  );
+  const overlayRef = useRef(null);
 
   const fetchEmails = useCallback(async () => {
     try {
@@ -500,6 +505,13 @@ export default function Inbox() {
     }
   };
 
+  // UIUP-03: Toggle banned phrase mode
+  const toggleBannedPhraseMode = () => {
+    const newMode = bannedPhraseMode === 'auto_rewrite' ? 'flag' : 'auto_rewrite';
+    setBannedPhraseMode(newMode);
+    localStorage.setItem('bannedPhraseMode', newMode);
+  };
+
   const timeAgo = (date) => {
     const now = new Date();
     const d = new Date(date);
@@ -535,6 +547,38 @@ export default function Inbox() {
     wordRatio < 0.9  ? 'text-emerald-600 dark:text-emerald-400'
     : wordRatio <= 1.0 ? 'text-amber-500 dark:text-amber-400'
     : 'text-red-500 dark:text-red-400';
+
+  // UIUP-03: Banned phrase inline highlighting (overlay text)
+  const highlightedText = useMemo(() => {
+    if (!replyText || bannedPhraseViolations.length === 0) return null;
+    const currentViolations = [];
+    for (const v of bannedPhraseViolations) {
+      let idx = replyText.toLowerCase().indexOf(v.phrase.toLowerCase());
+      while (idx !== -1) {
+        currentViolations.push({ ...v, index: idx, length: v.phrase.length });
+        idx = replyText.toLowerCase().indexOf(v.phrase.toLowerCase(), idx + 1);
+      }
+    }
+    if (currentViolations.length === 0) return null;
+    currentViolations.sort((a, b) => a.index - b.index);
+    const parts = [];
+    let cursor = 0;
+    for (const cv of currentViolations) {
+      if (cv.index < cursor) continue;
+      if (cv.index > cursor) parts.push(replyText.slice(cursor, cv.index));
+      parts.push(
+        <mark key={cv.index} className="bg-red-200 dark:bg-red-800/40 text-red-800 dark:text-red-300 rounded px-0.5">
+          {replyText.slice(cv.index, cv.index + cv.length)}
+        </mark>
+      );
+      cursor = cv.index + cv.length;
+    }
+    if (cursor < replyText.length) parts.push(replyText.slice(cursor));
+    return parts;
+  }, [replyText, bannedPhraseViolations]);
+
+  // UIUP-03: Copy-blocking when flag mode has unresolved violations
+  const hasUnresolvedViolations = bannedPhraseMode === 'flag' && highlightedText !== null;
 
   const noEmails = !loading && emails.length === 0;
   const noAccounts = accounts.length === 0;
@@ -1198,6 +1242,13 @@ export default function Inbox() {
                           Needs manual writing
                         </span>
                       )}
+                      {/* UIUP-03: Banned phrase mode toggle */}
+                      <div className="flex items-center gap-2 text-xs text-gray-500">
+                        <span>Phrases:</span>
+                        <button onClick={toggleBannedPhraseMode} className="text-xs font-medium text-brand-600 hover:text-brand-700 dark:text-brand-400 dark:hover:text-brand-300 underline">
+                          {bannedPhraseMode === 'flag' ? 'Flag mode' : 'Auto-rewrite'}
+                        </button>
+                      </div>
                     </div>
                     <div className="flex items-center gap-2">
                       <select
@@ -1434,24 +1485,44 @@ export default function Inbox() {
                         )}
                         {/* UIUP-05: Variant Preview Panels or Editable Textarea */}
                         {(!variantA || !variantB || selectedVariant) ? (
-                        <textarea
-                          value={replyText}
-                          onChange={(e) => {
-                            const newText = e.target.value;
-                            setReplyText(newText);
-                            // Re-evaluate next-step presence client-side on each keystroke
-                            if (newText.trim()) {
-                              const sentences = newText.split(/(?<=[.!?])\s+/).filter(Boolean);
-                              const last2 = sentences.slice(-2).join(' ');
-                              const hasQ = /\?/.test(last2);
-                              const hasAction = /\b(let me know|reply|respond|confirm|schedule|book|send|share|reach out|get back|available|connect|discuss|talk|call)\b/i.test(last2);
-                              const hasTime = /\b(today|tomorrow|monday|tuesday|wednesday|thursday|friday|this week|next week|within \d+|by end|eod|asap|soon)\b/i.test(last2);
-                              setHasNextStep(hasQ || (hasAction && hasTime));
-                            }
-                          }}
-                          rows={8}
-                          className="w-full px-4 py-3 text-sm rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 focus:outline-none focus:ring-2 focus:ring-brand-500 resize-y"
-                        />
+                        <div className="relative">
+                          {/* UIUP-03: Background highlight overlay for banned phrases in flag mode */}
+                          {highlightedText && bannedPhraseMode === 'flag' && (
+                            <div
+                              ref={overlayRef}
+                              className="absolute inset-0 px-4 py-3 text-sm whitespace-pre-wrap break-words overflow-hidden pointer-events-none font-sans leading-relaxed"
+                              aria-hidden="true"
+                            >
+                              {highlightedText}
+                            </div>
+                          )}
+                          <textarea
+                            value={replyText}
+                            onChange={(e) => {
+                              const newText = e.target.value;
+                              setReplyText(newText);
+                              // Re-evaluate next-step presence client-side on each keystroke
+                              if (newText.trim()) {
+                                const sentences = newText.split(/(?<=[.!?])\s+/).filter(Boolean);
+                                const last2 = sentences.slice(-2).join(' ');
+                                const hasQ = /\?/.test(last2);
+                                const hasAction = /\b(let me know|reply|respond|confirm|schedule|book|send|share|reach out|get back|available|connect|discuss|talk|call)\b/i.test(last2);
+                                const hasTime = /\b(today|tomorrow|monday|tuesday|wednesday|thursday|friday|this week|next week|within \d+|by end|eod|asap|soon)\b/i.test(last2);
+                                setHasNextStep(hasQ || (hasAction && hasTime));
+                              }
+                            }}
+                            onScroll={(e) => {
+                              if (overlayRef.current) overlayRef.current.scrollTop = e.target.scrollTop;
+                            }}
+                            rows={8}
+                            className={`w-full px-4 py-3 text-sm rounded-lg border border-gray-200 dark:border-gray-700 focus:outline-none focus:ring-2 focus:ring-brand-500 resize-y font-sans leading-relaxed ${
+                              highlightedText && bannedPhraseMode === 'flag'
+                                ? 'bg-transparent caret-black dark:caret-white'
+                                : 'bg-white dark:bg-gray-800'
+                            }`}
+                            style={highlightedText && bannedPhraseMode === 'flag' ? { color: 'transparent', caretColor: 'inherit' } : {}}
+                          />
+                        </div>
                         ) : (
                           <div className="grid grid-cols-2 gap-3">
                             <div className="p-3 rounded-lg border border-gray-200 dark:border-gray-700 text-sm cursor-pointer hover:border-brand-400 transition-colors" onClick={() => handleVariantSelect('A')}>
@@ -1503,7 +1574,7 @@ export default function Inbox() {
                           <div className="flex items-center gap-2">
                           <button
                             onClick={handleCopy}
-                            disabled={variantA && variantB && !selectedVariant}
+                            disabled={hasUnresolvedViolations || (variantA && variantB && !selectedVariant)}
                             className={`inline-flex items-center gap-1.5 px-4 py-2 text-xs font-medium rounded-md transition-all disabled:opacity-50 disabled:cursor-not-allowed ${
                               copied
                                 ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400"
@@ -1533,6 +1604,10 @@ export default function Inbox() {
                           >
                             Regenerate
                           </button>
+                          {/* UIUP-03: Copy-blocked warning when flag mode has violations */}
+                          {hasUnresolvedViolations && (
+                            <span className="text-xs text-red-500">Fix highlighted phrases to enable copy</span>
+                          )}
                           </div>
                           {/* Word count badge (VALIDATE-03) */}
                           {replyText && activePromptType && (
