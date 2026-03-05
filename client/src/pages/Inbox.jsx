@@ -1379,7 +1379,7 @@ export default function Inbox() {
                           </div>
                         )}
                       </div>
-                    ) : replyText ? (
+                    ) : (replyText || (variantA && variantB)) ? (
                       <div className="space-y-3">
                         {generationWarning && (
                           <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800">
@@ -1389,6 +1389,51 @@ export default function Inbox() {
                             <p className="text-xs text-yellow-700 dark:text-yellow-400">{generationWarning}</p>
                           </div>
                         )}
+                        {/* UIUP-01: Collapsible AI Analysis Panel */}
+                        {(replyText || (variantA && variantB)) && (jobAnalysisBlock || linkAnalysisBlock) && (
+                          <details open={analysisOpen} className="mb-3 text-xs text-gray-500 dark:text-gray-400 rounded-lg border border-gray-200 dark:border-gray-700">
+                            <summary onClick={(e) => { e.preventDefault(); setAnalysisOpen(!analysisOpen); }} className="cursor-pointer font-medium px-3 py-2 hover:text-gray-700 dark:hover:text-gray-300 select-none">
+                              AI Analysis (team-only — not included in clipboard)
+                            </summary>
+                            <div className="px-3 pb-3 space-y-2">
+                              {jobAnalysisBlock && (
+                                <div>
+                                  <p className="text-xs font-semibold text-gray-600 dark:text-gray-400 mb-1">Job Analysis</p>
+                                  <pre className="whitespace-pre-wrap text-xs bg-gray-50 dark:bg-gray-800 rounded-lg p-3 text-gray-700 dark:text-gray-300">{jobAnalysisBlock}</pre>
+                                </div>
+                              )}
+                              {linkAnalysisBlock && (
+                                <div>
+                                  <p className="text-xs font-semibold text-gray-600 dark:text-gray-400 mb-1">Link Analysis</p>
+                                  <pre className="whitespace-pre-wrap text-xs bg-gray-50 dark:bg-gray-800 rounded-lg p-3 text-gray-700 dark:text-gray-300">{linkAnalysisBlock}</pre>
+                                </div>
+                              )}
+                            </div>
+                          </details>
+                        )}
+                        {/* UIUP-05: Variant A/B Selector Buttons */}
+                        {variantA && variantB && (
+                          <div className="flex gap-2 mb-3">
+                            <button onClick={() => handleVariantSelect('A')}
+                              className={`flex-1 px-3 py-2 text-xs font-medium rounded-lg border transition-colors ${
+                                selectedVariant === 'A'
+                                  ? 'border-brand-500 bg-brand-50 dark:bg-brand-900/20 text-brand-700 dark:text-brand-400'
+                                  : 'border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-400 hover:border-gray-300 dark:hover:border-gray-600'
+                              }`}>
+                              Variant A — Direct
+                            </button>
+                            <button onClick={() => handleVariantSelect('B')}
+                              className={`flex-1 px-3 py-2 text-xs font-medium rounded-lg border transition-colors ${
+                                selectedVariant === 'B'
+                                  ? 'border-brand-500 bg-brand-50 dark:bg-brand-900/20 text-brand-700 dark:text-brand-400'
+                                  : 'border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-400 hover:border-gray-300 dark:hover:border-gray-600'
+                              }`}>
+                              Variant B — Value-First
+                            </button>
+                          </div>
+                        )}
+                        {/* UIUP-05: Variant Preview Panels or Editable Textarea */}
+                        {(!variantA || !variantB || selectedVariant) ? (
                         <textarea
                           value={replyText}
                           onChange={(e) => {
@@ -1407,6 +1452,18 @@ export default function Inbox() {
                           rows={8}
                           className="w-full px-4 py-3 text-sm rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 focus:outline-none focus:ring-2 focus:ring-brand-500 resize-y"
                         />
+                        ) : (
+                          <div className="grid grid-cols-2 gap-3">
+                            <div className="p-3 rounded-lg border border-gray-200 dark:border-gray-700 text-sm cursor-pointer hover:border-brand-400 transition-colors" onClick={() => handleVariantSelect('A')}>
+                              <p className="text-xs font-semibold text-gray-500 mb-1">Variant A — Direct</p>
+                              <p className="text-xs text-gray-700 dark:text-gray-300 whitespace-pre-wrap">{variantA}</p>
+                            </div>
+                            <div className="p-3 rounded-lg border border-gray-200 dark:border-gray-700 text-sm cursor-pointer hover:border-brand-400 transition-colors" onClick={() => handleVariantSelect('B')}>
+                              <p className="text-xs font-semibold text-gray-500 mb-1">Variant B — Value-First</p>
+                              <p className="text-xs text-gray-700 dark:text-gray-300 whitespace-pre-wrap">{variantB}</p>
+                            </div>
+                          </div>
+                        )}
                         {/* Next-step warning bar (VALIDATE-04) */}
                         {replyText && !hasNextStep && (
                           <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-amber-50 border border-amber-200 dark:bg-amber-900/20 dark:border-amber-800 text-xs text-amber-700 dark:text-amber-400">
@@ -1446,7 +1503,8 @@ export default function Inbox() {
                           <div className="flex items-center gap-2">
                           <button
                             onClick={handleCopy}
-                            className={`inline-flex items-center gap-1.5 px-4 py-2 text-xs font-medium rounded-md transition-all ${
+                            disabled={variantA && variantB && !selectedVariant}
+                            className={`inline-flex items-center gap-1.5 px-4 py-2 text-xs font-medium rounded-md transition-all disabled:opacity-50 disabled:cursor-not-allowed ${
                               copied
                                 ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400"
                                 : "bg-gray-900 text-white dark:bg-gray-100 dark:text-gray-900 hover:bg-gray-800 dark:hover:bg-gray-200"
