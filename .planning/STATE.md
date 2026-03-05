@@ -12,8 +12,8 @@ See: .planning/PROJECT.md (updated 2026-03-05)
 
 Phase: 16 of 17 (Lovable Mockup Generator)
 Plan: 3 of 4 in current phase
-Status: Phase 16 in progress -- Plan 03 complete (decision matrix unit tests)
-Last activity: 2026-03-06 -- Phase 16 Plan 03 complete (24 unit tests for evaluateMockupDecision)
+Status: Phase 16 in progress -- Plan 02 complete (pipeline integration), Plan 03 complete (unit tests)
+Last activity: 2026-03-06 -- Phase 16 Plan 02 complete (mockup decision gate + context injection + output parser in replies.js)
 
 Progress (v2.0): [███░░░░░░░] 28% (2/7 phases)
 Progress (overall): [████████░░] Phase 16 of 17 in progress
@@ -44,6 +44,7 @@ Progress (overall): [████████░░] Phase 16 of 17 in progress
 | Phase 15 P04 | 5 | 1 tasks | 1 files |
 | Phase 15 P05 | 3 | 3 tasks | 4 files |
 | Phase 16-lovable-mockup-generator P01 | 3 | 2 tasks | 2 files |
+| Phase 16-lovable-mockup-generator P02 | 3 | 1 tasks | 1 files |
 | Phase 16-lovable-mockup-generator P03 | 3 | 1 tasks | 2 files |
 
 ## Accumulated Context
@@ -86,6 +87,10 @@ Recent decisions affecting current work:
 - [Phase 16-01]: Service NO keywords (SEO, content, data_entry) take priority over YES keywords; Infra NO keywords (devops, backend) yield to YES keywords
 - [Phase 16-01]: Budget gate treats null/0/empty as no-budget-info (pass through), only blocks when amount > 0 AND < 1000
 - [Phase 16-01]: Color extraction filters static NON_BRAND_COLORS set (black, white, grays) and caps at 10 colors
+- [Phase 16-02]: cleanText override (not validatedText) for mockup sendMessage -- flows through existing validation pipeline naturally
+- [Phase 16-02]: Day 7 gate checked before decision matrix -- follow_up_count >= 2 is cheaper than keyword scanning
+- [Phase 16-02]: parseMockupOutput uses rawText (not cleanText) -- mockup structured output uses different markers than extractInternalBlocks
+- [Phase 16-02]: let destructuring for extractInternalBlocks result -- enables cleanText reassignment for mockup sendMessage override
 - [Phase 16-03]: Test inputs adjusted to actual regex behavior rather than hypothetical matches — deferred content_writ word boundary fix to maintenance pass
 - [Phase 16-03]: lovable-generator.test.js registered in Jest unit project (no setup.js/DB dependency)
 
@@ -101,5 +106,5 @@ Recent decisions affecting current work:
 ## Session Continuity
 
 Last session: 2026-03-06
-Stopped at: Completed 16-03-PLAN.md (decision matrix unit tests)
+Stopped at: Completed 16-02-PLAN.md (pipeline integration for mockup decision gate + context injection + output parser)
 Resume file: None
