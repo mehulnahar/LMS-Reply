@@ -253,7 +253,13 @@ Plans:
   - Negative: Generate a proposal with no metrics in the proof section; verify proof section is stripped from clipboard output, not passed through
   - Negative: Generate a follow-up with a next step present; verify no warning bar appears; then remove the next step from the editor; verify warning bar reappears
   - Edge case: Generate Follow-Up 2 when Follow-Up 1 has never been generated (no angle stored); verify system handles gracefully with no crash, uses a default angle
-**Plans**: TBD
+**Plans**: 4 plans
+
+Plans:
+- [ ] 13-01-PLAN.md — Migration 007 + validateReply.js utility (all scanner functions)
+- [ ] 13-02-PLAN.md — replies.js Step 6b validation pipeline + Haiku specificity loop + angle extraction
+- [ ] 13-03-PLAN.md — Unit tests for validateReply.js (TDD)
+- [ ] 13-04-PLAN.md — Inbox.jsx: word count badge, next-step warning bar, banned phrase list, specificity badge
 
 ### Phase 14: Objection Handling + Kill Switch
 **Goal**: System detects client objections before generating and routes to the correct counter-move template; agency sensitivity auto-inserts disclosure; scope framing is mirrored; follow-up sequence is capped at 2 with automatic DORMANT transition on the third attempt
@@ -360,7 +366,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 →
 | 10. UI Polish | 0/2 | Not started | - |
 | 11. DB + Prompt Foundation | 0/TBD | Not started | - |
 | 12. Prompt Routing + Pre-Generation | 0/4 | Not started | - |
-| 13. Post-Generation Validation | 0/TBD | Not started | - |
+| 13. Post-Generation Validation | 0/4 | Ready to execute | - |
 | 14. Objection Handling + Kill Switch | 0/TBD | Not started | - |
 | 15. Thread Continuation Engine | 0/TBD | Not started | - |
 | 16. Lovable Mockup Generator | 0/TBD | Not started | - |
