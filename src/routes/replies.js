@@ -829,6 +829,50 @@ router.put("/:id/copied", requireAuth, async (req, res, next) => {
 });
 
 // ============================================================
+// PUT /api/replies/:id/variant — Record variant selection (UIUP-05)
+// ============================================================
+router.put("/:id/variant", requireAuth, async (req, res, next) => {
+  try {
+    const { variant } = req.body;
+
+    if (!variant || !['A', 'B'].includes(variant)) {
+      return res.status(400).json({ error: "variant must be 'A' or 'B'" });
+    }
+
+    // Find the reply and its associated job
+    const replyResult = await pool.query(
+      "SELECT job_id FROM replies WHERE id = $1 AND user_id = $2",
+      [req.params.id, req.user.id]
+    );
+
+    if (replyResult.rowCount === 0) {
+      return res.status(404).json({ error: "Reply not found" });
+    }
+
+    const jobId = replyResult.rows[0].job_id;
+
+    // Update the most recent reply_generations record for this job
+    const updateResult = await pool.query(
+      `UPDATE reply_generations SET variant_selected = $1
+       WHERE id = (
+         SELECT id FROM reply_generations WHERE lead_id = $2
+         ORDER BY created_at DESC LIMIT 1
+       )
+       RETURNING id`,
+      [variant, jobId]
+    );
+
+    if (updateResult.rowCount === 0) {
+      return res.status(404).json({ error: "No generation record found for this reply" });
+    }
+
+    res.json({ message: "Variant recorded" });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// ============================================================
 // Helpers
 // ============================================================
 

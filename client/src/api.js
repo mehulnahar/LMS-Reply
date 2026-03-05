@@ -72,6 +72,8 @@ export const api = {
       }),
     }),
   markReplyCopied: (id) => request(`/api/replies/${id}/copied`, { method: "PUT" }),
+  recordVariantSelected: (replyId, variant) =>
+    request(`/api/replies/${replyId}/variant`, { method: "PUT", body: JSON.stringify({ variant }) }),
 
   // MOCKUP-05: Mark mockup as sent (set mockup_sent=true on job)
   markMockupSent: (jobId) =>
