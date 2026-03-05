@@ -40,6 +40,7 @@ Progress (overall): [███████░░░] Phase 11 of 17 complete
 | Phase 14-objection-handling-thread-engine P03 | 15 | 1 tasks | 3 files |
 | Phase 15-thread-continuation-engine P01 | 8 | 1 tasks | 1 files |
 | Phase 15-thread-continuation-engine P02 | 3 | 2 tasks | 3 files |
+| Phase 15-thread-continuation-engine P03 | 5 | 2 tasks | 1 files |
 | Phase 15 P04 | 5 | 1 tasks | 1 files |
 
 ## Accumulated Context
@@ -70,6 +71,10 @@ Recent decisions affecting current work:
 - [Phase 15]: classifyThreadStage returns DISCOVERY immediately if emailText is falsy — avoids unnecessary Haiku call on null/empty email body
 - [Phase 15]: detectStallType checks THINKING pattern first before inspecting job state columns — explicit client language is the most reliable stall signal
 - [Phase 15]: cc_raw uses getHeader('Cc') || null pattern to avoid storing empty string when Cc header is absent
+- [Phase 15-03]: Thread context detection placed after promptType determination (Step 2.5a) not literally in Step 0.5 — promptType must be known before THREAD_CONTINUATION_V1 gate (ReferenceError prevention)
+- [Phase 15-03]: STALLED maps to rank -1 in non-regressing stage logic — STALLED is orthogonal to forward progression, can override any stage
+- [Phase 15-03]: re_engagement_strategy Haiku call wrapped in async IIFE — kill switch response fires immediately without Haiku latency
+- [Phase 15-03]: reply_generation_id passed as null in next_steps INSERT — integer FK linking not required in Phase 15 (BLOCKER-01 fix)
 - [Phase 15-04]: CASE uses (open_count + 1) not open_count — reads post-increment value so hot_signal_flagged fires at exactly 10 opens
 - [Phase 15-04]: hot_signal_flagged uses ELSE hot_signal_flagged (not ELSE false) — once flagged, stays flagged permanently
 
@@ -85,5 +90,5 @@ Recent decisions affecting current work:
 ## Session Continuity
 
 Last session: 2026-03-06
-Stopped at: Completed 15-04-PLAN.md (POST /api/emails/:id/open-count endpoint for THREAD-07 hot signal detection)
+Stopped at: Completed 15-03-PLAN.md (replies.js full thread-continuation pipeline: 8 hooks for THREAD_CONTINUATION_V1)
 Resume file: None
