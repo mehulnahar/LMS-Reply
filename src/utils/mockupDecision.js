@@ -177,7 +177,7 @@ function inferWhatToMockup(text, categoryKey, jobHeading) {
  * @param {Object|null} email - Email row (currently unused, reserved for future extension)
  * @returns {{ shouldBuild: boolean, projectType: string, whatToMockup: string|null, alternativeSuggestion: string|null }}
  */
-function evaluateMockupDecision(job, email) {
+function evaluateMockupDecision(job, _email) {
   // Null safety: treat missing job as empty object
   const safeJob = job || {};
 

@@ -210,6 +210,98 @@ function extractUrls(...textSources) {
 }
 
 // ============================================================
+// extractColorsFromHtml (internal helper — not exported)
+// ============================================================
+
+// Common non-brand colors to filter out (lowercase, normalized)
+const NON_BRAND_COLORS = new Set([
+  '#000', '#000000',
+  '#fff', '#ffffff',
+  '#333', '#333333',
+  '#666', '#666666',
+  '#999', '#999999',
+  '#ccc', '#cccccc',
+]);
+
+const HEX_REGEX = /#(?:[0-9a-fA-F]{3}){1,2}\b/g;
+const RGB_REGEX = /rgba?\(\s*\d{1,3}\s*,\s*\d{1,3}\s*,\s*\d{1,3}(?:\s*,\s*[\d.]+)?\s*\)/g;
+
+/**
+ * Extracts brand-relevant colors from HTML via Cheerio instance.
+ *
+ * Scans:
+ *   1. All elements with style="" attributes
+ *   2. All <style> tag contents
+ *   3. <meta name="theme-color"> content
+ *
+ * Filters out common non-brand colors (black, white, grays).
+ * Returns up to 10 unique colors. Returns [] if none found.
+ *
+ * @param {CheerioAPI} $ - Cheerio instance loaded with HTML
+ * @returns {string[]} Array of color strings (hex and rgb/rgba)
+ */
+function extractColorsFromHtml($) {
+  const seen = new Set();
+  const colors = [];
+
+  /**
+   * Adds colors from a text string, deduplicating and filtering.
+   */
+  function collectFromText(text) {
+    if (!text) return;
+
+    // Extract hex colors
+    const hexMatches = text.match(HEX_REGEX) || [];
+    for (const hex of hexMatches) {
+      const normalized = hex.toLowerCase();
+      if (NON_BRAND_COLORS.has(normalized)) continue;
+      if (seen.has(normalized)) continue;
+      seen.add(normalized);
+      colors.push(hex);
+      if (colors.length >= 10) return;
+    }
+
+    if (colors.length >= 10) return;
+
+    // Extract rgb/rgba colors
+    const rgbMatches = text.match(RGB_REGEX) || [];
+    for (const rgb of rgbMatches) {
+      const normalized = rgb.replace(/\s+/g, '');
+      if (seen.has(normalized)) continue;
+      seen.add(normalized);
+      colors.push(rgb);
+      if (colors.length >= 10) return;
+    }
+  }
+
+  // 1. Scan elements with style attributes
+  $('[style]').each(function () {
+    if (colors.length >= 10) return false;
+    const styleVal = $(this).attr('style') || '';
+    collectFromText(styleVal);
+  });
+
+  // 2. Scan <style> tag contents
+  if (colors.length < 10) {
+    $('style').each(function () {
+      if (colors.length >= 10) return false;
+      const cssText = $(this).html() || '';
+      collectFromText(cssText);
+    });
+  }
+
+  // 3. Check <meta name="theme-color">
+  if (colors.length < 10) {
+    const themeColor = $('meta[name="theme-color"]').attr('content');
+    if (themeColor) {
+      collectFromText(themeColor);
+    }
+  }
+
+  return colors;
+}
+
+// ============================================================
 // analyzeUrl
 // ============================================================
 
@@ -231,6 +323,7 @@ async function analyzeUrl(url) {
     description: null,
     h1: null,
     techStack: [],
+    colors: [],
     findings: [],
     bestFindingForReply: null,
     error: null,
@@ -296,6 +389,9 @@ async function analyzeUrl(url) {
     }
 
     result.techStack = techFromScripts;
+
+    // Extract brand colors from HTML
+    result.colors = extractColorsFromHtml($);
 
     // Build findings: tech signals
     for (const tech of result.techStack) {
