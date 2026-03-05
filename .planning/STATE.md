@@ -11,9 +11,9 @@ See: .planning/PROJECT.md (updated 2026-03-05)
 ## Current Position
 
 Phase: 15 of 17 (Thread Continuation Engine)
-Plan: 1 of TBD in current phase
-Status: In progress — Plan 01 complete
-Last activity: 2026-03-05 -- Phase 15 Plan 01 complete (migration 009: 5 schema columns for thread continuation engine)
+Plan: 2 of 5 in current phase
+Status: In progress — Plan 02 complete
+Last activity: 2026-03-05 -- Phase 15 Plan 02 complete (detectThreadContext.js utility module + cc_raw in both Gmail sync paths)
 
 Progress (v2.0): [█░░░░░░░░░] 14% (1/7 phases)
 Progress (overall): [███████░░░] Phase 11 of 17 complete
@@ -39,6 +39,7 @@ Progress (overall): [███████░░░] Phase 11 of 17 complete
 | Phase 14-objection-handling-thread-engine P01 | 20 | 2 tasks | 2 files |
 | Phase 14-objection-handling-thread-engine P03 | 15 | 1 tasks | 3 files |
 | Phase 15-thread-continuation-engine P01 | 8 | 1 tasks | 1 files |
+| Phase 15-thread-continuation-engine P02 | 3 | 2 tasks | 3 files |
 
 ## Accumulated Context
 
@@ -65,6 +66,9 @@ Recent decisions affecting current work:
 - [Phase 15-thread-continuation-engine]: Migration 009 uses IF NOT EXISTS guards throughout — safe to re-run on any environment
 - [Phase 15-thread-continuation-engine]: open_count stored per email message (not per job) — hot_signal_flagged set by application when count >= 10
 - [Phase 15-thread-continuation-engine]: Sparse index on hot_signal_flagged (WHERE = true) avoids bloating index with majority-false rows
+- [Phase 15]: classifyThreadStage returns DISCOVERY immediately if emailText is falsy — avoids unnecessary Haiku call on null/empty email body
+- [Phase 15]: detectStallType checks THINKING pattern first before inspecting job state columns — explicit client language is the most reliable stall signal
+- [Phase 15]: cc_raw uses getHeader('Cc') || null pattern to avoid storing empty string when Cc header is absent
 
 ### Pending Todos
 
@@ -80,5 +84,5 @@ Recent decisions affecting current work:
 ## Session Continuity
 
 Last session: 2026-03-05
-Stopped at: Completed 15-01-PLAN.md (Phase 15 schema migration 009 — all 5 thread continuation columns applied to Railway PostgreSQL)
+Stopped at: Completed 15-02-PLAN.md (Phase 15 detectThreadContext.js utility module + cc_raw in both Gmail sync paths)
 Resume file: None
