@@ -354,6 +354,26 @@ router.put('/:id/client-proposal-toggle', requireAuth, async (req, res, next) =>
   }
 });
 
+// ============================================================
+// GET /api/jobs/:id/next-steps — THREAD-09
+// Returns next_steps rows for a job, newest first
+// ============================================================
+router.get('/:id/next-steps', requireAuth, async (req, res, next) => {
+  try {
+    const { rows } = await pool.query(
+      `SELECT id, our_action, their_action, followup_approach, followup_date, created_at
+       FROM next_steps
+       WHERE lead_id = $1
+       ORDER BY created_at DESC
+       LIMIT 10`,
+      [req.params.id]
+    );
+    res.json({ nextSteps: rows });
+  } catch (err) {
+    next(err);
+  }
+});
+
 function formatJob(row) {
   return {
     id: row.id,
