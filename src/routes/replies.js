@@ -24,6 +24,7 @@ const {
   parseCcContacts,
   parseNextStepBlock,
 } = require('../utils/detectThreadContext');
+const { evaluateMockupDecision } = require('../utils/mockupDecision');
 
 const router = express.Router();
 
@@ -273,6 +274,30 @@ router.post("/generate", requireAuth, async (req, res, next) => {
     }
 
     // ──────────────────────────────────────────────────────────
+    // Step 2.5b: Mockup Decision Gate (MOCKUP-01, MOCKUP-05)
+    // ──────────────────────────────────────────────────────────
+    if (promptType === 'LOVABLE_MOCKUP_V1') {
+      // MOCKUP-05: Follow-Up Day 7 gate — block mockup generation after 2 follow-ups
+      if (job && job.follow_up_count >= 2) {
+        return res.json({
+          mockupDeclined: true,
+          reason: 'Mockup window closed -- Day 7+ leads should use a different value angle',
+          alternativeSuggestion: 'Use a technical insight or case study instead',
+        });
+      }
+
+      // MOCKUP-01: Decision matrix — check if job type is appropriate for mockup
+      const decision = evaluateMockupDecision(job, email);
+      if (!decision.shouldBuild) {
+        return res.json({
+          mockupDeclined: true,
+          reason: `Not a visual project type (${decision.projectType})`,
+          alternativeSuggestion: decision.alternativeSuggestion,
+        });
+      }
+    }
+
+    // ──────────────────────────────────────────────────────────
     // Step 2.5: Kill Switch with 30-day re-engagement gate (OBJECTION-06)
     // ──────────────────────────────────────────────────────────
     if (promptType === 'FOLLOW_UP_V2' && currentFollowUpCount >= 2) {
@@ -445,7 +470,19 @@ router.post("/generate", requireAuth, async (req, res, next) => {
     // ──────────────────────────────────────────────────────────
     // Step 6: Extract internal blocks + get clean text (PREFETCH-05)
     // ──────────────────────────────────────────────────────────
-    const { cleanText, jobAnalysisBlock, linkAnalysisBlock, nextStepRawBlock } = extractInternalBlocks(rawText);
+    let { cleanText, jobAnalysisBlock, linkAnalysisBlock, nextStepRawBlock } = extractInternalBlocks(rawText);
+
+    // MOCKUP-02: Parse mockup-specific output blocks
+    let mockupData = null;
+    if (promptType === 'LOVABLE_MOCKUP_V1') {
+      mockupData = parseMockupOutput(rawText);
+
+      // For mockup: the "reply text" shown to user is the send message
+      // The lovable prompt is a separate copyable field
+      if (mockupData.sendMessage) {
+        cleanText = mockupData.sendMessage;
+      }
+    }
 
     // Detect intent from email
     const intent = detectIntent(email.body_text || email.snippet);
@@ -625,6 +662,16 @@ router.post("/generate", requireAuth, async (req, res, next) => {
       }
     }
 
+    // MOCKUP-02 + MOCKUP-05: Persist mockup data to jobs table
+    if (promptType === 'LOVABLE_MOCKUP_V1' && job && job.id && mockupData) {
+      if (mockupData.lovablePrompt) {
+        pool.query(
+          'UPDATE jobs SET mockup_lovable_prompt = $1 WHERE id = $2',
+          [mockupData.lovablePrompt, job.id]
+        ).catch((err) => console.error('replies: mockup prompt persist failed:', err.message));
+      }
+    }
+
     // Increment follow_up_count when FOLLOW_UP_V2 is generated (OBJECTION-06)
     // Note: This was missing from Phase 12/13 — kill switch requires accurate count
     if (job && promptType === 'FOLLOW_UP_V2') {
@@ -711,6 +758,15 @@ router.post("/generate", requireAuth, async (req, res, next) => {
         validationWarnings: validationWarnings,
       },
     };
+
+    // Add mockup-specific data if this was a mockup generation
+    if (promptType === 'LOVABLE_MOCKUP_V1' && mockupData) {
+      responseBody.reply.mockupData = {
+        lovablePrompt: mockupData.lovablePrompt,
+        sendMessage: mockupData.sendMessage,
+        mockupAnalysis: mockupData.mockupAnalysis,
+      };
+    }
 
     // Only include warning field if there were prefetch failures
     if (prefetchWarnings.length > 0) {
@@ -977,6 +1033,38 @@ Do not assume they have read the previous emails.
     }
   }
 
+  // MOCKUP-02 + MOCKUP-03: Mockup-specific context injection
+  if (promptType === 'LOVABLE_MOCKUP_V1') {
+    // Determine conversation stage for send message variant
+    let mockupStage = 'with_proposal'; // default: cold
+    if (job) {
+      const depth = job.thread_depth || 0;
+      const stage = threadContext.threadStage || job.thread_stage || 'DISCOVERY';
+      if (stage === 'POST_CALL') {
+        mockupStage = 'after_call';
+      } else if (depth >= 1 || job.follow_up_count >= 1) {
+        mockupStage = 'follow_up_day_3';
+      }
+    }
+
+    prompt += `\n\n<mockup_context>
+Conversation Stage for Send Message: ${mockupStage}
+Generate the SEND MESSAGE using the "${mockupStage}" template from the prompt.
+</mockup_context>`;
+
+    // Inject brand colors from link analysis if available (MOCKUP-02)
+    if (Array.isArray(linkAnalysis) && linkAnalysis.length > 0) {
+      const siteWithColors = linkAnalysis.find((r) => r.colors && r.colors.length > 0);
+      if (siteWithColors) {
+        prompt += `\n\n<brand_colors>
+Colors extracted from client's site (${siteWithColors.url}):
+${siteWithColors.colors.join(', ')}
+Use these as the primary color palette in the DESIGN section of the Lovable prompt.
+</brand_colors>`;
+      }
+    }
+  }
+
   return prompt;
 }
 
@@ -1157,6 +1245,59 @@ async function extractFollowUpAngle(text, anthropicKey) {
   } catch {
     return null;
   }
+}
+
+/**
+ * Parses Claude's LOVABLE_MOCKUP_V1 structured output into separate blocks.
+ * Handles missing markers gracefully (Pitfall 3 from research).
+ *
+ * @param {string} rawText - Full Claude output
+ * @returns {{ mockupAnalysis: string|null, lovablePrompt: string|null, sendMessage: string|null }}
+ */
+function parseMockupOutput(rawText) {
+  const result = {
+    mockupAnalysis: null,
+    lovablePrompt: null,
+    sendMessage: null,
+  };
+
+  if (!rawText) return result;
+
+  // Extract [MOCKUP ANALYSIS] block
+  const analysisMatch = rawText.match(
+    /\[MOCKUP ANALYSIS\]([\s\S]*?)(?=\[LOVABLE PROMPT\]|$)/i
+  );
+  if (analysisMatch) {
+    result.mockupAnalysis = analysisMatch[1].trim();
+  }
+
+  // Extract [LOVABLE PROMPT] block
+  const promptMatch = rawText.match(
+    /\[LOVABLE PROMPT\]([\s\S]*?)(?=\[SEND MESSAGE\]|$)/i
+  );
+  if (promptMatch) {
+    result.lovablePrompt = promptMatch[1].trim();
+  }
+
+  // Extract [SEND MESSAGE] block
+  const messageMatch = rawText.match(
+    /\[SEND MESSAGE\]([\s\S]*?)(?=\[DEPLOYMENT NOTE\]|$)/i
+  );
+  if (messageMatch) {
+    result.sendMessage = messageMatch[1].trim();
+  }
+
+  // Fallback: if no markers found at all, treat entire text as lovable prompt
+  if (!result.lovablePrompt && !result.sendMessage && !result.mockupAnalysis) {
+    result.lovablePrompt = rawText.trim();
+  }
+
+  // Fallback: if lovable prompt exists but no send message, generate a default
+  if (result.lovablePrompt && !result.sendMessage) {
+    result.sendMessage = 'I put together a quick concept to show how this could look. Let me know your thoughts.';
+  }
+
+  return result;
 }
 
 module.exports = router;
