@@ -27,7 +27,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 - [ ] **Phase 13: Post-Generation Validation** - Every generated reply passes 4 quality gates (Proposal Gate, Banned Phrase Scanner, Word Count, Next-Step) plus 4 quality gates (Specificity, Angle Differentiation, Pricing Intelligence, Proof Quality)
 - [ ] **Phase 14: Objection Handling + Kill Switch** - System detects client objections and routes to correct counter-move; follow-up sequence is capped at 2 with automatic DORMANT transition
 - [ ] **Phase 15: Thread Continuation Engine** - Ongoing conversations are stage-aware, tone-shifting, post-call aware, and every reply ends with a tracked next step
-- [ ] **Phase 16: Lovable Mockup Generator** - System determines whether a mockup is appropriate and generates a complete, stage-aware Lovable prompt plus send message
+- [x] **Phase 16: Lovable Mockup Generator** - System determines whether a mockup is appropriate and generates a complete, stage-aware Lovable prompt plus send message (completed 2026-03-05)
 - [ ] **Phase 17: UI Upgrades** - The reply editor surfaces all intelligence (analysis panel, prompt badge, variant selection, banned phrase highlights, word count, next-step warning)
 
 ## Phase Details
@@ -388,5 +388,5 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 →
 | 13. Post-Generation Validation | 0/4 | Ready to execute | - |
 | 14. Objection Handling + Kill Switch | 0/4 | Ready to execute | - |
 | 15. Thread Continuation Engine | 0/5 | Planned | - |
-| 16. Lovable Mockup Generator | 0/4 | Planned | - |
+| 16. Lovable Mockup Generator | 0/4 | Complete    | 2026-03-05 |
 | 17. UI Upgrades | 0/TBD | Not started | - |
