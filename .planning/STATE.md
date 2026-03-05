@@ -10,13 +10,13 @@ See: .planning/PROJECT.md (updated 2026-03-05)
 
 ## Current Position
 
-Phase: 15 of 17 (Thread Continuation Engine)
-Plan: 5 of 5 in current phase -- PHASE COMPLETE
-Status: Phase 15 complete -- all 5 plans delivered
-Last activity: 2026-03-06 -- Phase 15 Plan 05 complete (thread awareness UI: stage badge, hot signal, post-call toggle, next steps panel)
+Phase: 16 of 17 (Lovable Mockup Generator)
+Plan: 1 of 4 in current phase
+Status: Phase 16 in progress -- Plan 01 complete (decision matrix + color extraction)
+Last activity: 2026-03-06 -- Phase 16 Plan 01 complete (mockupDecision.js decision matrix + prefetch.js color extraction)
 
-Progress (v2.0): [██░░░░░░░░] 28% (2/7 phases)
-Progress (overall): [████████░░] Phase 15 of 17 complete
+Progress (v2.0): [███░░░░░░░] 28% (2/7 phases)
+Progress (overall): [████████░░] Phase 16 of 17 in progress
 
 ## Performance Metrics
 
@@ -43,6 +43,7 @@ Progress (overall): [████████░░] Phase 15 of 17 complete
 | Phase 15-thread-continuation-engine P03 | 5 | 2 tasks | 1 files |
 | Phase 15 P04 | 5 | 1 tasks | 1 files |
 | Phase 15 P05 | 3 | 3 tasks | 4 files |
+| Phase 16-lovable-mockup-generator P01 | 3 | 2 tasks | 2 files |
 
 ## Accumulated Context
 
@@ -81,6 +82,9 @@ Recent decisions affecting current work:
 - [Phase 15-05]: API helpers added as methods on existing api object (not standalone exports) — matches codebase convention
 - [Phase 15-05]: GET /api/emails/:id job object extended with threadStage and clientRequestedProposal — detail view loads from this endpoint
 - [Phase 15-05]: Next steps fetched in selectEmail callback alongside detail load (fire-and-forget pattern)
+- [Phase 16-01]: Service NO keywords (SEO, content, data_entry) take priority over YES keywords; Infra NO keywords (devops, backend) yield to YES keywords
+- [Phase 16-01]: Budget gate treats null/0/empty as no-budget-info (pass through), only blocks when amount > 0 AND < 1000
+- [Phase 16-01]: Color extraction filters static NON_BRAND_COLORS set (black, white, grays) and caps at 10 colors
 
 ### Pending Todos
 
@@ -94,5 +98,5 @@ Recent decisions affecting current work:
 ## Session Continuity
 
 Last session: 2026-03-06
-Stopped at: Completed 15-05-PLAN.md (Phase 15 complete — thread awareness UI surfaced in Inbox.jsx)
+Stopped at: Completed 16-01-PLAN.md (decision matrix + color extraction foundations)
 Resume file: None
