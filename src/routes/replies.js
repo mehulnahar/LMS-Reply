@@ -17,6 +17,13 @@ const {
 } = require("../utils/prefetch");
 const { proposalGate, bannedPhraseScanner, nextStepScanner } = require("../utils/validateReply");
 const { detectObjection, detectAgencySensitivity, detectScopeFraming } = require("../utils/detectSignals");
+const {
+  classifyThreadStage,
+  measureClientMessageLength,
+  detectStallType,
+  parseCcContacts,
+  parseNextStepBlock,
+} = require('../utils/detectThreadContext');
 
 const router = express.Router();
 
@@ -205,6 +212,64 @@ router.post("/generate", requireAuth, async (req, res, next) => {
         reason: "OOO or suppressed intent — no reply generated",
         promptType: null,
       });
+    }
+
+    // ──────────────────────────────────────────────────────────
+    // Step 2.5a: Thread context detection (THREAD-01/04/05/08)
+    // Must run after promptType is known (needed for THREAD_CONTINUATION_V1 gate)
+    // ──────────────────────────────────────────────────────────
+
+    // ── THREAD-01: Stage classification (THREAD_CONTINUATION_V1 only; fail open = DISCOVERY)
+    let threadStage = (job && job.thread_stage) || 'DISCOVERY';
+    if (promptType === 'THREAD_CONTINUATION_V1' && job) {
+      const classifiedStage = await classifyThreadStage(
+        emailText,
+        job.job_description_raw || job.job_description || '',
+        anthropicKey
+      );
+      // Non-regressing: only upgrade stage, never downgrade (hierarchy: DISCOVERY < CALL_BOOKING < POST_CALL < NEGOTIATION < CLOSING; STALLED can always be set)
+      const STAGE_RANK = { DISCOVERY: 0, CALL_BOOKING: 1, POST_CALL: 2, NEGOTIATION: 3, CLOSING: 4, STALLED: -1 };
+      const existingRank = STAGE_RANK[threadStage] ?? 0;
+      const classifiedRank = STAGE_RANK[classifiedStage] ?? 0;
+      if (classifiedStage === 'STALLED' || classifiedRank > existingRank) {
+        threadStage = classifiedStage;
+      }
+    }
+
+    // ── THREAD-08: Client energy measurement (all prompt types)
+    const clientMessageLength = measureClientMessageLength(emailText);
+
+    // ── THREAD-05: Stall type detection (STALLED stage only)
+    const stallType = (job && threadStage === 'STALLED') ? detectStallType(emailText, job) : 'UNKNOWN';
+
+    // ── THREAD-04: CC contacts parsing (from cc_raw stored during sync)
+    const ccContacts = parseCcContacts(email.cc_raw || null);
+
+    // ── Fire-and-forget: persist thread context to jobs table (non-blocking)
+    if (job && promptType === 'THREAD_CONTINUATION_V1') {
+      pool.query(
+        `UPDATE jobs SET
+           thread_stage           = $1::thread_stage_enum,
+           client_message_length  = $2::message_length_enum,
+           stall_type             = $3::stall_type_enum,
+           cc_contacts            = $4::jsonb
+         WHERE id = $5`,
+        [
+          threadStage,
+          clientMessageLength,
+          stallType,
+          ccContacts.length > 0 ? JSON.stringify(ccContacts) : null,
+          job.id,
+        ]
+      ).catch((err) => console.error('replies: thread context update failed:', err.message));
+    }
+
+    // Update in-memory job object for use in buildPromptWithContext
+    if (job) {
+      job.thread_stage = threadStage;
+      job.client_message_length = clientMessageLength;
+      job.stall_type = stallType;
+      job.cc_contacts = ccContacts.length > 0 ? ccContacts : job.cc_contacts;
     }
 
     // ──────────────────────────────────────────────────────────
