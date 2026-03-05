@@ -67,6 +67,10 @@ afterEach(async () => {
   try {
     await pool.query("DELETE FROM api_keys");
     await pool.query("DELETE FROM sessions");
+    // Clean v2.0 tables (order matters — FK dependencies)
+    await pool.query("DELETE FROM next_steps").catch(() => {});
+    await pool.query("DELETE FROM reply_generations").catch(() => {});
+    await pool.query("DELETE FROM prompt_templates WHERE is_system = false").catch(() => {});
     await pool.query(
       `DELETE FROM users WHERE email NOT IN (${SEED_USERS.map(
         (_, i) => `$${i + 1}`
@@ -83,6 +87,9 @@ afterAll(async () => {
   try {
     await pool.query("DELETE FROM api_keys");
     await pool.query("DELETE FROM sessions");
+    await pool.query("DELETE FROM next_steps").catch(() => {});
+    await pool.query("DELETE FROM reply_generations").catch(() => {});
+    await pool.query("DELETE FROM prompt_templates WHERE is_system = false").catch(() => {});
     await pool.query(
       `DELETE FROM users WHERE email NOT IN (${SEED_USERS.map(
         (_, i) => `$${i + 1}`

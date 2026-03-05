@@ -1,11 +1,23 @@
 /**
- * Settings Routes — CONF-01
+ * Settings Routes — CONF-01, CONF-05, PROMPT-01, DB-02, DB-03
  *
- * POST   /api/settings/api-keys             — Store new API key
- * GET    /api/settings/api-keys             — List all (masked)
- * PUT    /api/settings/api-keys/:service    — Update API key
- * DELETE /api/settings/api-keys/:service    — Remove API key
- * POST   /api/settings/api-keys/:service/verify — Verify key works
+ * API Keys (CONF-01):
+ * POST   /api/settings/api-keys                    — Store new API key
+ * GET    /api/settings/api-keys                    — List all (masked)
+ * PUT    /api/settings/api-keys/:service           — Update API key
+ * DELETE /api/settings/api-keys/:service           — Remove API key
+ * POST   /api/settings/api-keys/:service/verify    — Verify key works
+ *
+ * Prompt Templates (CONF-05 + PROMPT-01):
+ * GET    /api/settings/prompt-templates            — List all templates
+ * POST   /api/settings/prompt-templates            — Create template
+ * GET    /api/settings/prompt-templates/:id        — Get single template
+ * PUT    /api/settings/prompt-templates/:id        — Update template
+ * DELETE /api/settings/prompt-templates/:id        — Delete template
+ *
+ * v2.0 Reference Data (DB-02, DB-03):
+ * GET    /api/settings/banned-phrases              — List active banned phrases
+ * GET    /api/settings/counter-moves               — List active counter moves
  */
 
 const express = require("express");
@@ -253,5 +265,339 @@ router.post(
     }
   }
 );
+
+// ============================================================
+// PROMPT TEMPLATES (CONF-05 + PROMPT-01)
+// ============================================================
+
+const VALID_CATEGORIES = ["reply", "proposal", "scoring"];
+
+const createTemplateSchema = Joi.object({
+  name: Joi.string().trim().min(1).max(255).required()
+    .messages({
+      "string.empty": "Template name is required",
+      "any.required": "Template name is required",
+    }),
+  content: Joi.string().trim().min(1).required()
+    .messages({
+      "string.empty": "Template content cannot be empty",
+      "any.required": "Template content is required",
+    }),
+  category: Joi.string()
+    .valid(...VALID_CATEGORIES)
+    .required()
+    .messages({
+      "any.only": `Invalid category. Supported: ${VALID_CATEGORIES.join(", ")}`,
+      "any.required": "Category is required",
+    }),
+  prompt_type: Joi.string()
+    .valid(
+      "EMAIL_REPLY_V2",
+      "THREAD_CONTINUATION_V1",
+      "FOLLOW_UP_V2",
+      "PROPOSAL_V4",
+      "LOVABLE_MOCKUP_V1"
+    )
+    .optional(),
+});
+
+const updateTemplateSchema = Joi.object({
+  name: Joi.string().trim().min(1).max(255).optional(),
+  content: Joi.string().trim().min(1).optional(),
+  category: Joi.string().valid(...VALID_CATEGORIES).optional(),
+}).min(1);
+
+const templateIdSchema = Joi.object({
+  id: Joi.number().integer().positive().required(),
+});
+
+// GET /api/settings/prompt-templates
+router.get("/prompt-templates", requireAuth, async (req, res, next) => {
+  try {
+    const { category } = req.query;
+    let query = `
+      SELECT id, name, content, category, prompt_type, version, is_system, active, created_at, updated_at
+      FROM prompt_templates
+      WHERE user_id = $1 AND active = true
+    `;
+    const params = [req.user.id];
+
+    if (category && VALID_CATEGORIES.includes(category)) {
+      query += ` AND category = $2`;
+      params.push(category);
+    }
+
+    query += ` ORDER BY is_system DESC, created_at ASC`;
+    const { rows } = await pool.query(query, params);
+
+    res.json(
+      rows.map((r) => ({
+        id: r.id,
+        name: r.name,
+        content: r.content,
+        category: r.category,
+        promptType: r.prompt_type,
+        version: r.version,
+        isSystem: r.is_system,
+        createdAt: r.created_at,
+        updatedAt: r.updated_at,
+      }))
+    );
+  } catch (err) {
+    next(err);
+  }
+});
+
+// POST /api/settings/prompt-templates
+router.post(
+  "/prompt-templates",
+  requireAuth,
+  validateBody(createTemplateSchema),
+  async (req, res, next) => {
+    try {
+      const { name, content, category, prompt_type } = req.body;
+      const userId = req.user.id;
+
+      // Strip any HTML tags from name (XSS protection)
+      const sanitizedName = name.replace(/<[^>]*>/g, "");
+
+      const { rows } = await pool.query(
+        `INSERT INTO prompt_templates (user_id, name, content, category, prompt_type)
+         VALUES ($1, $2, $3, $4, $5)
+         RETURNING id, name, content, category, prompt_type, version, is_system, created_at, updated_at`,
+        [userId, sanitizedName, content, category, prompt_type || null]
+      );
+
+      res.status(201).json({
+        id: rows[0].id,
+        name: rows[0].name,
+        content: rows[0].content,
+        category: rows[0].category,
+        promptType: rows[0].prompt_type,
+        version: rows[0].version,
+        isSystem: rows[0].is_system,
+        createdAt: rows[0].created_at,
+        updatedAt: rows[0].updated_at,
+      });
+    } catch (err) {
+      if (err.code === "23505") {
+        return res.status(409).json({
+          error: "A template with this name already exists.",
+        });
+      }
+      next(err);
+    }
+  }
+);
+
+// GET /api/settings/prompt-templates/:id
+router.get(
+  "/prompt-templates/:id",
+  requireAuth,
+  validateParams(templateIdSchema),
+  async (req, res, next) => {
+    try {
+      const { rows } = await pool.query(
+        `SELECT id, name, content, category, prompt_type, version, is_system, active, created_at, updated_at
+         FROM prompt_templates
+         WHERE id = $1 AND user_id = $2`,
+        [req.params.id, req.user.id]
+      );
+
+      if (rows.length === 0) {
+        return res.status(404).json({ error: "Prompt template not found" });
+      }
+
+      const r = rows[0];
+      res.json({
+        id: r.id,
+        name: r.name,
+        content: r.content,
+        category: r.category,
+        promptType: r.prompt_type,
+        version: r.version,
+        isSystem: r.is_system,
+        createdAt: r.created_at,
+        updatedAt: r.updated_at,
+      });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+// PUT /api/settings/prompt-templates/:id
+router.put(
+  "/prompt-templates/:id",
+  requireAuth,
+  validateParams(templateIdSchema),
+  validateBody(updateTemplateSchema),
+  async (req, res, next) => {
+    try {
+      const { id } = req.params;
+      const userId = req.user.id;
+
+      // Check exists and belongs to user
+      const existing = await pool.query(
+        "SELECT id, is_system FROM prompt_templates WHERE id = $1 AND user_id = $2",
+        [id, userId]
+      );
+      if (existing.rows.length === 0) {
+        return res.status(404).json({ error: "Prompt template not found" });
+      }
+
+      const updates = [];
+      const params = [];
+      let paramIdx = 1;
+
+      if (req.body.name !== undefined) {
+        updates.push(`name = $${paramIdx++}`);
+        params.push(req.body.name.replace(/<[^>]*>/g, ""));
+      }
+      if (req.body.content !== undefined) {
+        updates.push(`content = $${paramIdx++}`);
+        params.push(req.body.content);
+      }
+      if (req.body.category !== undefined) {
+        updates.push(`category = $${paramIdx++}`);
+        params.push(req.body.category);
+      }
+
+      updates.push(`updated_at = NOW()`);
+      // Bump version on content change
+      if (req.body.content !== undefined) {
+        updates.push(`version = version + 1`);
+      }
+
+      params.push(id, userId);
+
+      const { rows } = await pool.query(
+        `UPDATE prompt_templates
+         SET ${updates.join(", ")}
+         WHERE id = $${paramIdx++} AND user_id = $${paramIdx++}
+         RETURNING id, name, content, category, prompt_type, version, is_system, created_at, updated_at`,
+        params
+      );
+
+      const r = rows[0];
+      res.json({
+        id: r.id,
+        name: r.name,
+        content: r.content,
+        category: r.category,
+        promptType: r.prompt_type,
+        version: r.version,
+        isSystem: r.is_system,
+        createdAt: r.created_at,
+        updatedAt: r.updated_at,
+      });
+    } catch (err) {
+      if (err.code === "23505") {
+        return res.status(409).json({
+          error: "A template with this name already exists.",
+        });
+      }
+      next(err);
+    }
+  }
+);
+
+// DELETE /api/settings/prompt-templates/:id
+router.delete(
+  "/prompt-templates/:id",
+  requireAuth,
+  validateParams(templateIdSchema),
+  async (req, res, next) => {
+    try {
+      const { id } = req.params;
+      const userId = req.user.id;
+
+      const result = await pool.query(
+        "DELETE FROM prompt_templates WHERE id = $1 AND user_id = $2",
+        [id, userId]
+      );
+
+      if (result.rowCount === 0) {
+        return res.status(404).json({ error: "Prompt template not found" });
+      }
+
+      res.json({ message: "Prompt template deleted" });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+// ============================================================
+// v2.0 REFERENCE DATA — Banned Phrases (DB-02) + Counter Moves (DB-03)
+// ============================================================
+
+// GET /api/settings/banned-phrases
+router.get("/banned-phrases", requireAuth, async (req, res, next) => {
+  try {
+    const { category } = req.query;
+    let query = `
+      SELECT id, phrase, category, replacement_suggestion, active
+      FROM banned_phrases
+      WHERE active = true
+    `;
+    const params = [];
+
+    if (category) {
+      query += ` AND category = $1::banned_phrase_category_enum`;
+      params.push(category.toUpperCase());
+    }
+
+    query += ` ORDER BY category, phrase`;
+    const { rows } = await pool.query(query, params);
+
+    res.json(
+      rows.map((r) => ({
+        id: r.id,
+        phrase: r.phrase,
+        category: r.category,
+        replacementSuggestion: r.replacement_suggestion,
+        active: r.active,
+      }))
+    );
+  } catch (err) {
+    next(err);
+  }
+});
+
+// GET /api/settings/counter-moves
+router.get("/counter-moves", requireAuth, async (req, res, next) => {
+  try {
+    const { objection_type } = req.query;
+    let query = `
+      SELECT id, objection_type, objection_pattern, counter_move_name, counter_move_template, max_words, active
+      FROM counter_moves
+      WHERE active = true
+    `;
+    const params = [];
+
+    if (objection_type) {
+      query += ` AND objection_type = $1::objection_type_enum`;
+      params.push(objection_type.toUpperCase());
+    }
+
+    query += ` ORDER BY objection_type, id`;
+    const { rows } = await pool.query(query, params);
+
+    res.json(
+      rows.map((r) => ({
+        id: r.id,
+        objectionType: r.objection_type,
+        objectionPattern: r.objection_pattern,
+        counterMoveName: r.counter_move_name,
+        counterMoveTemplate: r.counter_move_template,
+        maxWords: r.max_words,
+        active: r.active,
+      }))
+    );
+  } catch (err) {
+    next(err);
+  }
+});
 
 module.exports = router;
