@@ -10,13 +10,13 @@ See: .planning/PROJECT.md (updated 2026-03-05)
 
 ## Current Position
 
-Phase: 16 of 17 (Lovable Mockup Generator)
-Plan: 3 of 4 in current phase
-Status: Phase 16 in progress -- Plan 02 complete (pipeline integration), Plan 03 complete (unit tests)
-Last activity: 2026-03-06 -- Phase 16 Plan 02 complete (mockup decision gate + context injection + output parser in replies.js)
+Phase: 16 of 17 (Lovable Mockup Generator) -- COMPLETE
+Plan: 4 of 4 in current phase (all complete)
+Status: Phase 16 complete -- all 4 plans executed (decision matrix, pipeline, tests, frontend UI)
+Last activity: 2026-03-06 -- Phase 16 Plan 04 complete (Generate Mockup button + dual clipboard + mockup_sent tracking)
 
-Progress (v2.0): [███░░░░░░░] 28% (2/7 phases)
-Progress (overall): [████████░░] Phase 16 of 17 in progress
+Progress (v2.0): [████░░░░░░] 42% (3/7 phases)
+Progress (overall): [█████████░] Phase 16 of 17 complete
 
 ## Performance Metrics
 
@@ -46,6 +46,7 @@ Progress (overall): [████████░░] Phase 16 of 17 in progress
 | Phase 16-lovable-mockup-generator P01 | 3 | 2 tasks | 2 files |
 | Phase 16-lovable-mockup-generator P02 | 3 | 1 tasks | 1 files |
 | Phase 16-lovable-mockup-generator P03 | 3 | 1 tasks | 2 files |
+| Phase 16-lovable-mockup-generator P04 | 4 | 2 tasks | 4 files |
 
 ## Accumulated Context
 
@@ -93,6 +94,10 @@ Recent decisions affecting current work:
 - [Phase 16-02]: let destructuring for extractInternalBlocks result -- enables cleanText reassignment for mockup sendMessage override
 - [Phase 16-03]: Test inputs adjusted to actual regex behavior rather than hypothetical matches — deferred content_writ word boundary fix to maintenance pass
 - [Phase 16-03]: lovable-generator.test.js registered in Jest unit project (no setup.js/DB dependency)
+- [Phase 16-04]: Generate Mockup button placed after Generate Reply in same flex container -- visual distinction via violet color
+- [Phase 16-04]: Mockup-sent endpoint in jobs.js (not replies.js) -- follows existing /api/jobs/:id/* route pattern
+- [Phase 16-04]: mockupSent added to both formatJob and emails.js detail response -- ensures visibility from both endpoints
+- [Phase 16-04]: Ternary chain extended (killSwitch > suppressed > mockupDeclined > mockupData > replyText > fallback)
 
 ### Pending Todos
 
@@ -106,5 +111,5 @@ Recent decisions affecting current work:
 ## Session Continuity
 
 Last session: 2026-03-06
-Stopped at: Completed 16-02-PLAN.md (pipeline integration for mockup decision gate + context injection + output parser)
+Stopped at: Completed 16-04-PLAN.md (Phase 16 complete -- all 4 plans executed)
 Resume file: None
