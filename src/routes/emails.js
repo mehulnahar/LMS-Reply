@@ -410,16 +410,18 @@ router.post("/sync-all", requireAuth, async (req, res, next) => {
           extractParts(full.data.payload);
 
           const emailSubject = getHeader("Subject") || "(No subject)";
+          const ccRaw = getHeader("Cc") || null;
 
           await pool.query(
-            `INSERT INTO emails (user_id, account_id, gmail_id, thread_id, from_email, from_name, subject, snippet, body_text, body_html, received_at)
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+            `INSERT INTO emails (user_id, account_id, gmail_id, thread_id, from_email, from_name, subject, snippet, body_text, body_html, received_at, cc_raw)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
              ON CONFLICT (account_id, gmail_id) DO NOTHING`,
             [
               req.user.id, account.id, msg.id, full.data.threadId,
               fromEmail, fromName, emailSubject,
               full.data.snippet || "", bodyText, bodyHtml,
               new Date(parseInt(full.data.internalDate)),
+              ccRaw,
             ]
           );
 
