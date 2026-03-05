@@ -41,6 +41,14 @@ const PROMPT_TYPE_LABELS = {
   'LOVABLE_MOCKUP_V1':      'Lovable Mockup',
 };
 
+const WORD_LIMITS = {
+  EMAIL_REPLY_V2:          120, // Neutral default; overridden to 80 when intent=positive
+  THREAD_CONTINUATION_V1:  120, // Neutral default; overridden to 80 when intent=positive
+  FOLLOW_UP_V2:             80, // FU1; FU2 uses 70 (distinguished by followUpSequence)
+  PROPOSAL_V4:             200,
+  LOVABLE_MOCKUP_V1:       200,
+};
+
 const PROMPT_OPTIONS = [
   { value: '',                       label: 'Auto-detect' },
   { value: 'EMAIL_REPLY_V2',         label: 'First Reply (V2)' },
@@ -183,6 +191,11 @@ export default function Inbox() {
   const [generationWarning, setGenerationWarning] = useState('');
   const [suppressed, setSuppressed] = useState(false);
   const [suppressedReason, setSuppressedReason] = useState('');
+  const [bannedPhraseViolations, setBannedPhraseViolations] = useState([]);
+  const [hasNextStep, setHasNextStep] = useState(true);        // true = no warning shown
+  const [specificityFlag, setSpecificityFlag] = useState(false);
+  const [followUpSequence, setFollowUpSequence] = useState(null); // 1 or 2 or null
+  const [replyIntent, setReplyIntent] = useState(null);        // 'positive', 'neutral', etc.
 
   const fetchEmails = useCallback(async () => {
     try {
@@ -228,6 +241,11 @@ export default function Inbox() {
     setGenerationWarning('');
     setSuppressed(false);
     setSuppressedReason('');
+    setBannedPhraseViolations([]);
+    setHasNextStep(true);
+    setSpecificityFlag(false);
+    setFollowUpSequence(null);
+    setReplyIntent(null);
     try {
       const data = await api.getEmail(id);
       setDetail(data);
@@ -318,6 +336,11 @@ export default function Inbox() {
       setActiveReplyId(data.reply.id);
       setActivePromptType(data.reply.promptTypeUsed || null);
       if (data.warning) setGenerationWarning(data.warning);
+      setBannedPhraseViolations(data.reply.bannedPhraseViolations || []);
+      setHasNextStep(data.reply.hasNextStep !== false); // default true if not provided
+      setSpecificityFlag(data.reply.specificityFlag || false);
+      setFollowUpSequence(data.reply.followUpSequence || null);
+      setReplyIntent(data.reply.intent || null);        // 'positive', 'neutral', etc.
 
       setDetail((prev) => ({
         ...prev,
@@ -383,6 +406,25 @@ export default function Inbox() {
     if (score >= 40) return "text-amber-600 dark:text-amber-400";
     return "text-red-500 dark:text-red-400";
   };
+
+  // Word count computation (VALIDATE-03)
+  const wordCount = replyText ? replyText.split(/\s+/).filter(Boolean).length : 0;
+  // Determine word limit dynamically
+  let wordLimit = WORD_LIMITS[activePromptType] || 120;
+  // Positive intent on EMAIL_REPLY_V2 or THREAD_CONTINUATION_V1 uses 80 words (VALIDATE-03)
+  if (
+    (activePromptType === 'EMAIL_REPLY_V2' || activePromptType === 'THREAD_CONTINUATION_V1') &&
+    replyIntent === 'positive'
+  ) {
+    wordLimit = 80;
+  }
+  // FOLLOW_UP_V2 FU2 uses 70 instead of 80
+  if (activePromptType === 'FOLLOW_UP_V2' && followUpSequence === 2) wordLimit = 70;
+  const wordRatio = wordCount > 0 ? wordCount / wordLimit : 0;
+  const wordCountColor =
+    wordRatio < 0.9  ? 'text-emerald-600 dark:text-emerald-400'
+    : wordRatio <= 1.0 ? 'text-amber-500 dark:text-amber-400'
+    : 'text-red-500 dark:text-red-400';
 
   const noEmails = !loading && emails.length === 0;
   const noAccounts = accounts.length === 0;
@@ -955,6 +997,15 @@ export default function Inbox() {
                           Using: {PROMPT_TYPE_LABELS[activePromptType] || activePromptType}
                         </span>
                       )}
+                      {/* Specificity flag badge (QUALITY-01) */}
+                      {specificityFlag && (
+                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400 border border-orange-200 dark:border-orange-800">
+                          <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M3 3l1.664 1.664M21 21l-1.5-1.5m-5.485-1.242L12 17.25 4.5 21V8.742m.164-4.078a2.15 2.15 0 011.743-1.342 48.507 48.507 0 0111.186 0c1.1.128 1.907 1.077 1.907 2.185V19.5M4.664 4.664L19.5 19.5" />
+                          </svg>
+                          Needs manual writing
+                        </span>
+                      )}
                     </div>
                     <div className="flex items-center gap-2">
                       <select
@@ -1019,11 +1070,59 @@ export default function Inbox() {
                         )}
                         <textarea
                           value={replyText}
-                          onChange={(e) => setReplyText(e.target.value)}
+                          onChange={(e) => {
+                            const newText = e.target.value;
+                            setReplyText(newText);
+                            // Re-evaluate next-step presence client-side on each keystroke
+                            if (newText.trim()) {
+                              const sentences = newText.split(/(?<=[.!?])\s+/).filter(Boolean);
+                              const last2 = sentences.slice(-2).join(' ');
+                              const hasQ = /\?/.test(last2);
+                              const hasAction = /\b(let me know|reply|respond|confirm|schedule|book|send|share|reach out|get back|available|connect|discuss|talk|call)\b/i.test(last2);
+                              const hasTime = /\b(today|tomorrow|monday|tuesday|wednesday|thursday|friday|this week|next week|within \d+|by end|eod|asap|soon)\b/i.test(last2);
+                              setHasNextStep(hasQ || (hasAction && hasTime));
+                            }
+                          }}
                           rows={8}
                           className="w-full px-4 py-3 text-sm rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 focus:outline-none focus:ring-2 focus:ring-brand-500 resize-y"
                         />
-                        <div className="flex items-center gap-2">
+                        {/* Next-step warning bar (VALIDATE-04) */}
+                        {replyText && !hasNextStep && (
+                          <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-amber-50 border border-amber-200 dark:bg-amber-900/20 dark:border-amber-800 text-xs text-amber-700 dark:text-amber-400">
+                            <svg className="w-3.5 h-3.5 shrink-0" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
+                              <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z" />
+                            </svg>
+                            <span>No next step detected — add a call ask or question before copying</span>
+                          </div>
+                        )}
+                        {/* Banned phrase violation list (VALIDATE-02) */}
+                        {bannedPhraseViolations.length > 0 && (
+                          <div className="rounded-lg border border-red-200 dark:border-red-800 bg-red-50 dark:bg-red-900/10 px-3 py-2">
+                            <p className="text-xs font-medium text-red-700 dark:text-red-400 mb-1.5">
+                              {bannedPhraseViolations.length} banned phrase{bannedPhraseViolations.length > 1 ? 's' : ''} detected:
+                            </p>
+                            <ul className="space-y-0.5">
+                              {bannedPhraseViolations.map((v, i) => (
+                                <li key={i} className="text-xs flex items-start gap-2">
+                                  <span className="shrink-0 inline-block w-1.5 h-1.5 rounded-full bg-red-500 mt-1.5" />
+                                  <span>
+                                    <span className="font-medium text-red-700 dark:text-red-400">"{v.phrase}"</span>
+                                    {v.replacement && (
+                                      <span className="text-red-600 dark:text-red-500">
+                                        {' '}→ <span className="italic">{v.replacement}</span>
+                                      </span>
+                                    )}
+                                    {!v.replacement && (
+                                      <span className="text-red-500 dark:text-red-600"> (rewrite manually)</span>
+                                    )}
+                                  </span>
+                                </li>
+                              ))}
+                            </ul>
+                          </div>
+                        )}
+                        <div className="flex items-center justify-between gap-2">
+                          <div className="flex items-center gap-2">
                           <button
                             onClick={handleCopy}
                             className={`inline-flex items-center gap-1.5 px-4 py-2 text-xs font-medium rounded-md transition-all ${
@@ -1055,6 +1154,13 @@ export default function Inbox() {
                           >
                             Regenerate
                           </button>
+                          </div>
+                          {/* Word count badge (VALIDATE-03) */}
+                          {replyText && activePromptType && (
+                            <span className={`text-xs font-mono tabular-nums ${wordCountColor}`}>
+                              {wordCount} / {wordLimit} words
+                            </span>
+                          )}
                         </div>
                       </div>
                     ) : (

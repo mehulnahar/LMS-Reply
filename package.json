@@ -53,7 +53,8 @@
         "displayName": "unit",
         "testEnvironment": "node",
         "testMatch": [
-          "<rootDir>/src/tests/prompt-routing.test.js"
+          "<rootDir>/src/tests/prompt-routing.test.js",
+          "<rootDir>/src/tests/validate-reply.test.js"
         ]
       },
       {
@@ -63,7 +64,8 @@
           "<rootDir>/src/tests/**/*.test.js"
         ],
         "testPathIgnorePatterns": [
-          "<rootDir>/src/tests/prompt-routing.test.js"
+          "<rootDir>/src/tests/prompt-routing.test.js",
+          "<rootDir>/src/tests/validate-reply.test.js"
         ],
         "setupFilesAfterEnv": [
           "<rootDir>/src/tests/setup.js"

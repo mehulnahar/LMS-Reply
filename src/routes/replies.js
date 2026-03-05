@@ -1,7 +1,7 @@
 /**
  * Reply Generation Routes — REPLY-01 + Phase 12 Pipeline
  *
- * POST /api/replies/generate    — Generate AI reply (full 5-step pre-generation pipeline)
+ * POST /api/replies/generate    — Generate AI reply (full pipeline with Step 6b validation)
  * PUT  /api/replies/:id/copied  — Mark reply as copied
  */
 
@@ -15,6 +15,7 @@ const {
   extractUrls,
   analyzeAllUrls,
 } = require("../utils/prefetch");
+const { proposalGate, bannedPhraseScanner, nextStepScanner } = require("../utils/validateReply");
 
 const router = express.Router();
 
@@ -30,8 +31,32 @@ const DEFAULT_SYSTEM_PROMPT =
   "You are a professional freelancer responding to a client inquiry on Upwork. " +
   "Write a concise, helpful, and professional reply. Use plain text only — no markdown formatting.";
 
+// Banned phrases cache — loaded once at startup, refreshed every 5 minutes
+// to pick up any changes from Settings UI without requiring server restart
+let _bannedPhrasesCache = null;
+let _bannedPhrasesCacheTime = 0;
+const BANNED_PHRASES_TTL_MS = 5 * 60 * 1000; // 5 minutes
+
+async function getBannedPhrases(dbPool) {
+  const now = Date.now();
+  if (_bannedPhrasesCache && (now - _bannedPhrasesCacheTime) < BANNED_PHRASES_TTL_MS) {
+    return _bannedPhrasesCache;
+  }
+  try {
+    const { rows } = await dbPool.query(
+      "SELECT phrase, category, replacement_suggestion, active FROM banned_phrases ORDER BY category, phrase"
+    );
+    _bannedPhrasesCache = rows;
+    _bannedPhrasesCacheTime = now;
+    return rows;
+  } catch (err) {
+    console.error("replies: failed to load banned phrases:", err.message);
+    return _bannedPhrasesCache || []; // Fall back to stale cache or empty
+  }
+}
+
 // ============================================================
-// POST /api/replies/generate — Full 5-step pre-generation pipeline
+// POST /api/replies/generate — Full pipeline with Step 6b validation
 // ============================================================
 router.post("/generate", requireAuth, async (req, res, next) => {
   try {
@@ -182,7 +207,7 @@ router.post("/generate", requireAuth, async (req, res, next) => {
     // ──────────────────────────────────────────────────────────
     // Step 5: Build context + call Claude (PREFETCH-04)
     // ──────────────────────────────────────────────────────────
-    const systemPrompt = buildPromptWithContext(templateContent, email, job, linkAnalysis, tone);
+    const systemPrompt = buildPromptWithContext(templateContent, email, job, linkAnalysis, tone, promptType);
     const userMessage = buildUserMessage(email, job);
 
     const claudeController = new AbortController();
@@ -238,14 +263,144 @@ router.post("/generate", requireAuth, async (req, res, next) => {
     const intent = detectIntent(email.body_text || email.snippet);
 
     // ──────────────────────────────────────────────────────────
+    // Step 6b: Post-generation validation pipeline
+    // ──────────────────────────────────────────────────────────
+    let validatedText = cleanText;
+    let violations = [];
+    let hasNextStep = false;
+    let proposalGateFired = false;
+    let specificityAttempts = 0;
+    let specificityFlag = false;
+    let followUpSequence = null;
+    const validationWarnings = [];
+
+    // Load banned phrases (cached; falls back to [] on DB error — fail open)
+    const bannedPhrases = await getBannedPhrases(pool);
+
+    // 6b-1: Proposal Gate (VALIDATE-01 + QUALITY-03 + QUALITY-04)
+    // clientRequestedPricing: true only for PROPOSAL_V4 — future toggle; default false for now
+    const clientRequestedPricing = false; // Phase 14+ will add toggle support
+    const gateResult = proposalGate(validatedText, promptType, clientRequestedPricing);
+    validatedText = gateResult.text;
+    proposalGateFired = gateResult.stripped;
+    if (proposalGateFired) {
+      validationWarnings.push("Pricing language stripped by Proposal Gate");
+    }
+
+    // 6b-2: Banned Phrase Scanner (VALIDATE-02)
+    // Phase 13 scope: auto-rewrite only (replacement_suggestion → replace; null → keep flagged).
+    // Flag-mode UI (highlighting without rewriting) is deferred to Phase 14.
+    const { violations: bannedViolations, rewrittenText } = bannedPhraseScanner(validatedText, bannedPhrases);
+    violations = bannedViolations;
+    if (violations.length > 0) {
+      // Auto-rewrite where replacement_suggestion exists; flag the rest
+      validatedText = rewrittenText;
+      if (violations.some((v) => !v.replacement)) {
+        validationWarnings.push(
+          `${violations.filter((v) => !v.replacement).length} banned phrase(s) need manual review`
+        );
+      }
+    }
+
+    // 6b-3: Next-Step Scanner (VALIDATE-04)
+    const nextStepResult = nextStepScanner(validatedText);
+    hasNextStep = nextStepResult.hasNextStep;
+    if (!hasNextStep) {
+      validationWarnings.push("No next step detected in reply");
+    }
+
+    // 6b-4: QUALITY-01 Follow-Up Specificity Retry (FOLLOW_UP_V2 only)
+    if (promptType === "FOLLOW_UP_V2" && job && job.id) {
+      const clientName =
+        [job.client_first_name, job.client_last_name].filter(Boolean).join(" ") || "the client";
+      const projectType = job.job_heading || "project";
+
+      while (specificityAttempts < 2) {
+        const isSpecific = await checkFollowUpSpecificity(
+          validatedText,
+          clientName,
+          projectType,
+          anthropicKey
+        );
+        if (isSpecific) break;
+
+        specificityAttempts++;
+        // Regenerate with stronger specificity instruction
+        const strongerMessage =
+          buildUserMessage(email, job) +
+          `\n\nIMPORTANT: The previous draft was too generic. Your reply MUST include at least one specific detail about ${clientName}'s ${projectType}. Reference something concrete from the job description or email.`;
+
+        try {
+          const regenRes = await fetch("https://api.anthropic.com/v1/messages", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              "x-api-key": anthropicKey,
+              "anthropic-version": "2023-06-01",
+            },
+            body: JSON.stringify({
+              model: "claude-sonnet-4-6",
+              max_tokens: 1024,
+              system: systemPrompt,
+              messages: [{ role: "user", content: strongerMessage }],
+            }),
+          });
+          if (regenRes.ok) {
+            const regenData = await regenRes.json();
+            const regenRaw = regenData.content?.[0]?.text || validatedText;
+            const { cleanText: regenClean } = extractInternalBlocks(regenRaw);
+            // Re-run proposal gate and banned phrase scan on regenerated text
+            const regenGated = proposalGate(regenClean, promptType, clientRequestedPricing);
+            const { rewrittenText: regenRewritten } = bannedPhraseScanner(
+              regenGated.text,
+              bannedPhrases
+            );
+            validatedText = regenRewritten;
+          }
+        } catch (regenErr) {
+          console.error("replies: specificity regen failed:", regenErr.message);
+          break; // Fail open — use current validatedText
+        }
+      }
+
+      if (specificityAttempts >= 2) {
+        specificityFlag = true;
+        validationWarnings.push("Specificity check: flagged for manual writing after 2 attempts");
+      }
+
+      // 6b-5: QUALITY-02 Angle Extraction + Differentiation (FOLLOW_UP_V2 only)
+      followUpSequence = (job.follow_up_count || 0) + 1; // 1 = FU1, 2 = FU2
+      const angleUsed = await extractFollowUpAngle(validatedText, anthropicKey);
+      if (angleUsed && job.id) {
+        try {
+          if (followUpSequence === 1) {
+            await pool.query(
+              "UPDATE jobs SET follow_up_1_angle = $1 WHERE id = $2",
+              [angleUsed, job.id]
+            );
+          } else {
+            await pool.query(
+              "UPDATE jobs SET follow_up_2_angle = $1 WHERE id = $2",
+              [angleUsed, job.id]
+            );
+          }
+        } catch (angleErr) {
+          console.error("replies: failed to store follow_up angle:", angleErr.message);
+        }
+      }
+    }
+
+    // ──────────────────────────────────────────────────────────
     // Step 7: Save reply + update job
     // ──────────────────────────────────────────────────────────
     const { rows: replyRows } = await pool.query(
       `INSERT INTO replies (
         user_id, email_id, job_id, tone, intent,
         generated_text, model, prompt_tokens, completion_tokens,
-        prompt_type_used, job_analysis_block, link_analysis_block, prefetch_warnings
-       ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+        prompt_type_used, job_analysis_block, link_analysis_block, prefetch_warnings,
+        banned_phrases_caught, has_next_step, proposal_gate_fired,
+        specificity_attempts, specificity_flag, validation_warnings
+       ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19)
        RETURNING *`,
       [
         req.user.id,
@@ -253,7 +408,7 @@ router.post("/generate", requireAuth, async (req, res, next) => {
         job?.id || null,
         tone,
         intent,
-        cleanText,
+        validatedText,
         model,
         promptTokens,
         completionTokens,
@@ -261,6 +416,12 @@ router.post("/generate", requireAuth, async (req, res, next) => {
         jobAnalysisBlock,
         linkAnalysisBlock,
         prefetchWarnings.length > 0 ? prefetchWarnings : null,
+        violations.length,
+        hasNextStep,
+        proposalGateFired,
+        specificityAttempts,
+        specificityFlag,
+        validationWarnings.length > 0 ? validationWarnings : null,
       ]
     );
 
@@ -273,6 +434,30 @@ router.post("/generate", requireAuth, async (req, res, next) => {
         );
       } catch (dbErr) {
         console.error("replies: failed to update last_prompt_used:", dbErr.message);
+      }
+    }
+
+    // Write generation audit record to reply_generations (fail-open — never blocks response)
+    // Note: lead_id is NOT NULL in reply_generations — only write when job exists
+    if (job && job.id) {
+      try {
+        await pool.query(
+          `INSERT INTO reply_generations (
+            lead_id, prompt_used, banned_phrases_caught, word_count,
+            had_next_step, thread_depth_at_gen
+          ) VALUES ($1, $2, $3, $4, $5, $6)`,
+          [
+            job.id,                                                                       // lead_id
+            promptType,                                                                   // prompt_used
+            violations.length,                                                            // banned_phrases_caught
+            validatedText ? validatedText.split(/\s+/).filter(Boolean).length : 0,        // word_count
+            hasNextStep,                                                                  // had_next_step
+            followUpSequence || 0,                                                        // thread_depth_at_gen
+          ]
+        );
+      } catch (genAuditErr) {
+        // Fail open — log but never block the reply response
+        console.error("replies: failed to write reply_generations audit row:", genAuditErr.message);
       }
     }
 
@@ -289,6 +474,12 @@ router.post("/generate", requireAuth, async (req, res, next) => {
         promptTokens: reply.prompt_tokens,
         completionTokens: reply.completion_tokens,
         createdAt: reply.created_at,
+        // Phase 13 validation fields:
+        bannedPhraseViolations: violations,
+        hasNextStep: hasNextStep,
+        specificityFlag: specificityFlag,
+        followUpSequence: followUpSequence,
+        validationWarnings: validationWarnings,
       },
     };
 
@@ -334,12 +525,12 @@ router.put("/:id/copied", requireAuth, async (req, res, next) => {
  *
  * @param {string} promptType
  * @param {string} userId
- * @param {Object} pool
+ * @param {Object} dbPool
  * @returns {Promise<string>} template content string
  */
-async function getPromptTemplate(promptType, userId, pool) {
+async function getPromptTemplate(promptType, userId, dbPool) {
   try {
-    const { rows } = await pool.query(
+    const { rows } = await dbPool.query(
       `SELECT content, name FROM prompt_templates
        WHERE prompt_type = $1 AND (user_id = $2 OR is_system = true)
        ORDER BY (CASE WHEN user_id = $2 THEN 0 ELSE 1 END) ASC
@@ -363,14 +554,19 @@ async function getPromptTemplate(promptType, userId, pool) {
  * Builds the final system prompt by injecting job context + link analysis
  * into the base template content.
  *
+ * For FOLLOW_UP_V2 when FU1 angle is already stored (job.follow_up_1_angle exists
+ * and job.follow_up_count >= 1), appends a differentiation directive so FU2
+ * avoids repeating FU1's angle (QUALITY-02).
+ *
  * @param {string} templateContent - Base prompt from DB (or default)
  * @param {Object} email
  * @param {Object|null} job
  * @param {Array|null} linkAnalysis - Array of analyzeUrl() results
  * @param {string} tone
+ * @param {string} promptType - Current prompt type (for FOLLOW_UP_V2 angle injection)
  * @returns {string}
  */
-function buildPromptWithContext(templateContent, email, job, linkAnalysis, tone) {
+function buildPromptWithContext(templateContent, email, job, linkAnalysis, tone, promptType) {
   let prompt = templateContent;
 
   // Append tone modifier
@@ -412,6 +608,12 @@ Client: ${clientName}`;
 
       jobBlock += "\n</job_context>";
       prompt += jobBlock;
+    }
+
+    // QUALITY-02: For FOLLOW_UP_V2, inject FU1 angle to differentiate FU2
+    // Only applies when FU1 has already been sent (follow_up_count >= 1) and angle was captured
+    if (promptType === "FOLLOW_UP_V2" && job.follow_up_1_angle && job.follow_up_count >= 1) {
+      prompt += `\n\nIMPORTANT: Follow-Up 1 used the angle: "${job.follow_up_1_angle}". Use a DIFFERENT angle for this reply.`;
     }
   }
 
@@ -527,6 +729,75 @@ function detectIntent(text) {
   if (/\b(forward|fyi|fwd)\b/.test(lower)) return "forwarded";
 
   return "general";
+}
+
+/**
+ * checkFollowUpSpecificity — QUALITY-01
+ * Secondary Haiku call to classify whether follow-up contains client-specific detail.
+ * Returns true (is specific) on Haiku error — fail open.
+ *
+ * @param {string} text - Reply text to evaluate
+ * @param {string} clientName - Client's name for context
+ * @param {string} projectType - Project type/heading for context
+ * @param {string} anthropicKey - Decrypted Anthropic API key
+ * @returns {Promise<boolean>}
+ */
+async function checkFollowUpSpecificity(text, clientName, projectType, anthropicKey) {
+  const prompt = `Does this follow-up email contain at least one detail specific to ${clientName}'s ${projectType}? Reply YES or NO only.\n\nFollow-up:\n${text.substring(0, 500)}`;
+  try {
+    const res = await fetch("https://api.anthropic.com/v1/messages", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-api-key": anthropicKey,
+        "anthropic-version": "2023-06-01",
+      },
+      body: JSON.stringify({
+        model: "claude-3-5-haiku-20241022",
+        max_tokens: 10,
+        messages: [{ role: "user", content: prompt }],
+      }),
+    });
+    if (!res.ok) return true; // Fail open
+    const data = await res.json();
+    const answer = (data.content?.[0]?.text || "YES").trim().toUpperCase();
+    return answer.startsWith("YES");
+  } catch {
+    return true; // Fail open on network errors
+  }
+}
+
+/**
+ * extractFollowUpAngle — QUALITY-02
+ * Extracts 5-10 word angle description using Haiku.
+ * Returns null on failure — caller skips DB write gracefully.
+ *
+ * @param {string} text - Follow-up reply text
+ * @param {string} anthropicKey - Decrypted Anthropic API key
+ * @returns {Promise<string|null>}
+ */
+async function extractFollowUpAngle(text, anthropicKey) {
+  const prompt = `In 5-10 words, describe the persuasion angle or hook used in this follow-up message. Reply with ONLY the angle description, no punctuation.\n\nFollow-up:\n${text.substring(0, 400)}`;
+  try {
+    const res = await fetch("https://api.anthropic.com/v1/messages", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-api-key": anthropicKey,
+        "anthropic-version": "2023-06-01",
+      },
+      body: JSON.stringify({
+        model: "claude-3-5-haiku-20241022",
+        max_tokens: 30,
+        messages: [{ role: "user", content: prompt }],
+      }),
+    });
+    if (!res.ok) return null;
+    const data = await res.json();
+    return (data.content?.[0]?.text || "").trim() || null;
+  } catch {
+    return null;
+  }
 }
 
 module.exports = router;
