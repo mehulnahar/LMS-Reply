@@ -810,6 +810,23 @@ router.post("/generate", requireAuth, async (req, res, next) => {
 });
 
 // ============================================================
+// GET /api/replies/stats/banned-phrases — count banned phrases caught this week
+// ============================================================
+router.get('/stats/banned-phrases', requireAuth, async (req, res) => {
+  try {
+    const result = await pool.query(
+      `SELECT COALESCE(SUM(banned_phrases_caught), 0) AS count
+       FROM replies WHERE user_id = $1 AND created_at >= NOW() - INTERVAL '7 days'`,
+      [req.user.id]
+    );
+    res.json({ count: parseInt(result.rows[0].count, 10) });
+  } catch (err) {
+    console.error('Error fetching banned phrase stats:', err);
+    res.status(500).json({ error: 'Failed to fetch stats' });
+  }
+});
+
+// ============================================================
 // PUT /api/replies/:id/copied — Mark as copied
 // ============================================================
 router.put("/:id/copied", requireAuth, async (req, res, next) => {

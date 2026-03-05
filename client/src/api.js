@@ -75,6 +75,9 @@ export const api = {
   recordVariantSelected: (replyId, variant) =>
     request(`/api/replies/${replyId}/variant`, { method: "PUT", body: JSON.stringify({ variant }) }),
 
+  // UIUP-03: Banned phrase stats (weekly count)
+  getBannedPhraseStats: () => request('/api/replies/stats/banned-phrases'),
+
   // MOCKUP-05: Mark mockup as sent (set mockup_sent=true on job)
   markMockupSent: (jobId) =>
     request(`/api/jobs/${jobId}/mockup-sent`, { method: "PUT" }),

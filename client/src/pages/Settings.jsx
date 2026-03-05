@@ -887,6 +887,26 @@ export default function Settings() {
       </div>
 
         {/* ================================================================ */}
+        {/* Reply Editor Section                                             */}
+        {/* ================================================================ */}
+        <div className="card">
+          <div className="px-6 py-4 border-b border-gray-200 dark:border-gray-800">
+            <h2 className="text-base font-semibold flex items-center gap-2">
+              <svg className="w-5 h-5 text-gray-400" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931zm0 0L19.5 7.125M18 14v4.75A2.25 2.25 0 0115.75 21H5.25A2.25 2.25 0 013 18.75V8.25A2.25 2.25 0 015.25 6H10" />
+              </svg>
+              Reply Editor
+            </h2>
+            <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
+              Configure how AI-generated replies are handled in the editor
+            </p>
+          </div>
+          <div className="px-6 py-5">
+            <BannedPhraseModeSettings />
+          </div>
+        </div>
+
+        {/* ================================================================ */}
         {/* Tools Section                                                    */}
         {/* ================================================================ */}
         <div className="card">
@@ -1038,6 +1058,63 @@ function timeAgo(date) {
   if (hours < 24) return `${hours}h ago`;
   const days = Math.floor(hours / 24);
   return `${days}d ago`;
+}
+
+function BannedPhraseModeSettings() {
+  const [mode, setMode] = useState(
+    () => localStorage.getItem('bannedPhraseMode') || 'auto_rewrite'
+  );
+  const [bannedPhraseCount, setBannedPhraseCount] = useState(null);
+
+  useEffect(() => {
+    api.getBannedPhraseStats()
+      .then((data) => setBannedPhraseCount(data.count))
+      .catch(() => {});
+  }, []);
+
+  const handleChange = (newMode) => {
+    setMode(newMode);
+    localStorage.setItem('bannedPhraseMode', newMode);
+  };
+
+  return (
+    <div className="space-y-3">
+      <h3 className="text-sm font-semibold">Banned Phrase Mode</h3>
+      <p className="text-xs text-gray-500 dark:text-gray-400">
+        <strong>Auto-rewrite:</strong> AI rewrites flagged phrases automatically.{' '}
+        <strong>Flag:</strong> phrases are highlighted red and must be manually edited before copy.
+      </p>
+      <div className="flex items-center gap-4">
+        <label className="flex items-center gap-2 cursor-pointer">
+          <input
+            type="radio"
+            name="bannedPhraseMode"
+            value="auto_rewrite"
+            checked={mode === 'auto_rewrite'}
+            onChange={() => handleChange('auto_rewrite')}
+            className="text-brand-600 focus:ring-brand-500"
+          />
+          <span className="text-sm">Auto-rewrite</span>
+        </label>
+        <label className="flex items-center gap-2 cursor-pointer">
+          <input
+            type="radio"
+            name="bannedPhraseMode"
+            value="flag"
+            checked={mode === 'flag'}
+            onChange={() => handleChange('flag')}
+            className="text-brand-600 focus:ring-brand-500"
+          />
+          <span className="text-sm">Flag</span>
+        </label>
+      </div>
+      {bannedPhraseCount !== null && (
+        <div className="text-xs text-gray-500 mt-2">
+          Banned phrases caught this week: <span className="font-semibold text-gray-700 dark:text-gray-300">{bannedPhraseCount}</span>
+        </div>
+      )}
+    </div>
+  );
 }
 
 function ReanalyzeButton() {
