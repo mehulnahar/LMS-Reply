@@ -8,23 +8,49 @@ An intelligent Upwork client management system that pulls emails from Gmail, mat
 
 When a client emails about an Upwork job, the system instantly surfaces the full job context and generates a tailored AI reply — reducing response time from minutes to seconds.
 
+## Current Milestone: v2.0 — Full Pipeline Upgrade
+
+**Goal:** Implement 5 battle-tested AI prompt documents as an intelligent, routing-aware reply system with pre-generation pipeline, post-generation validation, conversation stage awareness, and full data model to track everything.
+
+**Source:** 6 documents from System_Improvement_Spec_V3.md + 5 prompt files (Proposal V4, Reply V2, Follow-Up V2, Thread Continuation V1, Lovable Mockup V1)
+
+**Target features:**
+- Prompt routing engine (auto-selects correct prompt by conversation context)
+- Pre-generation pipeline (auto-fetch job + link analysis before generating)
+- Post-generation validation (banned phrases, proposal gate, next-step enforcement, word count)
+- Objection detection + counter-move library + follow-up kill switch
+- Thread continuation engine (stage-aware: Discovery / Call Booking / Post-Call / Negotiation / Closing / Stalled)
+- Lovable mockup generator integration (decision matrix + prompt generation)
+- DB data model upgrades (4 new tables/fields, analytics tracking)
+- UI upgrades (analysis panels, variant selection, validation indicators)
+
+**Testing mandate:** Jest unit + integration tests + manual test checklist after every phase. Quality over quantity.
+
 ## Requirements
 
 ### Validated
 
-(None yet — ship to validate)
+- ✓ Auth (signup/login/session/JWT) — v1.0
+- ✓ Encrypted API key storage (AES-256-GCM) — v1.0
+- ✓ Gmail OAuth multi-account sync — v1.0
+- ✓ Unified inbox with email status labels — v1.0
+- ✓ LeadHack job context matching (auto + manual link) — v1.0
+- ✓ Basic AI reply generation (single prompt) — v1.0
+- ✓ Email analysis: lead score, intent, phone, OOO, urgency — v1.0
+- ✓ Timezone lookup (Haiku-powered) — v1.0
+- ✓ Dark/light theme — v1.0
 
 ### Active
 
-- [ ] Configuration settings (multi-email, API keys, integrations)
-- [ ] Reply Inbox with job context matching
-- [ ] AI-powered Smart Reply Generator (contextual — detects intent: question, quote request, availability, etc.)
-- [ ] Lovable Prompt Generator (auto-generates Lovable UI prompt when a visual mockup would help win the deal)
-- [ ] Lead Research & Scoring (based on job description + email domain only — no external enrichment in v1)
-- [ ] User authentication with custom role-based access (owner + VA roles)
-- [ ] Dark/light theme toggle
-- [ ] Minimalist, polished UI
-- [ ] Pre-Call Briefing with LinkedIn enrichment (Proxycurl/Apollo — configurable)
+- [ ] Prompt routing engine (5 prompts, auto-selected by context)
+- [ ] Pre-generation pipeline (job auto-fetch + link analysis)
+- [ ] Post-generation validation layer (banned phrases, proposal gate, word count, next-step)
+- [ ] Objection detection + counter-move library (10 objection types)
+- [ ] Follow-up kill switch (max 2, then DORMANT)
+- [ ] Thread continuation engine (6 conversation stages)
+- [ ] Lovable mockup generator (decision matrix + Lovable prompt + send message)
+- [ ] DB data model upgrades (reply_generations, next_steps, banned_phrases, counter_moves tables)
+- [ ] UI upgrades (analysis panel, variant A/B, validation indicators)
 
 ### Out of Scope
 
@@ -98,5 +124,9 @@ When a client emails about an Upwork job, the system instantly surfaces the full
 | Custom roles over simple admin/VA split | User wants granular control over VA permissions | — Pending |
 | Configuration module built first | Foundation for all other modules (API keys, emails) | — Pending |
 
+| Quality-over-quantity testing | User + Codex + Antigravity all building in parallel; need verifiable quality per phase | — Pending |
+| All 26 spec features in v2.0 | Full pipeline upgrade in one milestone — no feature left behind | — Pending |
+| Jest + manual checklist testing | Automated coverage + human UAT after every phase | — Pending |
+
 ---
-*Last updated: 2026-02-28 after questioning (email workflow, Lovable feature, LinkedIn enrichment clarified)*
+*Last updated: 2026-03-05 after v2.0 milestone started — Full Pipeline Upgrade (26 features from System_Improvement_Spec_V3.md)*

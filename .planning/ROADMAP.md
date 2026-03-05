@@ -22,6 +22,13 @@ Decimal phases appear between their surrounding integers in numeric order.
 - [ ] **Phase 8: Lead Scoring** - Auto-score leads from job and email signals, sort and filter inbox by score
 - [ ] **Phase 9: Team & VA Access** - Owner creates VA accounts with per-module permissions and audit trail
 - [ ] **Phase 10: UI Polish** - Dark/light theme, design quality pass, loading skeletons, responsive layout
+- [ ] **Phase 11: DB + Prompt Foundation** - All v2.0 schema migrations deployed and all 5 prompt documents stored as editable, versioned templates
+- [ ] **Phase 12: Prompt Routing + Pre-Generation Pipeline** - Every Generate Reply click auto-selects the correct prompt AND pre-fetches job context + analyzes client URLs before generating
+- [ ] **Phase 13: Post-Generation Validation** - Every generated reply passes 4 quality gates (Proposal Gate, Banned Phrase Scanner, Word Count, Next-Step) plus 4 quality gates (Specificity, Angle Differentiation, Pricing Intelligence, Proof Quality)
+- [ ] **Phase 14: Objection Handling + Kill Switch** - System detects client objections and routes to correct counter-move; follow-up sequence is capped at 2 with automatic DORMANT transition
+- [ ] **Phase 15: Thread Continuation Engine** - Ongoing conversations are stage-aware, tone-shifting, post-call aware, and every reply ends with a tracked next step
+- [ ] **Phase 16: Lovable Mockup Generator** - System determines whether a mockup is appropriate and generates a complete, stage-aware Lovable prompt plus send message
+- [ ] **Phase 17: UI Upgrades** - The reply editor surfaces all intelligence (analysis panel, prompt badge, variant selection, banned phrase highlights, word count, next-step warning)
 
 ## Phase Details
 
@@ -177,10 +184,161 @@ Plans:
 - [ ] 10-01: TBD
 - [ ] 10-02: TBD
 
+---
+
+## v2.0 — Full Pipeline Upgrade (Phases 11–17)
+
+### Phase 11: DB + Prompt Foundation
+**Goal**: All v2.0 database schema changes are deployed (4 new tables + leads table extended) and all 5 prompt documents are stored as editable, versioned templates in the database — the foundation every downstream phase depends on
+**Depends on**: Phase 1 (database infrastructure)
+**Requirements**: DB-01, DB-02, DB-03, DB-04, DB-05, PROMPT-01
+**Success Criteria** (what must be TRUE):
+  1. (Positive) All 5 new/extended schema objects are present in production: leads table has every v2.0 column (job_description_raw, job_analysis_json, link_analysis_json, objection_detected, follow_up_count, follow_up_1_angle, follow_up_2_angle, agency_sensitive, client_scope_framing, client_message_length, re_engagement_strategy, mockup_sent, mockup_lovable_prompt, post_call_recap_sent, thread_stage, thread_depth, thread_client_messages, last_prompt_used, next_step_ours, next_step_theirs, next_step_followup_date, next_step_approach, cc_contacts); all 4 new tables (banned_phrases, counter_moves, reply_generations, next_steps) exist with correct columns, types, and foreign keys
+  2. (Positive) banned_phrases table is pre-populated with 40+ phrases across all 8 categories (CORPORATE, ENTHUSIASM, FILLER, FOLLOWUP, ASSUMPTION, PASSIVE, SELF_FOCUSED, GUILT); counter_moves table is pre-populated with all 10 counter-move templates with correct max_words values
+  3. (Positive) All 5 prompt documents (Proposal V4, Reply V2, Follow-Up V2, Thread Continuation V1, Lovable Mockup V1) are stored in the prompt_templates table with version numbers, correct prompt_type enum values, and full template text; they are retrievable via the Settings UI prompt editor
+  4. (Positive) Schema migrations are idempotent — running the migration script twice does not error or duplicate data; rollback scripts exist and work
+  5. (Negative) Inserting a row into reply_generations with an invalid lead_id (non-existent FK) raises a foreign key constraint error, not a silent failure
+  6. (Negative) Inserting a banned_phrase row with a category value not in the enum (e.g. "RANDOM") is rejected by the database with a constraint error
+**Test mandate**:
+  - Positive: Run migration on a clean schema; verify all table/column existence with `\d` queries; verify seed counts (banned_phrases >= 40, counter_moves >= 10, prompt_templates = 5)
+  - Positive: Query each prompt template by prompt_type enum value and verify non-empty template text is returned
+  - Negative: Attempt FK violation on reply_generations; attempt invalid enum insert on banned_phrases; verify both error at DB level, not application level
+  - Edge case: Run migration on a database that already has some columns (partial migration); verify it completes without dropping existing data
+**Plans**: TBD
+
+### Phase 12: Prompt Routing + Pre-Generation Pipeline
+**Goal**: Every "Generate Reply" click auto-selects the correct prompt based on conversation context AND pre-fetches the full job description and analyzes any client URLs before generating — so the AI always has complete context
+**Depends on**: Phase 11
+**Requirements**: PROMPT-02, PROMPT-03, PROMPT-04, PREFETCH-01, PREFETCH-02, PREFETCH-03, PREFETCH-04, PREFETCH-05
+**Success Criteria** (what must be TRUE):
+  1. (Positive) Prompt routing selects the correct template in all 6 switching scenarios: first client reply → Reply V2; thread with 2+ exchanges → Thread Continuation V1; client silent 3+ days with no reply → Follow-Up V2; "Generate Proposal" action → Proposal V4; "Generate Mockup" action → Lovable Mockup V1; STOP classification → no output, suppressed with explanation shown to user
+  2. (Positive) Pre-generation pipeline always fires before AI call: if job description is not cached on the email record, system fetches from LeadHack via POST /getJobDetails and caches it before proceeding; generation does not start until job context is confirmed present
+  3. (Positive) URL extraction finds all http/https URLs in both the job description and all email thread messages; extracted URLs are stored as JSON on the lead record; link analysis fetches each URL and stores findings (load speed, mobile UX, tech stack, SEO gaps) as structured JSON with a best_finding_for_reply field
+  4. (Positive) The best link finding is injected into the AI prompt context; generated output includes an internal [JOB ANALYSIS] block and [LINK ANALYSIS] block stored on the reply record; these blocks are NOT included when user copies to clipboard
+  5. (Positive) Reply editor shows a badge "Using: [Prompt Name]" and user can override the auto-selected prompt via a dropdown; the overridden prompt is used for the next generation and recorded on the reply_generations record
+  6. (Negative) If LeadHack is unreachable during the pre-fetch step, generation proceeds with a warning "Job context unavailable — using email content only"; the system does not block or crash; cached data is used if available
+**Test mandate**:
+  - Positive: Create test leads representing each routing scenario; trigger generation; verify correct prompt_used recorded on reply_generations table for each
+  - Positive: Test with an email that has no cached job description; verify LeadHack fetch fires and result is cached before generation completes
+  - Positive: Test URL extraction on a job description containing 2 URLs and an email thread containing 1 URL; verify all 3 are stored in link_analysis_json; verify best_finding_for_reply is non-empty
+  - Negative: Mock LeadHack to return a 500 error; verify generation still proceeds with warning, not hard error
+  - Negative: Test with a job description containing no URLs and emails with no URLs; verify link_analysis_json is empty array, not null/undefined; verify generation still completes
+  - Edge case: Test STOP classification scenario; verify no AI call is made and no reply is generated; verify user sees explanation, not blank reply area
+**Plans**: TBD
+
+### Phase 13: Post-Generation Validation
+**Goal**: Every generated reply passes 4 validation gates before reaching the user — Proposal Gate, Banned Phrase Scanner, Word Count Enforcement, and Next-Step Enforcement — plus 4 quality gates for follow-up and proposal output: Specificity Test, Angle Differentiation, Pricing Intelligence, and Proof Quality Gate
+**Depends on**: Phase 12
+**Requirements**: VALIDATE-01, VALIDATE-02, VALIDATE-03, VALIDATE-04, QUALITY-01, QUALITY-02, QUALITY-03, QUALITY-04
+**Success Criteria** (what must be TRUE):
+  1. (Positive) Proposal Gate strips pricing patterns ($, USD, "price", "cost", "budget", "phase 1/2/3", "timeline", "weeks", deliverables lists) from reply email output and replaces them with call-redirect language; Proposal V4 output retains pricing only when client explicitly requested it (toggle active)
+  2. (Positive) Banned Phrase Scanner runs post-generation and catches phrases from the banned_phrases table; in "Flag" mode, matched phrases are highlighted red in the editor; in "Auto-rewrite" mode, AI rewrites the offending sentence; banned_phrases_caught count is recorded on reply_generations
+  3. (Positive) Live word count displays below the editor as "X / [limit] words" with correct color (green = under limit, yellow = within 10%, red = over); limit is dynamically set by classification type (Positive=80, Neutral=120, Follow-Up 1=80, Follow-Up 2=70, Proposal cold=200)
+  4. (Positive) Next-Step Enforcement scans the last 2 sentences; if no specific action + timeframe or question is found, a yellow warning bar appears "No next step detected"; copy button remains functional but warning persists until user edits
+  5. (Positive) Follow-Up Specificity Test fires a secondary Haiku call after follow-up generation; if the draft lacks client-specific detail, it regenerates with stronger specificity instruction; after 2 failed regenerations, the reply is flagged "Needs manual writing" and shown to the user as-is with a flag badge
+  6. (Positive) Angle Differentiation: Follow-Up 2 generation receives Follow-Up 1's angle_used as context; generated Follow-Up 2 uses a demonstrably different angle; both angles are recorded on the lead record
+  7. (Negative) A reply that contains pricing language in a non-proposal reply type (e.g., Thread Continuation) is always stripped by the Proposal Gate — there is no way for pricing to reach the clipboard from a non-proposal prompt
+  8. (Negative) Proof Quality Gate: a proposal body with no metric patterns (no %, no numbers, no timeframes) has its proof section removed entirely rather than passing vague claims like "we've worked with similar clients" through to the user
+**Test mandate**:
+  - Positive: Generate a reply using Thread Continuation with injected pricing language; verify Proposal Gate strips it and copy-to-clipboard output contains no pricing; verify call-redirect language is present
+  - Positive: Seed banned_phrases table; generate a reply known to contain a phrase; verify flag mode highlights it; verify auto-rewrite mode changes the sentence; verify banned_phrases_caught = 1 on the reply_generations record
+  - Positive: Generate replies for each classification type; verify word count limit shown matches classification; generate a reply over the limit; verify editor shows red count
+  - Positive: Generate a follow-up; verify Haiku specificity check fires (mock Haiku to return "NO"); verify regeneration happens; verify after 2 failures the "Needs manual writing" badge appears
+  - Negative: Generate a proposal with no metrics in the proof section; verify proof section is stripped from clipboard output, not passed through
+  - Negative: Generate a follow-up with a next step present; verify no warning bar appears; then remove the next step from the editor; verify warning bar reappears
+  - Edge case: Generate Follow-Up 2 when Follow-Up 1 has never been generated (no angle stored); verify system handles gracefully with no crash, uses a default angle
+**Plans**: TBD
+
+### Phase 14: Objection Handling + Kill Switch
+**Goal**: System detects client objections before generating and routes to the correct counter-move template; agency sensitivity auto-inserts disclosure; scope framing is mirrored; follow-up sequence is capped at 2 with automatic DORMANT transition on the third attempt
+**Depends on**: Phase 12
+**Requirements**: OBJECTION-01, OBJECTION-02, OBJECTION-03, OBJECTION-04, OBJECTION-05, OBJECTION-06
+**Success Criteria** (what must be TRUE):
+  1. (Positive) Objection detection correctly classifies all 6 objection types from client email text before generation: Pricing ("how much", "too expensive"), Agency ("no agencies", "individual"), Comparison ("comparing options", "found someone cheaper"), Technical Q (framework/API/tech terms), Already Hired ("found someone", "already resolved"), None — and stores the detected objection on the lead record
+  2. (Positive) When an objection is detected, the correct counter-move template is selected from counter_moves table and the generated reply stays within the max_words limit defined for that counter-move type
+  3. (Positive) Technical question replies follow Answer → Curiosity Question → CTA pattern; exactly ONE curiosity question appears per reply, framed around the client's specific use case; if a technical reply is generated with 0 or 2+ curiosity questions, it fails validation
+  4. (Positive) Agency sensitivity detection scans job post text for "individual", "freelancer", "no agencies", "solo developer"; when detected, agency disclosure is inserted in the first paragraph of both Proposal and Reply output; when NOT detected, agency disclosure does not appear anywhere in the output
+  5. (Positive) Follow-Up Kill Switch: after follow_up_count = 2, any attempt to generate a third follow-up returns a Kill Switch notice instead of a reply; lead status moves to DORMANT; the system is blocked from generating follow-up output until 30 days have elapsed
+  6. (Negative) A lead with follow_up_count = 1 correctly generates Follow-Up 2 (not blocked); a lead with follow_up_count = 2 is blocked from generating Follow-Up 3 and shows Kill Switch notice; a lead with follow_up_count = 0 generates Follow-Up 1 correctly
+**Test mandate**:
+  - Positive: Craft test emails for each of the 6 objection types; trigger generation; verify objection_detected stored correctly for each; verify correct counter-move template selected
+  - Positive: Craft a technical question email; generate reply; count curiosity questions in output; verify exactly 1; generate 3 different technical replies; verify pattern holds consistently
+  - Positive: Create job post text with "no agencies"; generate proposal; verify disclosure in first paragraph; create job post without agency restriction; generate proposal; verify no disclosure
+  - Positive: Set follow_up_count = 2 on a test lead; attempt to generate follow-up; verify Kill Switch notice returned, no AI call made, lead status = DORMANT
+  - Negative: Set follow_up_count = 2 and attempt generation twice more (Day 32 and Day 15); verify Day 32 is unblocked (30 days elapsed), Day 15 still blocked
+  - Edge case: Email containing both Pricing and Agency objection keywords; verify system picks the dominant objection (first detected or highest priority) and does not crash with ambiguous classification
+**Plans**: TBD
+
+### Phase 15: Thread Continuation Engine
+**Goal**: Ongoing conversations are automatically classified into 6 stages, tone shifts with thread depth, post-call replies default to recap format, CC'd contacts are addressed, stall recovery strategies vary by stall type, and every reply ends with a tracked next step stored in the next_steps table
+**Depends on**: Phase 12, Phase 14
+**Requirements**: THREAD-01, THREAD-02, THREAD-03, THREAD-04, THREAD-05, THREAD-06, THREAD-07, THREAD-08, THREAD-09
+**Success Criteria** (what must be TRUE):
+  1. (Positive) Thread stage is correctly detected and stored for all 6 stages: DISCOVERY (exploring fit), CALL_BOOKING (confirming time), POST_CALL (call happened), NEGOTIATION (pricing/scope active), CLOSING (ready to start), STALLED (long gaps or hedging); stage is visible in the lead detail view
+  2. (Positive) Tone shifts with thread depth: messages 2-3 use slightly formal tone with insights; messages 4-6 use first name and shorter sentences; messages 7+ use ultra-casual tone without sales language; post-call messages reference what was discussed
+  3. (Positive) Post-Call stage defaults to Recap output (under 100 words, bullet format, specific next step); full proposal is only generated when "Client requested proposal: Yes" toggle is active; the toggle state is persisted per lead
+  4. (Positive) When a CC'd contact is detected in an email, the reply addresses the new person by name in the first sentence with 1-sentence context; CC'd contacts are stored as JSON on the lead record
+  5. (Positive) After every Thread Continuation reply, a next_steps record is created with: our_action, our_deadline, their_action, followup_date, followup_approach; these are visible in the lead detail view
+  6. (Positive) Hot Signal Detection: when email open count >= 10 (from tracking data), lead is flagged "Sharing Internally — High Interest Signal" and system suggests generating a simpler/phased option
+  7. (Negative) A thread with 1 message (single email, no response yet) does not trigger Thread Continuation engine — it routes to Reply V2 (first reply); Thread Continuation only activates for threads with 2+ exchanges
+  8. (Negative) Client Energy Matching: a short client email (<30 words) produces a reply under 60 words; a long client email (>100 words) allows a proportionally longer reply; a medium client email is not forced into short mode
+**Test mandate**:
+  - Positive: Create test threads at each depth (1, 3, 5, 8 messages); verify thread_stage detected correctly; verify tone descriptors shift at the right thresholds
+  - Positive: Set thread stage to POST_CALL; generate reply with "Client requested proposal: No"; verify Recap format (under 100 words, bullets); flip toggle to "Yes"; verify full proposal generates
+  - Positive: Create an email with a CC recipient; generate reply; verify first sentence addresses CC'd person by name with context; verify cc_contacts JSON updated on lead record
+  - Positive: Generate 3 Thread Continuation replies in sequence; verify next_steps table has 3 new records each with non-null our_action, their_action, followup_date
+  - Negative: Single-email thread (first contact from client); verify prompt routing selects Reply V2, not Thread Continuation; verify no thread_stage stored
+  - Negative: Create a client email of 25 words; generate reply; verify word count is under 60; create a client email of 150 words; verify reply is not capped at 60
+  - Edge case: Thread stage = STALLED after "let me think" response; verify system generates a Day 3 value-add reply with no call CTA (not a hard close); verify different strategy fires for "after pricing silence" stall vs "after call silence"
+**Plans**: TBD
+
+### Phase 16: Lovable Mockup Generator
+**Goal**: System evaluates every job against a decision matrix to determine if a mockup is appropriate, then generates a complete Lovable-compatible prompt with design specs (including colors from client site), sections list, and realistic sample data, plus a stage-appropriate send message under 60 words
+**Depends on**: Phase 12, Phase 15
+**Requirements**: MOCKUP-01, MOCKUP-02, MOCKUP-03, MOCKUP-04, MOCKUP-05
+**Success Criteria** (what must be TRUE):
+  1. (Positive) Decision matrix correctly classifies all 14 job types: YES for web app, SaaS, landing page, e-commerce, mobile app, dashboard, AI chatbot, automation tool; NO with alternative suggestion for SEO/marketing, DevOps/backend, content writing, budget under $1K, client hasn't engaged yet
+  2. (Positive) When YES, generated Lovable prompt includes: design specs (colors extracted from client site via link analysis, or sensible defaults if no site URL), typography, layout style, sections list (up to 6 with specific copy), interactive elements, realistic sample data — never Lorem ipsum; prompt must be self-contained enough to generate a working prototype in Lovable without additional instructions
+  3. (Positive) System generates a stage-appropriate send message (60 words or under) to accompany the mockup link; different templates used for: with cold proposal, after a call, Follow-Up Day 3; message says "I put together a quick concept" — never "I built this for you"
+  4. (Positive) "Generate Mockup" button is available in Proposal Workspace and Lead Detail screens; clicking it first runs the decision matrix check and shows the result; if YES, Lovable prompt and send message are generated and both are copyable to clipboard; mockup_sent boolean is updated when user copies the send message
+  5. (Negative) Follow-Up Day 7 mockup option is grayed out with tooltip "Mockups should be sent at Day 3 or earlier — use a different value angle for Day 7"; clicking the grayed-out button does not trigger generation
+  6. (Negative) When decision matrix returns NO (e.g., job is SEO/content writing), system does NOT generate a Lovable prompt; instead it shows the appropriate alternative suggestion (keyword analysis, architecture diagram, case study) based on job type
+**Test mandate**:
+  - Positive: Run decision matrix against job descriptions for all 14 job types; verify each returns the correct YES/NO with correct alternative suggestion for NO cases
+  - Positive: Trigger Lovable prompt generation on a web app job with a client site URL present; verify colors in design specs are populated from link analysis, not generic defaults; verify no Lorem ipsum in sample data
+  - Positive: Trigger generation for 3 stages (cold proposal, after call, Follow-Up Day 3); verify send message differs for each; verify word count is 60 or under for all 3; verify "I put together a quick concept" phrasing used
+  - Negative: Set lead to Follow-Up Day 7 context; verify Generate Mockup button is grayed out; verify clicking it shows tooltip and does not call the AI
+  - Negative: Run against a content writing job; verify NO classification, no Lovable prompt generated, alternative suggestion displayed
+  - Edge case: Client site URL in link_analysis_json returns no color data (site blocked or CSS not parseable); verify system falls back to sensible design defaults without error; generated prompt is still valid
+**Plans**: TBD
+
+### Phase 17: UI Upgrades
+**Goal**: The reply editor surfaces all v2.0 intelligence in a clean, non-intrusive way — analysis panel above the editor, prompt badge with manual override, variant A/B selection for prompts that produce two variants, banned phrase highlights with mode toggle, live word count with dynamic limit, and next-step warning bar
+**Depends on**: Phase 13, Phase 14, Phase 15, Phase 16
+**Requirements**: UIUP-01, UIUP-02, UIUP-03, UIUP-04, UIUP-05, UIUP-06
+**Success Criteria** (what must be TRUE):
+  1. (Positive) Collapsible analysis panel appears above the reply editor, showing [JOB ANALYSIS] and [LINK ANALYSIS] blocks in human-readable format; panel is collapsed by default; one click expands it; expanded state persists for the session; panel content is never included in copy-to-clipboard output
+  2. (Positive) Banned phrase violations are highlighted red in the reply editor immediately after generation; Settings shows a toggle between "Auto-rewrite" and "Flag" modes; in Flag mode, copy is blocked until all red highlights are manually resolved or dismissed; "Banned phrase violations caught this week" metric is visible on the dashboard
+  3. (Positive) Live word count displays below the reply editor in format "X / [limit] words"; color is green when under limit, yellow within 10%, red when over; the limit number displayed changes dynamically when the detected classification changes (e.g., switching from Positive=80 to Neutral=120)
+  4. (Positive) Reply editor header shows "Using: [Prompt Name]" badge; a manual override dropdown is next to the badge; selecting a different prompt from the dropdown triggers a re-generation using the selected prompt; the final prompt_used is recorded on reply_generations
+  5. (Positive) For Reply V2 and Follow-Up V2 (which generate 2 variants), both Variant A (Direct) and Variant B (Value-First) are displayed side-by-side or in tabs; user must select one before the copy button activates; selected variant is recorded on reply_generations
+  6. (Negative) If the reply editor contains no clear next step after generation, a yellow warning bar appears "No next step detected — add a call ask or action before copying"; the copy button remains functional (soft warning, not hard block); if user edits the reply to add a next step, the warning bar disappears automatically
+**Test mandate**:
+  - Positive: Generate a reply; verify analysis panel is collapsed by default; click to expand; verify JOB ANALYSIS and LINK ANALYSIS content is present; copy to clipboard; verify neither block appears in clipboard content
+  - Positive: Generate a reply with a known banned phrase; verify red highlight in editor; switch to Auto-rewrite mode; regenerate; verify phrase is rewritten, no red highlight; check dashboard metric incremented
+  - Positive: Change classification type via manual override dropdown; verify word count limit displayed updates to match the new classification; generate a reply over the limit; verify red count displayed
+  - Positive: Use Reply V2 prompt; verify two variants displayed; verify copy button is disabled until one variant is selected; select Variant B; copy; verify variant_selected = "B" on reply_generations record
+  - Negative: Generate a reply with no next step; verify yellow warning bar present; edit the reply to include "Can we jump on a call Thursday at 2pm?"; verify warning bar disappears without page refresh
+  - Negative: Verify analysis panel content is never serialized into the clipboard payload regardless of panel expand/collapse state
+  - Edge case: Generate a reply using a prompt that produces only 1 variant (Thread Continuation, Proposal V4); verify no variant selection UI appears; copy is available immediately after generation
+**Plans**: TBD
+
+---
+
 ## Progress
 
 **Execution Order:**
-Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 → 9 → 10
+Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 → 9 → 10 → 11 → 12 → 13 → 14 → 15 → 16 → 17
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
@@ -194,3 +352,10 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 →
 | 8. Lead Scoring | 0/1 | Not started | - |
 | 9. Team & VA Access | 0/1 | Not started | - |
 | 10. UI Polish | 0/2 | Not started | - |
+| 11. DB + Prompt Foundation | 0/TBD | Not started | - |
+| 12. Prompt Routing + Pre-Generation | 0/TBD | Not started | - |
+| 13. Post-Generation Validation | 0/TBD | Not started | - |
+| 14. Objection Handling + Kill Switch | 0/TBD | Not started | - |
+| 15. Thread Continuation Engine | 0/TBD | Not started | - |
+| 16. Lovable Mockup Generator | 0/TBD | Not started | - |
+| 17. UI Upgrades | 0/TBD | Not started | - |
