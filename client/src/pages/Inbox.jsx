@@ -219,12 +219,18 @@ export default function Inbox() {
     () => localStorage.getItem('bannedPhraseMode') || 'auto_rewrite'
   );
   const overlayRef = useRef(null);
+  // FLOW-03: Search state
+  const [searchTerm, setSearchTerm] = useState("");
+  const searchTimerRef = useRef(null);
+  // FLOW-01: Reactivation state
+  const [reactivating, setReactivating] = useState(false);
 
   const fetchEmails = useCallback(async () => {
     try {
       const params = {};
       if (filter.status) params.status = filter.status;
       if (filter.account) params.account = filter.account;
+      if (filter.search) params.search = filter.search;
       const data = await api.getEmails(params);
       setEmails(data.emails || []);
       setTotal(data.total || 0);
@@ -279,6 +285,7 @@ export default function Inbox() {
     setMockupDeclined(null);
     setPromptCopied(false);
     setMessageCopied(false);
+    setReactivating(false);
     // UIUP-01/05: Clear analysis/variant state on email switch
     setJobAnalysisBlock(null);
     setLinkAnalysisBlock(null);
@@ -493,15 +500,75 @@ export default function Inbox() {
     if (!detail?.email?.id) return;
     try {
       await api.updateEmailStatus(detail.email.id, status);
+      // Update detail panel immediately
       setDetail((prev) => ({
         ...prev,
         email: { ...prev.email, status },
       }));
-      setEmails((prev) =>
-        prev.map((e) => (e.id === detail.email.id ? { ...e, status } : e))
-      );
+      // Determine if email should be removed from current view
+      const currentFilter = filter.status;
+      const shouldRemove = currentFilter && currentFilter !== status;
+      // Also remove from "all" view when moving to replied/lost (FLOW-02)
+      const autoMoveStatuses = ['replied', 'lost'];
+      const shouldAutoMove = !currentFilter && autoMoveStatuses.includes(status);
+
+      if (shouldRemove || shouldAutoMove) {
+        // Remove from sidebar list (optimistic)
+        setEmails((prev) => prev.filter((e) => e.id !== detail.email.id));
+        setTotal((prev) => Math.max(0, prev - 1));
+        // Clear selection if the removed email was selected
+        setSelectedId(null);
+        setDetail(null);
+      } else {
+        // Just update in-place
+        setEmails((prev) =>
+          prev.map((e) => (e.id === detail.email.id ? { ...e, status } : e))
+        );
+      }
     } catch {
       // silent
+    }
+  };
+
+  // FLOW-01: Re-activate lost/dormant leads
+  const handleReactivate = async () => {
+    if (!detail?.email?.id) return;
+    setReactivating(true);
+    try {
+      // If job is dormant, use the reactivate endpoint
+      if (detail.job?.matchStatus === 'dormant') {
+        const result = await api.reactivateJob(detail.job.id);
+        // Update job status in detail
+        setDetail((prev) => ({
+          ...prev,
+          job: { ...prev.job, matchStatus: 'matched' },
+          email: { ...prev.email, status: 'new' },
+        }));
+        // Update sidebar
+        setEmails((prev) =>
+          prev.map((e) => (e.id === detail.email.id ? { ...e, status: 'new', jobMatchStatus: 'matched' } : e))
+        );
+        if (!result.followUpUnblocked) {
+          alert(`Lead reactivated but follow-up generation remains blocked for ${result.daysRemaining} more days.`);
+        }
+      } else {
+        // Just change email status back to "new"
+        await api.updateEmailStatus(detail.email.id, 'new');
+        setDetail((prev) => ({
+          ...prev,
+          email: { ...prev.email, status: 'new' },
+        }));
+        setEmails((prev) =>
+          prev.map((e) => (e.id === detail.email.id ? { ...e, status: 'new' } : e))
+        );
+      }
+      // Clear kill switch UI state if it was showing
+      setKillSwitch(false);
+      setKillSwitchReason('');
+    } catch (err) {
+      alert('Re-activation failed: ' + (err.message || 'Unknown error'));
+    } finally {
+      setReactivating(false);
     }
   };
 
@@ -631,6 +698,40 @@ export default function Inbox() {
               ))}
             </select>
           </div>
+          {/* FLOW-03: Search input */}
+          <div className="relative">
+            <svg className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" d="m21 21-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z" />
+            </svg>
+            <input
+              type="text"
+              value={searchTerm}
+              onChange={(e) => {
+                const val = e.target.value;
+                setSearchTerm(val);
+                clearTimeout(searchTimerRef.current);
+                searchTimerRef.current = setTimeout(() => {
+                  setFilter((f) => ({ ...f, search: val || undefined }));
+                }, 300);
+              }}
+              placeholder="Search by email address..."
+              className="w-full text-xs pl-8 pr-8 py-1.5 rounded-md border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 text-gray-700 dark:text-gray-300 placeholder-gray-400"
+            />
+            {searchTerm && (
+              <button
+                onClick={() => {
+                  setSearchTerm("");
+                  clearTimeout(searchTimerRef.current);
+                  setFilter((f) => ({ ...f, search: undefined }));
+                }}
+                className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
+              >
+                <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            )}
+          </div>
         </div>
 
         {/* Email rows */}
@@ -655,8 +756,12 @@ export default function Inbox() {
 
           {noEmails && !noAccounts && !loading && (
             <div className="p-6 text-center">
-              <p className="text-sm text-gray-500 dark:text-gray-400">No emails yet</p>
-              <p className="text-xs text-gray-400 mt-1">Click Sync to pull unread emails</p>
+              <p className="text-sm text-gray-500 dark:text-gray-400">
+                {searchTerm ? `No emails found for "${searchTerm}"` : "No emails yet"}
+              </p>
+              <p className="text-xs text-gray-400 mt-1">
+                {searchTerm ? "Try a different search term" : "Click Sync to pull unread emails"}
+              </p>
             </div>
           )}
 
@@ -766,15 +871,27 @@ export default function Inbox() {
                   </div>
                 </div>
                 {/* Status dropdown */}
-                <select
-                  value={detail.email.status}
-                  onChange={(e) => handleStatusChange(e.target.value)}
-                  className="text-xs px-2 py-1 rounded-md border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900"
-                >
-                  {Object.entries(STATUS_LABELS).map(([k, v]) => (
-                    <option key={k} value={k}>{v.label}</option>
-                  ))}
-                </select>
+                <div className="flex items-center gap-2">
+                  <select
+                    value={detail.email.status}
+                    onChange={(e) => handleStatusChange(e.target.value)}
+                    className="text-xs px-2 py-1 rounded-md border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900"
+                  >
+                    {Object.entries(STATUS_LABELS).map(([k, v]) => (
+                      <option key={k} value={k}>{v.label}</option>
+                    ))}
+                  </select>
+                  {/* FLOW-01: Re-activate button for lost/ignored/dormant */}
+                  {(detail.email.status === 'lost' || detail.email.status === 'ignored' || detail.job?.matchStatus === 'dormant') && (
+                    <button
+                      onClick={handleReactivate}
+                      disabled={reactivating}
+                      className="text-xs px-2.5 py-1 rounded-md bg-emerald-50 text-emerald-700 hover:bg-emerald-100 dark:bg-emerald-900/20 dark:text-emerald-400 dark:hover:bg-emerald-900/30 border border-emerald-200 dark:border-emerald-800 disabled:opacity-50 transition-colors whitespace-nowrap"
+                    >
+                      {reactivating ? 'Reactivating...' : 'Re-activate'}
+                    </button>
+                  )}
+                </div>
               </div>
               {detail.email.extractedPhone && (
                 <div className="flex items-center gap-1.5 mt-2 text-xs text-brand-600 dark:text-brand-400">
