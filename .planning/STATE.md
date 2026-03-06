@@ -6,16 +6,16 @@ See: .planning/PROJECT.md (updated 2026-03-06)
 
 **Core value:** When a client emails about an Upwork job, the system instantly surfaces the full job context and generates a tailored AI reply -- reducing response time from minutes to seconds.
 **Current milestone:** v2.1 -- Prompt Quality & Inbox UX Fixes
-**Current focus:** Phase 18: Prompt Quality Fixes
+**Current focus:** Phase 19: Inbox Workflow
 
 ## Current Position
 
-Phase: 18 of 19 (Prompt Quality Fixes)
-Plan: 3 of 3 complete
-Status: Phase 18 Complete
-Last activity: 2026-03-06 -- Completed 18-03: prompt quality test suite (59 tests, all CTA requirements covered)
+Phase: 19 of 19 (Inbox Workflow)
+Plan: --
+Status: Ready to plan
+Last activity: 2026-03-06 -- Phase 18 complete (3/3 plans, 59 tests passing)
 
-Progress (v2.1): [#####░░░░░] 50% (3/6 plans, 1/2 phases)
+Progress (v2.1): [#####░░░░░] 50% (1/2 phases)
 Progress (overall): v2.0 shipped, v2.1 in progress
 
 ## Performance Metrics
