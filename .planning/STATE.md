@@ -11,19 +11,19 @@ See: .planning/PROJECT.md (updated 2026-03-06)
 ## Current Position
 
 Phase: 18 of 19 (Prompt Quality Fixes)
-Plan: --
-Status: Ready to plan
-Last activity: 2026-03-06 -- v2.1 roadmap created (2 phases: 18-19)
+Plan: 1 of 3 complete
+Status: Executing Phase 18
+Last activity: 2026-03-06 -- Completed 18-01: prompt enhancement utilities + template updates
 
-Progress (v2.1): [░░░░░░░░░░] 0% (0/2 phases)
-Progress (overall): v2.0 shipped, v2.1 roadmapped
+Progress (v2.1): [##░░░░░░░░] 17% (1/6 plans, 0/2 phases)
+Progress (overall): v2.0 shipped, v2.1 in progress
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 17 (v2.0 phases 14-17)
-- Average duration: ~30 min
-- Total execution time: ~8 hours (v2.0)
+- Total plans completed: 18 (v2.0 phases 14-17 + v2.1 phase 18 P01)
+- Average duration: ~28 min
+- Total execution time: ~8h 4m
 
 **By Phase (v2.0):**
 
@@ -34,8 +34,14 @@ Progress (overall): v2.0 shipped, v2.1 roadmapped
 | 16 (Lovable Mockup) | 4 | ~2h | ~30m |
 | 17 (UI Upgrades) | 4 | ~2h | ~30m |
 
+**By Phase (v2.1):**
+
+| Phase | Plans | Total | Avg/Plan |
+|-------|-------|-------|----------|
+| 18 (Prompt Quality) | 1/3 | 4m | 4m |
+
 **Recent Trend:**
-- Last 5 plans: Phase 17 P01-P04, Phase 16 P04
+- Last 5 plans: Phase 18 P01, Phase 17 P01-P04
 - Trend: Stable
 
 *Updated after each plan completion*
@@ -51,6 +57,9 @@ Recent decisions affecting current work:
 - [v2.1 Roadmap]: TEST-01 is cross-cutting -- every phase must include positive + negative + edge case tests
 - [v2.1 Roadmap]: CTA-05 (cost suggestion) grouped with prompt fixes (Phase 18), not separated -- same pipeline touch points
 - [v2.1 Roadmap]: Phase 18 depends on Phase 17 (v2.0 complete); Phase 19 depends on Phase 18
+- [18-01]: Used word-boundary regex for single keywords, indexOf for multi-word phrases in pricing detection
+- [18-01]: formatTimezoneCTA uses Intl.DateTimeFormat.formatToParts for timezone abbreviation extraction
+- [18-01]: Signature block strips existing sign-offs with flexible regex before appending full company block
 
 ### Pending Todos
 
@@ -64,5 +73,5 @@ Recent decisions affecting current work:
 ## Session Continuity
 
 Last session: 2026-03-06
-Stopped at: v2.1 roadmap created -- ready to plan Phase 18
+Stopped at: Completed 18-01-PLAN.md -- ready for 18-02
 Resume file: None
