@@ -11,19 +11,19 @@ See: .planning/PROJECT.md (updated 2026-03-06)
 ## Current Position
 
 Phase: 19 of 19 (Inbox Workflow)
-Plan: 1 of 2
-Status: Executing
-Last activity: 2026-03-07 -- Plan 19-01 complete (search, auto-move, reactivation)
+Plan: 2 of 2
+Status: Complete
+Last activity: 2026-03-07 -- Plan 19-02 complete (50 unit tests, reactivation logic extraction)
 
-Progress (v2.1): [#######░░░] 75% (1/2 phases, 1/2 plans in Phase 19)
-Progress (overall): v2.0 shipped, v2.1 in progress
+Progress (v2.1): [##########] 100% (2/2 phases, 2/2 plans in Phase 19)
+Progress (overall): v2.0 shipped, v2.1 complete
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 21 (v2.0 phases 14-17 + v2.1 phase 18 P01-P03 + phase 19 P01)
-- Average duration: ~24 min
-- Total execution time: ~8h 14m
+- Total plans completed: 22 (v2.0 phases 14-17 + v2.1 phase 18 P01-P03 + phase 19 P01-P02)
+- Average duration: ~23 min
+- Total execution time: ~8h 17m
 
 **By Phase (v2.0):**
 
@@ -39,10 +39,10 @@ Progress (overall): v2.0 shipped, v2.1 in progress
 | Phase | Plans | Total | Avg/Plan |
 |-------|-------|-------|----------|
 | 18 (Prompt Quality) | 3/3 | 11m | 4m |
-| 19 (Inbox Workflow) | 1/2 | 3m | 3m |
+| 19 (Inbox Workflow) | 2/2 | 6m | 3m |
 
 **Recent Trend:**
-- Last 5 plans: Phase 19 P01, Phase 18 P01-P03, Phase 17 P04
+- Last 5 plans: Phase 19 P01-P02, Phase 18 P01-P03
 - Trend: Stable
 
 *Updated after each plan completion*
@@ -69,6 +69,9 @@ Recent decisions affecting current work:
 - [19-01]: Re-activate route placed before /:id GET to avoid Express param matching conflict
 - [19-01]: Auto-move removes email from sidebar on replied/lost even in unfiltered view
 - [19-01]: Partial reactivation keeps kill_switch_at within 30-day window so follow-ups stay blocked
+- [19-02]: Extracted 30-day reactivation logic into pure calculateReactivation function for testability
+- [19-02]: Unit tests (not integration) to avoid DATABASE_URL dependency, matching Phase 18 pattern
+- [19-02]: 50 tests (2.5x the 20+ minimum) covering boundary conditions, invalid inputs, SQL injection safety
 
 ### Pending Todos
 
@@ -82,5 +85,5 @@ Recent decisions affecting current work:
 ## Session Continuity
 
 Last session: 2026-03-07
-Stopped at: Completed 19-01-PLAN.md -- search, auto-move, reactivation done; ready for 19-02
+Stopped at: Completed 19-02-PLAN.md -- Phase 19 complete, v2.1 milestone shipped
 Resume file: None
