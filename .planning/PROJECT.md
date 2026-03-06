@@ -8,23 +8,24 @@ An intelligent Upwork client management system that pulls emails from Gmail, mat
 
 When a client emails about an Upwork job, the system instantly surfaces the full job context and generates a tailored AI reply — reducing response time from minutes to seconds.
 
-## Current Milestone: v2.0 — Full Pipeline Upgrade
+## Current Milestone: v2.1 — Prompt Quality & Inbox UX Fixes
 
-**Goal:** Implement 5 battle-tested AI prompt documents as an intelligent, routing-aware reply system with pre-generation pipeline, post-generation validation, conversation stage awareness, and full data model to track everything.
+**Goal:** Fix AI reply quality issues from real-world usage (wrong CTA format, missing greetings, wrong POV in follow-ups, no portfolio link) and add inbox workflow features (search, auto-tab-routing, lead re-activation, cost suggestions).
 
-**Source:** 6 documents from System_Improvement_Spec_V3.md + 5 prompt files (Proposal V4, Reply V2, Follow-Up V2, Thread Continuation V1, Lovable Mockup V1)
+**Source:** 9 user-reported issues from production usage feedback
 
 **Target features:**
-- Prompt routing engine (auto-selects correct prompt by conversation context)
-- Pre-generation pipeline (auto-fetch job + link analysis before generating)
-- Post-generation validation (banned phrases, proposal gate, next-step enforcement, word count)
-- Objection detection + counter-move library + follow-up kill switch
-- Thread continuation engine (stage-aware: Discovery / Call Booking / Post-Call / Negotiation / Closing / Stalled)
-- Lovable mockup generator integration (decision matrix + prompt generation)
-- DB data model upgrades (4 new tables/fields, analytics tracking)
-- UI upgrades (analysis panels, variant selection, validation indicators)
+- Fix CTA to say "11 am your time" using client timezone
+- Fix follow-up POV bug (generating from client's POV instead of Ashish's)
+- Add polite greeting/salutation to all reply types including thread continuations
+- Add cost suggestion when client asks about pricing (scope-based)
+- Add company website/portfolio link in reply signature
+- Re-activate rejected/lost leads when prospect loops in correct person
+- Auto-remove replied/lost emails from Inbox to respective tabs
+- Search bar for email addresses in Inbox
+- Comprehensive test coverage (positive + negative + edge cases) for every phase
 
-**Testing mandate:** Jest unit + integration tests + manual test checklist after every phase. Quality over quantity.
+**Testing mandate:** Every phase must have positive, negative, AND edge case tests. No exceptions.
 
 ## Requirements
 
@@ -39,28 +40,37 @@ When a client emails about an Upwork job, the system instantly surfaces the full
 - ✓ Email analysis: lead score, intent, phone, OOO, urgency — v1.0
 - ✓ Timezone lookup (Haiku-powered) — v1.0
 - ✓ Dark/light theme — v1.0
+- ✓ Prompt routing engine (5 prompts, auto-selected by context) — v2.0
+- ✓ Pre-generation pipeline (job auto-fetch + link analysis) — v2.0
+- ✓ Post-generation validation layer (banned phrases, proposal gate, word count, next-step) — v2.0
+- ✓ Objection detection + counter-move library (10 objection types) — v2.0
+- ✓ Follow-up kill switch (max 2, then DORMANT) — v2.0
+- ✓ Thread continuation engine (6 conversation stages) — v2.0
+- ✓ Lovable mockup generator (decision matrix + Lovable prompt + send message) — v2.0
+- ✓ DB data model upgrades (reply_generations, next_steps, banned_phrases, counter_moves tables) — v2.0
+- ✓ UI upgrades (analysis panel, variant A/B, validation indicators) — v2.0
 
 ### Active
 
-- [ ] Prompt routing engine (5 prompts, auto-selected by context)
-- [ ] Pre-generation pipeline (job auto-fetch + link analysis)
-- [ ] Post-generation validation layer (banned phrases, proposal gate, word count, next-step)
-- [ ] Objection detection + counter-move library (10 objection types)
-- [ ] Follow-up kill switch (max 2, then DORMANT)
-- [ ] Thread continuation engine (6 conversation stages)
-- [ ] Lovable mockup generator (decision matrix + Lovable prompt + send message)
-- [ ] DB data model upgrades (reply_generations, next_steps, banned_phrases, counter_moves tables)
-- [ ] UI upgrades (analysis panel, variant A/B, validation indicators)
+- [ ] CTA uses "11 am your time" format with client timezone
+- [ ] Follow-ups generate from Ashish's POV (not client's)
+- [ ] All reply types include polite greeting/salutation
+- [ ] Thread continuations include greeting (not just jumping into content)
+- [ ] Cost suggestion when client asks about pricing (scope-based estimate)
+- [ ] Company website/portfolio link in reply signature
+- [ ] Re-activate rejected/lost leads (undo lost status)
+- [ ] Auto-remove replied/lost emails from Inbox to respective tabs
+- [ ] Search bar for email addresses in Inbox
 
 ### Out of Scope
 
-- Pipeline Board (Kanban) — deferred to v2
-- Follow-Up Engine — deferred to v2
-- WhatsApp Digest — deferred to v2
-- Proposal Recycler — deferred to v2
+- Pipeline Board (Kanban) — deferred to future
+- WhatsApp Digest — deferred to future
+- Proposal Recycler — deferred to future
 - All other PRD modules (15+) — deferred to future milestones
 - Mobile app — web-first
 - Multi-platform support (Freelancer.com, Toptal) — Upwork only for now
+- "I" vs "we" voice enforcement — user explicitly skipped this
 
 ## Context
 
@@ -129,4 +139,4 @@ When a client emails about an Upwork job, the system instantly surfaces the full
 | Jest + manual checklist testing | Automated coverage + human UAT after every phase | — Pending |
 
 ---
-*Last updated: 2026-03-05 after v2.0 milestone started — Full Pipeline Upgrade (26 features from System_Improvement_Spec_V3.md)*
+*Last updated: 2026-03-06 after v2.1 milestone started — Prompt Quality & Inbox UX Fixes (9 user feedback items)*

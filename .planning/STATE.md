@@ -5,18 +5,18 @@
 See: .planning/PROJECT.md (updated 2026-03-05)
 
 **Core value:** When a client emails about an Upwork job, the system instantly surfaces the full job context and generates a tailored AI reply -- reducing response time from minutes to seconds.
-**Current milestone:** v2.0 — Full Pipeline Upgrade
-**Current focus:** Phase 12: Prompt Routing + Pre-Generation
+**Current milestone:** v2.1 — Prompt Quality & Inbox UX Fixes
+**Current focus:** Defining requirements
 
 ## Current Position
 
-Phase: 17 of 17 (UI Upgrades) -- COMPLETE
-Plan: 4 of 4 in current phase (all complete)
-Status: Phase 17 COMPLETE -- all 4 plans executed (backend API, analysis panel, banned phrase highlights, verification)
-Last activity: 2026-03-06 -- Phase 17 Plan 04 complete (lint/build verification, all 6 UIUP requirements pass)
+Phase: Not started (defining requirements)
+Plan: —
+Status: Defining requirements for v2.1
+Last activity: 2026-03-06 — Milestone v2.1 started
 
-Progress (v2.0): [██████████] 100% (7/7 phases) -- MILESTONE COMPLETE
-Progress (overall): [██████████] Phase 17 of 17 complete -- v2.0 SHIPPED
+Progress (v2.1): [░░░░░░░░░░] 0% (0/? phases)
+Progress (overall): Requirements definition
 
 ## Performance Metrics
 
@@ -121,5 +121,5 @@ Recent decisions affecting current work:
 ## Session Continuity
 
 Last session: 2026-03-06
-Stopped at: Phase 17 COMPLETE — v2.0 milestone SHIPPED
+Stopped at: Starting v2.1 milestone — defining requirements
 Resume file: None
