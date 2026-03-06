@@ -11,19 +11,19 @@ See: .planning/PROJECT.md (updated 2026-03-06)
 ## Current Position
 
 Phase: 19 of 19 (Inbox Workflow)
-Plan: --
-Status: Ready to plan
-Last activity: 2026-03-06 -- Phase 18 complete (3/3 plans, 59 tests passing)
+Plan: 1 of 2
+Status: Executing
+Last activity: 2026-03-07 -- Plan 19-01 complete (search, auto-move, reactivation)
 
-Progress (v2.1): [#####░░░░░] 50% (1/2 phases)
+Progress (v2.1): [#######░░░] 75% (1/2 phases, 1/2 plans in Phase 19)
 Progress (overall): v2.0 shipped, v2.1 in progress
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 20 (v2.0 phases 14-17 + v2.1 phase 18 P01-P03)
-- Average duration: ~25 min
-- Total execution time: ~8h 11m
+- Total plans completed: 21 (v2.0 phases 14-17 + v2.1 phase 18 P01-P03 + phase 19 P01)
+- Average duration: ~24 min
+- Total execution time: ~8h 14m
 
 **By Phase (v2.0):**
 
@@ -39,9 +39,10 @@ Progress (overall): v2.0 shipped, v2.1 in progress
 | Phase | Plans | Total | Avg/Plan |
 |-------|-------|-------|----------|
 | 18 (Prompt Quality) | 3/3 | 11m | 4m |
+| 19 (Inbox Workflow) | 1/2 | 3m | 3m |
 
 **Recent Trend:**
-- Last 5 plans: Phase 18 P01-P03, Phase 17 P03-P04
+- Last 5 plans: Phase 19 P01, Phase 18 P01-P03, Phase 17 P04
 - Trend: Stable
 
 *Updated after each plan completion*
@@ -65,6 +66,9 @@ Recent decisions affecting current work:
 - [18-02]: proposalGate bypass changed from PROPOSAL_V4-only to prompt-type-agnostic when clientRequestedPricing=true
 - [18-03]: Registered prompt-quality.test.js in Jest unit project (not integration) to avoid DB dependency
 - [18-03]: 59 tests total -- nearly double the 30+ minimum required by TEST-01
+- [19-01]: Re-activate route placed before /:id GET to avoid Express param matching conflict
+- [19-01]: Auto-move removes email from sidebar on replied/lost even in unfiltered view
+- [19-01]: Partial reactivation keeps kill_switch_at within 30-day window so follow-ups stay blocked
 
 ### Pending Todos
 
@@ -77,6 +81,6 @@ Recent decisions affecting current work:
 
 ## Session Continuity
 
-Last session: 2026-03-06
-Stopped at: Completed 18-03-PLAN.md -- Phase 18 complete, ready for Phase 19
+Last session: 2026-03-07
+Stopped at: Completed 19-01-PLAN.md -- search, auto-move, reactivation done; ready for 19-02
 Resume file: None
