@@ -559,6 +559,20 @@ router.post("/generate", requireAuth, async (req, res, next) => {
       }
     }
 
+    // ──────────────────────────────────────────────────────────
+    // Step 6.0a: Append signature block (CTA-06)
+    // Runs after variant split so both variants get the signature.
+    // ──────────────────────────────────────────────────────────
+    if (promptType !== 'LOVABLE_MOCKUP_V1') {
+      cleanText = appendSignatureBlock(cleanText);
+      if (variantA) {
+        variantA = appendSignatureBlock(variantA);
+      }
+      if (variantB) {
+        variantB = appendSignatureBlock(variantB);
+      }
+    }
+
     // Detect intent from email
     const intent = detectIntent(email.body_text || email.snippet);
 
