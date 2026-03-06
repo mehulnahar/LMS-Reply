@@ -312,6 +312,74 @@ router.post("/match-by-link/:emailId", requireAuth, async (req, res, next) => {
 });
 
 // ============================================================
+// PUT /api/jobs/:id/reactivate — Re-activate a dormant job (FLOW-01)
+// Resets match_status from 'dormant' back to 'matched', respects
+// 30-day kill_switch_at window for follow-up unblocking.
+// ============================================================
+router.put('/:id/reactivate', requireAuth, async (req, res, next) => {
+  try {
+    // 1. Find job, verify ownership via emails join
+    const { rows } = await pool.query(
+      `SELECT j.* FROM jobs j
+       JOIN emails e ON j.email_id = e.id AND e.user_id = $2
+       WHERE j.id = $1`,
+      [req.params.id, req.user.id]
+    );
+    if (rows.length === 0) {
+      return res.status(404).json({ error: 'Job not found' });
+    }
+    const job = rows[0];
+
+    // 2. Only allow reactivation if dormant
+    if (job.match_status !== 'dormant') {
+      return res.status(400).json({ error: 'Job is not in dormant status' });
+    }
+
+    // 3. Check kill_switch_at for 30-day window
+    const THIRTY_DAYS_MS = 30 * 24 * 60 * 60 * 1000;
+    let followUpUnblocked = true;
+    let daysRemaining = 0;
+
+    if (job.kill_switch_at) {
+      const elapsed = Date.now() - new Date(job.kill_switch_at).getTime();
+      if (elapsed > THIRTY_DAYS_MS) {
+        // Full reactivation: clear kill switch entirely
+        await pool.query(
+          `UPDATE jobs SET kill_switch_at = NULL, match_status = 'matched', follow_up_count = 0 WHERE id = $1`,
+          [job.id]
+        );
+      } else {
+        // Partial reactivation: keep kill_switch_at and follow_up_count
+        await pool.query(
+          `UPDATE jobs SET match_status = 'matched' WHERE id = $1`,
+          [job.id]
+        );
+        followUpUnblocked = false;
+        daysRemaining = Math.ceil((THIRTY_DAYS_MS - elapsed) / (24 * 60 * 60 * 1000));
+      }
+    } else {
+      // No kill_switch_at (edge case): just reactivate
+      await pool.query(
+        `UPDATE jobs SET match_status = 'matched' WHERE id = $1`,
+        [job.id]
+      );
+    }
+
+    // 4. Move the corresponding email back to "new"
+    await pool.query(
+      `UPDATE emails SET status = 'new' WHERE id = $1`,
+      [job.email_id]
+    );
+
+    const result = { reactivated: true, followUpUnblocked };
+    if (!followUpUnblocked) result.daysRemaining = daysRemaining;
+    res.json(result);
+  } catch (err) {
+    next(err);
+  }
+});
+
+// ============================================================
 // GET /api/jobs/:id — Get job details
 // ============================================================
 router.get("/:id", requireAuth, async (req, res, next) => {

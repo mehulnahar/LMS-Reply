@@ -59,6 +59,8 @@ export const api = {
   matchJob: (emailId) => request(`/api/jobs/match/${emailId}`, { method: "POST" }),
   matchJobByLink: (emailId, link) =>
     request(`/api/jobs/match-by-link/${emailId}`, { method: "POST", body: JSON.stringify({ link }) }),
+  reactivateJob: (jobId) =>
+    request(`/api/jobs/${jobId}/reactivate`, { method: "PUT" }),
 
   // Replies
   generateReply: (emailId, options = {}) =>
