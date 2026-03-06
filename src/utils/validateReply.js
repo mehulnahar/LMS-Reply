@@ -74,7 +74,7 @@ function removeProofSection(text) {
  * proposalGate(text, promptType, clientRequestedPricing) — VALIDATE-01 + QUALITY-03
  *
  * Gates pricing language in replies:
- * - PROPOSAL_V4 with clientRequestedPricing=true: allowed through unchanged
+ * - Any prompt type with clientRequestedPricing=true: allowed through unchanged (CTA-05)
  * - PROPOSAL_V4 without clientRequestedPricing: proof section removed if no metrics,
  *   then pricing patterns scanned and replaced with CALL_REDIRECT
  * - All other prompt types: pricing patterns scanned and replaced with CALL_REDIRECT
@@ -85,8 +85,10 @@ function removeProofSection(text) {
  * @returns {{ text: string, stripped: boolean }}
  */
 function proposalGate(text, promptType, clientRequestedPricing = false) {
-  // PROPOSAL_V4 with explicit client request: pass through unchanged
-  if (promptType === 'PROPOSAL_V4' && clientRequestedPricing === true) {
+  // CTA-05: When client explicitly asked about pricing, pass through unchanged
+  // for ANY prompt type — not just PROPOSAL_V4. Cost estimates injected by the
+  // prompt pipeline should not be stripped when the client requested them.
+  if (clientRequestedPricing === true) {
     return { text, stripped: false };
   }
 
