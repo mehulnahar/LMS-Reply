@@ -1,7 +1,7 @@
 # Requirements: LMS Reply (Upwork Proposal & Reply Cockpit)
 
 **Defined:** 2026-02-28
-**Updated:** 2026-03-06 — v2.1 Prompt Quality & Inbox UX Fixes requirements added
+**Updated:** 2026-03-06 — v2.1 roadmap created, all requirements mapped to phases 18-19
 **Core Value:** When a client emails about an Upwork job, the system instantly surfaces the full job context and generates a tailored AI reply — reducing response time from minutes to seconds.
 
 ---
@@ -147,7 +147,7 @@ All 26 features from System_Improvement_Spec_V3.md. Phases start at 11.
 - [ ] **UIUP-03**: Live word count displayed below reply editor in format "X / 120 words" with color: green (under limit), yellow (within 10%), red (over limit); limit adjusts dynamically based on detected classification
 - [ ] **UIUP-04**: Reply editor header shows "Using: [Prompt Name]" badge (e.g., "Using: First Reply", "Using: Thread Continuation"); manual override dropdown available next to badge; prompt_used is recorded on reply_generations record
 - [ ] **UIUP-05**: For prompts that generate 2 variants (Reply V2, Follow-Up V2), both Variant A (Direct) and Variant B (Value-First) are shown side-by-side; user selects one before copying; selected variant is recorded on reply_generations record
-- [ ] **UIUP-06**: Next-step validation: if reply editor contains no clear next step, a yellow warning bar appears "⚠ No next step detected — add a call ask or action before copying"; copy button remains functional but warning persists until user edits
+- [ ] **UIUP-06**: Next-step validation: if reply editor contains no clear next step, a yellow warning bar appears "No next step detected — add a call ask or action before copying"; copy button remains functional but warning persists until user edits
 
 ---
 
@@ -273,22 +273,22 @@ All 26 features from System_Improvement_Spec_V3.md. Phases start at 11.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| CTA-01 | TBD | Pending |
-| CTA-02 | TBD | Pending |
-| CTA-03 | TBD | Pending |
-| CTA-04 | TBD | Pending |
-| CTA-05 | TBD | Pending |
-| CTA-06 | TBD | Pending |
-| FLOW-01 | TBD | Pending |
-| FLOW-02 | TBD | Pending |
-| FLOW-03 | TBD | Pending |
-| TEST-01 | All phases | Pending |
+| CTA-01 | Phase 18: Prompt Quality Fixes | Pending |
+| CTA-02 | Phase 18: Prompt Quality Fixes | Pending |
+| CTA-03 | Phase 18: Prompt Quality Fixes | Pending |
+| CTA-04 | Phase 18: Prompt Quality Fixes | Pending |
+| CTA-05 | Phase 18: Prompt Quality Fixes | Pending |
+| CTA-06 | Phase 18: Prompt Quality Fixes | Pending |
+| FLOW-01 | Phase 19: Inbox Workflow | Pending |
+| FLOW-02 | Phase 19: Inbox Workflow | Pending |
+| FLOW-03 | Phase 19: Inbox Workflow | Pending |
+| TEST-01 | All phases (18, 19) | Pending |
 
 **Coverage (v2.1):**
 - v2.1 requirements: 10 total
-- Mapped to phases: 0/10
-- Unmapped: 10 (pending roadmap)
+- Mapped to phases: 10/10
+- Unmapped: 0 ✓
 
 ---
 *Requirements defined: 2026-02-28*
-*Last updated: 2026-03-06 — v2.1 Prompt Quality & Inbox UX Fixes requirements added (10 requirements)*
+*Last updated: 2026-03-06 — v2.1 roadmap created, all requirements mapped to phases 18-19*

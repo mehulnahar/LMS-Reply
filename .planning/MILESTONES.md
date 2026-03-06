@@ -15,5 +15,15 @@
 **Requirements validated:** PROMPT-01 through PROMPT-04, PREFETCH-01 through PREFETCH-05, VALIDATE-01 through VALIDATE-04, QUALITY-01 through QUALITY-04, OBJECTION-01 through OBJECTION-06, THREAD-01 through THREAD-09, MOCKUP-01 through MOCKUP-05, DB-01 through DB-05, UIUP-01 through UIUP-06
 **Last phase:** 17
 
+## Active Milestone
+
+### v2.1 — Prompt Quality & Inbox UX Fixes (Phases 18-19)
+**Started:** 2026-03-06
+**Goal:** Fix AI reply quality issues from real-world usage (wrong CTA format, missing greetings, wrong POV in follow-ups, no portfolio link) and add inbox workflow features (search, auto-tab-routing, lead re-activation, cost suggestions).
+**Phases:** 2 (Prompt Quality Fixes → Inbox Workflow)
+**Requirements:** CTA-01 through CTA-06, FLOW-01 through FLOW-03, TEST-01
+**Source:** 9 user-reported issues from production usage feedback
+**First phase:** 18
+
 ---
-*Last updated: 2026-03-06 after v2.0 milestone shipped*
+*Last updated: 2026-03-06 after v2.1 roadmap created*

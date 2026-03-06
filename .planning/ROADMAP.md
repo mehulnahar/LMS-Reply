@@ -28,7 +28,9 @@ Decimal phases appear between their surrounding integers in numeric order.
 - [ ] **Phase 14: Objection Handling + Kill Switch** - System detects client objections and routes to correct counter-move; follow-up sequence is capped at 2 with automatic DORMANT transition
 - [ ] **Phase 15: Thread Continuation Engine** - Ongoing conversations are stage-aware, tone-shifting, post-call aware, and every reply ends with a tracked next step
 - [x] **Phase 16: Lovable Mockup Generator** - System determines whether a mockup is appropriate and generates a complete, stage-aware Lovable prompt plus send message (completed 2026-03-05)
-- [ ] **Phase 17: UI Upgrades** - The reply editor surfaces all intelligence (analysis panel, prompt badge, variant selection, banned phrase highlights, word count, next-step warning)
+- [x] **Phase 17: UI Upgrades** - The reply editor surfaces all intelligence (analysis panel, prompt badge, variant selection, banned phrase highlights, word count, next-step warning) (completed 2026-03-06)
+- [ ] **Phase 18: Prompt Quality Fixes** - AI replies use correct CTA timezone format, follow-ups generate from Ashish's POV, all reply types include greeting, cost suggestions for pricing questions, and company signature block
+- [ ] **Phase 19: Inbox Workflow** - Re-activate lost/rejected leads, auto-route replied/lost emails to status tabs, and search inbox by email address
 
 ## Phase Details
 
@@ -338,10 +340,10 @@ Plans:
 **Plans**: 4 plans
 
 Plans:
-- [ ] 16-01-PLAN.md — Decision matrix utility (mockupDecision.js) + color extraction in prefetch.js
-- [ ] 16-02-PLAN.md — replies.js pipeline extension: decision gate, mockup context injection, output parser, DB persist
-- [ ] 16-03-PLAN.md — Unit tests for mockupDecision.js decision matrix (TDD)
-- [ ] 16-04-PLAN.md — Inbox.jsx: Generate Mockup button, dual clipboard, mockup decline display, Day 7 disabled state
+- [x] 16-01-PLAN.md — Decision matrix utility (mockupDecision.js) + color extraction in prefetch.js
+- [x] 16-02-PLAN.md — replies.js pipeline extension: decision gate, mockup context injection, output parser, DB persist
+- [x] 16-03-PLAN.md — Unit tests for mockupDecision.js decision matrix (TDD)
+- [x] 16-04-PLAN.md — Inbox.jsx: Generate Mockup button, dual clipboard, mockup decline display, Day 7 disabled state
 
 ### Phase 17: UI Upgrades
 **Goal**: The reply editor surfaces all v2.0 intelligence in a clean, non-intrusive way — analysis panel above the editor, prompt badge with manual override, variant A/B selection for prompts that produce two variants, banned phrase highlights with mode toggle, live word count with dynamic limit, and next-step warning bar
@@ -365,17 +367,80 @@ Plans:
 **Plans**: 4 plans
 
 Plans:
-- [ ] 17-01-PLAN.md — Backend: analysis blocks in API response + variant A/B parsing + variant selection endpoint
-- [ ] 17-02-PLAN.md — Frontend: collapsible analysis panel (UIUP-01) + variant A/B selector (UIUP-05) + verify UIUP-03/04/06
-- [ ] 17-03-PLAN.md — Frontend: banned phrase inline highlights + mode toggle + copy-blocking (UIUP-02)
-- [ ] 17-04-PLAN.md — Lint/build verification + human verification checkpoint for all 6 UIUP requirements
+- [x] 17-01-PLAN.md — Backend: analysis blocks in API response + variant A/B parsing + variant selection endpoint
+- [x] 17-02-PLAN.md — Frontend: collapsible analysis panel (UIUP-01) + variant A/B selector (UIUP-05) + verify UIUP-03/04/06
+- [x] 17-03-PLAN.md — Frontend: banned phrase inline highlights + mode toggle + copy-blocking (UIUP-02)
+- [x] 17-04-PLAN.md — Lint/build verification + human verification checkpoint for all 6 UIUP requirements
+
+---
+
+## v2.1 — Prompt Quality & Inbox UX Fixes (Phases 18-19)
+
+### Phase 18: Prompt Quality Fixes
+**Goal**: AI-generated replies produce correct CTA timezone format, follow-ups generate from Ashish's perspective, all reply types open with a polite greeting, cost suggestions appear when clients ask about pricing, and every reply includes the HipHype Tech signature block
+**Depends on**: Phase 17 (v2.0 complete)
+**Requirements**: CTA-01, CTA-02, CTA-03, CTA-04, CTA-05, CTA-06, TEST-01
+**Success Criteria** (what must be TRUE):
+  1. (Positive) Generated replies that include a meeting CTA use the format "11 am your time" with the client's IANA timezone resolved to their local time; the CTA never says a raw timezone abbreviation like "EST" or "PST" without the "your time" phrasing
+  2. (Positive) Follow-up emails (Follow-Up V2 prompt) generate from Ashish's perspective as the sender — first person "I", referencing "your project" to the client — never generating text that reads as if the client is writing to Ashish
+  3. (Positive) All reply types (Reply V2, Follow-Up V2, Proposal V4) begin with a polite opening greeting line (e.g., "Thanks for reaching out", "I hope you're doing well", "Good to hear from you") before the main reply body; the greeting is contextually appropriate to the reply type
+  4. (Positive) Thread Continuation V1 replies include a greeting/salutation line (e.g., "Hi [Name]," or "Good to hear back, [Name]") before jumping into the reply body; a thread continuation that starts with raw content and no greeting fails validation
+  5. (Positive) When the client's email contains pricing language (mentions cost, budget, pricing, rates, "how much", hourly/fixed), the generated reply includes a scope-based cost estimate range (e.g., "Based on the scope, this would typically fall in the $X-$Y range") with a call CTA to discuss further; the estimate is calibrated to the job scope, not a generic number
+  6. (Negative) When the client's email does NOT mention pricing/cost/budget, the reply does NOT include any cost estimate or pricing language — cost suggestions only appear when the client explicitly raises the topic
+  7. (Positive) Every generated reply ends with a company signature block containing "HipHype Tech" and a website/portfolio URL; the signature appears after the reply body and before any internal analysis blocks; copied-to-clipboard output includes the signature
+  8. (Negative) A follow-up email that reads from the client's POV (e.g., "I was impressed by your proposal" where "your" refers to Ashish's proposal) is detected as a POV error in testing; only Ashish-as-sender POV passes
+  9. (Edge) When timezone data is unavailable for the client (no city/country on job record), the CTA falls back to "11 am your time" without a specific timezone conversion rather than crashing or omitting the CTA entirely
+  10. (Edge) When the client mentions pricing in a language other than English (e.g., "Kosten", "prix", "presupuesto"), the cost detection still triggers if the email has been translated or contains English pricing keywords alongside the foreign language
+**Test mandate (per TEST-01)**:
+  - Positive: Generate a Reply V2 for a client in Auckland (IANA: Pacific/Auckland); verify CTA output contains "11 am your time" with the correct NZ local time displayed
+  - Positive: Generate a Follow-Up V2; verify the output reads from Ashish's POV ("I wanted to follow up on [project]") not the client's POV
+  - Positive: Generate Reply V2, Follow-Up V2, and Proposal V4; verify each begins with a polite greeting line; generate Thread Continuation V1; verify it begins with "Hi [Name]" or equivalent greeting
+  - Positive: Send an email containing "What would this cost?" and generate a reply; verify a scope-based cost range appears in the output with a call CTA
+  - Positive: Verify every generated reply contains the HipHype Tech signature block with website URL in the clipboard output
+  - Negative: Send an email about project requirements with no pricing language; generate reply; verify zero cost/pricing language in the output
+  - Negative: Generate a Follow-Up V2 and scan for client-POV markers ("your proposal", "your team sent"); verify none present
+  - Edge: Generate a reply for a client with no city/country data; verify CTA says "11 am your time" (graceful fallback), no crash
+  - Edge: Generate a reply where the prompt template already has a greeting hardcoded; verify no double-greeting (greeting does not appear twice)
+**Plans**: TBD
+
+Plans:
+- [ ] 18-01: TBD
+- [ ] 18-02: TBD
+
+### Phase 19: Inbox Workflow
+**Goal**: Users can re-activate lost/rejected leads, replied/lost emails automatically move out of the Inbox tab to their respective status tabs, and users can search the inbox by email address
+**Depends on**: Phase 18
+**Requirements**: FLOW-01, FLOW-02, FLOW-03, TEST-01
+**Success Criteria** (what must be TRUE):
+  1. (Positive) User can change a lead marked "Lost" or "Rejected" back to "New" or another active status (Replied, Proposal Sent) using a re-activate action in the lead detail view; the lead reappears in the appropriate status tab after re-activation
+  2. (Positive) When a lead's status changes to "Replied" or "Lost", the email immediately disappears from the Inbox tab and appears in the corresponding status tab (Replied tab or Lost tab) without requiring a manual page refresh or re-sync
+  3. (Positive) A search input field is visible in the Inbox view; typing an email address filters the inbox list in real-time to show only emails matching that address; clearing the search restores the full inbox list
+  4. (Negative) A lead that is already in "New" status does not show a "Re-activate" option — re-activation is only available for leads in "Lost" or "Rejected" status
+  5. (Negative) Search with an email address that matches zero leads shows an empty state message (e.g., "No emails found for [address]"), not a broken/blank inbox
+  6. (Edge) Re-activating a DORMANT lead (from kill switch) respects the 30-day window — if 30 days have not elapsed, re-activation changes status but does not unblock follow-up generation; if 30 days have elapsed, both status and follow-up generation are restored
+  7. (Edge) Search input handles partial email matches (e.g., typing "john" matches "john@example.com" and "johnson@work.com"); search is case-insensitive
+  8. (Edge) When multiple emails are rapidly moved out of Inbox (bulk status changes), the Inbox list updates correctly without duplicate entries or stale rows remaining
+**Test mandate (per TEST-01)**:
+  - Positive: Set a lead to "Lost"; click re-activate; verify status changes to "New"; verify lead appears in New/Inbox tab
+  - Positive: Change a lead status to "Replied" from the inbox; verify it disappears from Inbox tab immediately; navigate to Replied tab; verify it appears there
+  - Positive: Type "test@example.com" in search bar; verify only matching emails shown; clear search; verify full inbox restored
+  - Negative: View a lead already in "New" status; verify no re-activate button/option is present
+  - Negative: Search for "nonexistent@fake.com"; verify empty state message displayed, not broken UI
+  - Edge: Re-activate a DORMANT lead at day 15 (within 30-day window); verify status changes but follow-up generation remains blocked
+  - Edge: Type partial email "john" in search; verify case-insensitive partial matching works across all visible emails
+  - Edge: Change 3 leads to "Lost" in quick succession; verify all 3 disappear from Inbox and appear in Lost tab without duplicates
+**Plans**: TBD
+
+Plans:
+- [ ] 19-01: TBD
+- [ ] 19-02: TBD
 
 ---
 
 ## Progress
 
 **Execution Order:**
-Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 → 9 → 10 → 11 → 12 → 13 → 14 → 15 → 16 → 17
+Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 → 9 → 10 → 11 → 12 → 13 → 14 → 15 → 16 → 17 → 18 → 19
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
@@ -394,5 +459,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 →
 | 13. Post-Generation Validation | 0/4 | Ready to execute | - |
 | 14. Objection Handling + Kill Switch | 0/4 | Ready to execute | - |
 | 15. Thread Continuation Engine | 0/5 | Planned | - |
-| 16. Lovable Mockup Generator | 0/4 | Complete    | 2026-03-05 |
-| 17. UI Upgrades | 0/4 | Planned | - |
+| 16. Lovable Mockup Generator | 4/4 | Complete | 2026-03-05 |
+| 17. UI Upgrades | 4/4 | Complete | 2026-03-06 |
+| 18. Prompt Quality Fixes | 0/TBD | Not started | - |
+| 19. Inbox Workflow | 0/TBD | Not started | - |
