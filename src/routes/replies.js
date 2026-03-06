@@ -26,6 +26,11 @@ const {
   parseNextStepBlock,
 } = require('../utils/detectThreadContext');
 const { evaluateMockupDecision } = require('../utils/mockupDecision');
+const {
+  detectPricingLanguage,
+  appendSignatureBlock,
+  formatTimezoneCTA,
+} = require('../utils/promptEnhancements');
 
 const router = express.Router();
 
@@ -366,6 +371,55 @@ router.post("/generate", requireAuth, async (req, res, next) => {
     }
 
     // ──────────────────────────────────────────────────────────
+    // Step 2.6: Timezone CTA resolution (CTA-01)
+    // ──────────────────────────────────────────────────────────
+    let timezoneCTA = '11 AM your time'; // Fallback (CTA-01 edge case)
+    if (job && (job.city || job.country)) {
+      try {
+        const location = [job.city, job.country].filter(Boolean).join(', ');
+        // Reuse the same Haiku timezone lookup logic as timezone.js (inline, not HTTP call)
+        const tzRes = await fetch('https://api.anthropic.com/v1/messages', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'x-api-key': anthropicKey,
+            'anthropic-version': '2023-06-01',
+          },
+          body: JSON.stringify({
+            model: 'claude-3-5-haiku-20241022',
+            max_tokens: 50,
+            messages: [{
+              role: 'user',
+              content: `What is the IANA timezone identifier for ${location}? Reply with ONLY the IANA timezone string, for example: America/New_York or Pacific/Auckland. No explanation.`,
+            }],
+          }),
+        });
+        if (tzRes.ok) {
+          const tzData = await tzRes.json();
+          const ianaTimezone = (tzData.content?.[0]?.text || '').trim();
+          if (ianaTimezone) {
+            // Validate it's a real IANA timezone before using
+            try {
+              new Intl.DateTimeFormat('en-US', { timeZone: ianaTimezone }).format(new Date());
+              timezoneCTA = formatTimezoneCTA(ianaTimezone);
+            } catch {
+              // Invalid timezone string from Haiku — use fallback
+            }
+          }
+        }
+      } catch (tzErr) {
+        // Fail open — use default "11 AM your time" fallback
+        console.error('replies: timezone resolution failed:', tzErr.message);
+      }
+    }
+
+    // ──────────────────────────────────────────────────────────
+    // Step 2.7: Pricing language detection in client email (CTA-05)
+    // ──────────────────────────────────────────────────────────
+    const emailTextForPricing = email.body_text || email.snippet || '';
+    const pricingDetection = detectPricingLanguage(emailTextForPricing);
+
+    // ──────────────────────────────────────────────────────────
     // Step 3: Load prompt template from DB
     // ──────────────────────────────────────────────────────────
     const templateContent = await getPromptTemplate(promptType, req.user.id, pool);
@@ -421,7 +475,7 @@ router.post("/generate", requireAuth, async (req, res, next) => {
     // Step 5: Build context + call Claude (PREFETCH-04)
     // ──────────────────────────────────────────────────────────
     const threadContext = { threadStage, clientMessageLength, stallType, ccContacts };
-    const systemPrompt = buildPromptWithContext(templateContent, email, job, linkAnalysis, tone, promptType, objectionContext, threadContext);
+    const systemPrompt = buildPromptWithContext(templateContent, email, job, linkAnalysis, tone, promptType, objectionContext, threadContext, timezoneCTA, pricingDetection);
     const userMessage = buildUserMessage(email, job);
 
     const claudeController = new AbortController();
@@ -524,8 +578,8 @@ router.post("/generate", requireAuth, async (req, res, next) => {
     const bannedPhrases = await getBannedPhrases(pool);
 
     // 6b-1: Proposal Gate (VALIDATE-01 + QUALITY-03 + QUALITY-04)
-    // clientRequestedPricing: true only for PROPOSAL_V4 — future toggle; default false for now
-    const clientRequestedPricing = false; // Phase 14+ will add toggle support
+    // CTA-05: allow pricing when client explicitly asked about it
+    const clientRequestedPricing = pricingDetection.hasPricing;
     const gateResult = proposalGate(validatedText, promptType, clientRequestedPricing);
     validatedText = gateResult.text;
     proposalGateFired = gateResult.stripped;
@@ -942,7 +996,7 @@ async function getPromptTemplate(promptType, userId, dbPool) {
  * @param {string} promptType - Current prompt type (for FOLLOW_UP_V2 angle injection)
  * @returns {string}
  */
-function buildPromptWithContext(templateContent, email, job, linkAnalysis, tone, promptType, objectionContext = {}, threadContext = {}) {
+function buildPromptWithContext(templateContent, email, job, linkAnalysis, tone, promptType, objectionContext = {}, threadContext = {}, timezoneCTA = '11 AM your time', pricingDetection = null) {
   let prompt = templateContent;
 
   // Append tone modifier
@@ -1154,6 +1208,41 @@ Use these as the primary color palette in the DESIGN section of the Lovable prom
 </brand_colors>`;
       }
     }
+  }
+
+  // CTA-01: Timezone-resolved call-to-action injection
+  prompt += `\n\n<timezone_cta>
+When suggesting a meeting time, use this exact format: "Would tomorrow at ${timezoneCTA} work for a quick call?"
+Do NOT use raw timezone abbreviations like "EST" or "PST" without "your time". Always include "your time" in the CTA.
+</timezone_cta>`;
+
+  // CTA-05: Cost suggestion injection (only when client mentions pricing)
+  if (pricingDetection && pricingDetection.hasPricing) {
+    const jobBudget = job
+      ? (job.hourly_budget_min && job.hourly_budget_max
+        ? `Client budget: $${job.hourly_budget_min}-$${job.hourly_budget_max}/hr`
+        : job.amount
+        ? `Client budget: $${job.amount} fixed`
+        : 'No budget data available')
+      : 'No job context available';
+
+    prompt += `\n\n<cost_context>
+The client has asked about pricing (keywords detected: ${pricingDetection.keywords.join(', ')}).
+${jobBudget}
+Include a scope-based cost estimate range in your reply. Format: "Based on the scope you've described, this would typically fall in the $X-$Y range — happy to refine that on a quick call."
+Calibrate the estimate to the job scope and budget signals. Do not use a generic number.
+End with a call CTA to discuss pricing details further.
+IMPORTANT: This cost estimate is intentionally included — do NOT strip it or deflect to a call without giving a range.
+</cost_context>`;
+  }
+
+  // CTA-03 + CTA-04: Greeting reminder (reinforcement — templates already have greeting rules)
+  if (promptType !== 'LOVABLE_MOCKUP_V1') {
+    const clientFirstName = (job && job.client_first_name) || '';
+    prompt += `\n\n<greeting_reminder>
+Your reply MUST begin with a greeting/salutation line. ${clientFirstName ? `Use the client's name: ${clientFirstName}` : 'Use a generic greeting like "Hi there,"'}
+Do NOT skip the greeting and jump straight into content. Do NOT use banned FILLER phrases as greetings.
+</greeting_reminder>`;
   }
 
   return prompt;
