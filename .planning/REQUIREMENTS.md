@@ -1,7 +1,7 @@
 # Requirements: LMS Reply (Upwork Proposal & Reply Cockpit)
 
 **Defined:** 2026-02-28
-**Updated:** 2026-03-05 — v2.0 Full Pipeline Upgrade requirements added
+**Updated:** 2026-03-06 — v2.1 Prompt Quality & Inbox UX Fixes requirements added
 **Core Value:** When a client emails about an Upwork job, the system instantly surfaces the full job context and generates a tailored AI reply — reducing response time from minutes to seconds.
 
 ---
@@ -151,6 +151,31 @@ All 26 features from System_Improvement_Spec_V3.md. Phases start at 11.
 
 ---
 
+## v2.1 Requirements — Prompt Quality & Inbox UX Fixes
+
+9 requirements from production usage feedback. Phases start at 18.
+
+### Prompt Quality (CTA)
+
+- [ ] **CTA-01**: Generated replies use "11 am your time" as the default meeting CTA, with the client's IANA timezone used to display the correct local time
+- [ ] **CTA-02**: Follow-up emails (Follow-Up V2) generate from Ashish's perspective as the sender, not from the client's POV
+- [ ] **CTA-03**: All reply types (Reply V2, Follow-Up V2, Proposal V4) include a polite opening greeting (e.g., "Thanks for your response", "I hope you're doing well") before the main content
+- [ ] **CTA-04**: Thread Continuation V1 replies include a greeting/salutation (e.g., "Hi [Name]," or "Good to hear back") before jumping into the reply body
+- [ ] **CTA-05**: When client's email mentions cost, pricing, or budget, AI suggests a scope-based cost estimate range in the reply (e.g., "Based on the scope, this would typically be in the $X-$Y range")
+- [ ] **CTA-06**: Generated replies include a company signature block with HipHype Tech website URL and portfolio link
+
+### Inbox Workflow (FLOW)
+
+- [ ] **FLOW-01**: User can re-activate a lead previously marked as "Lost" or "Rejected" — changing it back to "New" or another active status
+- [ ] **FLOW-02**: When a lead status is changed to "Replied" or "Lost", the email automatically moves from the Inbox tab to the corresponding status tab without manual refresh
+- [ ] **FLOW-03**: User can search/filter the inbox by email address using a search input field
+
+### Testing (TEST)
+
+- [ ] **TEST-01**: Every phase includes comprehensive Jest tests with positive cases, negative cases, AND edge cases — minimum 3 test categories per phase
+
+---
+
 ## v3 Requirements (Deferred)
 
 ### Advanced Re-Engagement
@@ -170,10 +195,11 @@ All 26 features from System_Improvement_Spec_V3.md. Phases start at 11.
 
 ---
 
-## Out of Scope (v2.0)
+## Out of Scope (v2.1)
 
 | Feature | Reason |
 |---------|--------|
+| "I" vs "we" voice enforcement | User explicitly skipped — not a priority |
 | Upwork direct submission | Platform ToS risk, manual paste is safer |
 | Gmail send permissions | System remains read-only copy-paste |
 | Calendar invite auto-send | User controls scheduling (Calendly link in CTA) |
@@ -238,11 +264,31 @@ All 26 features from System_Improvement_Spec_V3.md. Phases start at 11.
 | UIUP-05 | Phase 17: UI Upgrades | Pending |
 | UIUP-06 | Phase 17: UI Upgrades | Pending |
 
-**Coverage:**
+**Coverage (v2.0):**
 - v2.0 requirements: 49 total
 - Mapped to phases: 49/49
 - Unmapped: 0 ✓
 
+### v2.1 Traceability
+
+| Requirement | Phase | Status |
+|-------------|-------|--------|
+| CTA-01 | TBD | Pending |
+| CTA-02 | TBD | Pending |
+| CTA-03 | TBD | Pending |
+| CTA-04 | TBD | Pending |
+| CTA-05 | TBD | Pending |
+| CTA-06 | TBD | Pending |
+| FLOW-01 | TBD | Pending |
+| FLOW-02 | TBD | Pending |
+| FLOW-03 | TBD | Pending |
+| TEST-01 | All phases | Pending |
+
+**Coverage (v2.1):**
+- v2.1 requirements: 10 total
+- Mapped to phases: 0/10
+- Unmapped: 10 (pending roadmap)
+
 ---
 *Requirements defined: 2026-02-28*
-*Last updated: 2026-03-05 — v2.0 Full Pipeline Upgrade requirements added (49 requirements, Phases 11–17)*
+*Last updated: 2026-03-06 — v2.1 Prompt Quality & Inbox UX Fixes requirements added (10 requirements)*
