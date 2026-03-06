@@ -11,19 +11,19 @@ See: .planning/PROJECT.md (updated 2026-03-06)
 ## Current Position
 
 Phase: 18 of 19 (Prompt Quality Fixes)
-Plan: 1 of 3 complete
+Plan: 2 of 3 complete
 Status: Executing Phase 18
-Last activity: 2026-03-06 -- Completed 18-01: prompt enhancement utilities + template updates
+Last activity: 2026-03-06 -- Completed 18-02: pipeline integration (timezone CTA, cost detection, greeting, signature, proposalGate fix)
 
-Progress (v2.1): [##░░░░░░░░] 17% (1/6 plans, 0/2 phases)
+Progress (v2.1): [###░░░░░░░] 33% (2/6 plans, 0/2 phases)
 Progress (overall): v2.0 shipped, v2.1 in progress
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 18 (v2.0 phases 14-17 + v2.1 phase 18 P01)
-- Average duration: ~28 min
-- Total execution time: ~8h 4m
+- Total plans completed: 19 (v2.0 phases 14-17 + v2.1 phase 18 P01-P02)
+- Average duration: ~26 min
+- Total execution time: ~8h 8m
 
 **By Phase (v2.0):**
 
@@ -38,10 +38,10 @@ Progress (overall): v2.0 shipped, v2.1 in progress
 
 | Phase | Plans | Total | Avg/Plan |
 |-------|-------|-------|----------|
-| 18 (Prompt Quality) | 1/3 | 4m | 4m |
+| 18 (Prompt Quality) | 2/3 | 8m | 4m |
 
 **Recent Trend:**
-- Last 5 plans: Phase 18 P01, Phase 17 P01-P04
+- Last 5 plans: Phase 18 P01-P02, Phase 17 P02-P04
 - Trend: Stable
 
 *Updated after each plan completion*
@@ -60,6 +60,9 @@ Recent decisions affecting current work:
 - [18-01]: Used word-boundary regex for single keywords, indexOf for multi-word phrases in pricing detection
 - [18-01]: formatTimezoneCTA uses Intl.DateTimeFormat.formatToParts for timezone abbreviation extraction
 - [18-01]: Signature block strips existing sign-offs with flexible regex before appending full company block
+- [18-02]: Timezone resolution uses inline Haiku API call (not HTTP self-call) to avoid unnecessary network hop
+- [18-02]: Signature appended after variant parsing so both variantA and variantB get it
+- [18-02]: proposalGate bypass changed from PROPOSAL_V4-only to prompt-type-agnostic when clientRequestedPricing=true
 
 ### Pending Todos
 
@@ -73,5 +76,5 @@ Recent decisions affecting current work:
 ## Session Continuity
 
 Last session: 2026-03-06
-Stopped at: Completed 18-01-PLAN.md -- ready for 18-02
+Stopped at: Completed 18-02-PLAN.md -- ready for 18-03
 Resume file: None
