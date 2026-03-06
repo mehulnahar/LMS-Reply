@@ -430,11 +430,11 @@ Plans:
   - Edge: Re-activate a DORMANT lead at day 15 (within 30-day window); verify status changes but follow-up generation remains blocked
   - Edge: Type partial email "john" in search; verify case-insensitive partial matching works across all visible emails
   - Edge: Change 3 leads to "Lost" in quick succession; verify all 3 disappear from Inbox and appear in Lost tab without duplicates
-**Plans**: TBD
+**Plans**: 2 plans
 
 Plans:
-- [ ] 19-01: TBD
-- [ ] 19-02: TBD
+- [ ] 19-01-PLAN.md -- Backend re-activate endpoint + frontend search, auto-move, re-activate button
+- [ ] 19-02-PLAN.md -- Comprehensive Jest tests for inbox workflow (TEST-01)
 
 ---
 
