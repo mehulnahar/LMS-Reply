@@ -401,11 +401,12 @@ Plans:
   - Negative: Generate a Follow-Up V2 and scan for client-POV markers ("your proposal", "your team sent"); verify none present
   - Edge: Generate a reply for a client with no city/country data; verify CTA says "11 am your time" (graceful fallback), no crash
   - Edge: Generate a reply where the prompt template already has a greeting hardcoded; verify no double-greeting (greeting does not appear twice)
-**Plans**: TBD
+**Plans**: 3 plans
 
 Plans:
-- [ ] 18-01: TBD
-- [ ] 18-02: TBD
+- [ ] 18-01-PLAN.md — Prompt enhancement utilities + template content updates (greetings, POV, signature, cost instructions)
+- [ ] 18-02-PLAN.md — Pipeline integration: timezone CTA, cost detection, signature appending in replies.js
+- [ ] 18-03-PLAN.md — Comprehensive Jest tests for all CTA requirements (TEST-01)
 
 ### Phase 19: Inbox Workflow
 **Goal**: Users can re-activate lost/rejected leads, replied/lost emails automatically move out of the Inbox tab to their respective status tabs, and users can search the inbox by email address
