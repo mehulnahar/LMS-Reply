@@ -9,6 +9,7 @@ const express = require("express");
 const pool = require("../config/db");
 const { requireAuth } = require("../middleware/auth");
 const { decrypt } = require("../utils/encryption");
+const { calculateReactivation } = require("../utils/reactivationLogic");
 
 const router = express.Router();
 
@@ -335,28 +336,22 @@ router.put('/:id/reactivate', requireAuth, async (req, res, next) => {
       return res.status(400).json({ error: 'Job is not in dormant status' });
     }
 
-    // 3. Check kill_switch_at for 30-day window
-    const THIRTY_DAYS_MS = 30 * 24 * 60 * 60 * 1000;
-    let followUpUnblocked = true;
-    let daysRemaining = 0;
+    // 3. Check kill_switch_at for 30-day window (pure logic extracted to reactivationLogic.js)
+    const { shouldFullReactivate, daysRemaining } = calculateReactivation(job.kill_switch_at);
+    const followUpUnblocked = shouldFullReactivate;
 
-    if (job.kill_switch_at) {
-      const elapsed = Date.now() - new Date(job.kill_switch_at).getTime();
-      if (elapsed > THIRTY_DAYS_MS) {
-        // Full reactivation: clear kill switch entirely
-        await pool.query(
-          `UPDATE jobs SET kill_switch_at = NULL, match_status = 'matched', follow_up_count = 0 WHERE id = $1`,
-          [job.id]
-        );
-      } else {
-        // Partial reactivation: keep kill_switch_at and follow_up_count
-        await pool.query(
-          `UPDATE jobs SET match_status = 'matched' WHERE id = $1`,
-          [job.id]
-        );
-        followUpUnblocked = false;
-        daysRemaining = Math.ceil((THIRTY_DAYS_MS - elapsed) / (24 * 60 * 60 * 1000));
-      }
+    if (shouldFullReactivate && job.kill_switch_at) {
+      // Full reactivation: clear kill switch entirely
+      await pool.query(
+        `UPDATE jobs SET kill_switch_at = NULL, match_status = 'matched', follow_up_count = 0 WHERE id = $1`,
+        [job.id]
+      );
+    } else if (!shouldFullReactivate) {
+      // Partial reactivation: keep kill_switch_at and follow_up_count
+      await pool.query(
+        `UPDATE jobs SET match_status = 'matched' WHERE id = $1`,
+        [job.id]
+      );
     } else {
       // No kill_switch_at (edge case): just reactivate
       await pool.query(
