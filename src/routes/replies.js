@@ -1024,6 +1024,14 @@ router.post("/generate", requireAuth, async (req, res, next) => {
       responseBody.followUps = followUpResult.status === 'fulfilled'
         ? followUpResult.value
         : [{ text: '', error: followUpResult.reason?.message }];
+
+      console.log('generateAll: lovable status =', lovableResult.status, 'followUp status =', followUpResult.status);
+      if (followUpResult.status === 'rejected') {
+        console.error('generateAll: followUp rejection reason:', followUpResult.reason);
+      }
+      console.log('generateAll: followUps type =', typeof responseBody.followUps, 'isArray =', Array.isArray(responseBody.followUps), 'length =', responseBody.followUps?.length);
+    } else {
+      console.log('generateAll: NOT running (generateAll =', generateAll, ')');
     }
 
     res.json(responseBody);
