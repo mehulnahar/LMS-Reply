@@ -1017,7 +1017,7 @@ router.post("/generate", requireAuth, async (req, res, next) => {
           }
           const lovableTemplate = await getPromptTemplate('LOVABLE_MOCKUP_V1', req.user.id, pool);
           const lovableSystem = buildPromptWithContext(lovableTemplate, email, job, linkAnalysis, 'professional', 'LOVABLE_MOCKUP_V1', objectionContext, threadContext, timezoneCTA, pricingDetection);
-          const lovableRaw = await callClaudeHelper(lovableSystem, buildUserMessage(email, job), anthropicKey, 'claude-sonnet-4-6', 2048);
+          const lovableRaw = await callClaudeHelper(lovableSystem, buildUserMessage(email, job), anthropicKey, 'claude-sonnet-4-6', 4096);
           const parsed = parseMockupOutput(lovableRaw);
           if (job && job.id && parsed.lovablePrompt) {
             pool.query('UPDATE jobs SET mockup_lovable_prompt = $1 WHERE id = $2', [parsed.lovablePrompt, job.id]).catch(() => {});
@@ -1109,7 +1109,7 @@ router.post('/regenerate-lovable', requireAuth, async (req, res, next) => {
     }
     const lovableTemplate = await getPromptTemplate('LOVABLE_MOCKUP_V1', req.user.id, pool);
     const lovableSystem = buildPromptWithContext(lovableTemplate, email, job, null, 'professional', 'LOVABLE_MOCKUP_V1', {}, {}, '11 AM your time', null);
-    const lovableRaw = await callClaudeHelper(lovableSystem, buildUserMessage(email, job), anthropicKey, 'claude-sonnet-4-6', 2048);
+    const lovableRaw = await callClaudeHelper(lovableSystem, buildUserMessage(email, job), anthropicKey, 'claude-sonnet-4-6', 4096);
     const parsed = parseMockupOutput(lovableRaw);
     if (job && job.id && parsed.lovablePrompt) {
       pool.query('UPDATE jobs SET mockup_lovable_prompt = $1 WHERE id = $2', [parsed.lovablePrompt, job.id]).catch(() => {});
