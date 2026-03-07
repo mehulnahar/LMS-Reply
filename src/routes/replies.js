@@ -1471,9 +1471,10 @@ CRITICAL: The profile redirect is NOT the whole reply. After handling the redire
   if (objectionContext.hasCallDeferral) {
     prompt += `\n\n<call_deferral>
 The client has DEFERRED the call — they said they'll get back to you about scheduling.
+THIS OVERRIDES the "Call Ask Rules" section above. IGNORE any instruction to suggest a specific call time.
 RULES:
-1. Do NOT suggest a call time. Do NOT propose a specific day or time.
-2. Do NOT push for a call. Respect their pace completely.
+1. Do NOT suggest a call time. Do NOT propose a specific day, time, or "Would X work?". ZERO call scheduling.
+2. Do NOT push for a call. Do NOT write "Would 11 AM work?" or anything similar. Respect their pace completely.
 3. Focus your reply on ANSWERING THEIR QUESTIONS and DELIVERING VALUE specific to their project.
 4. Since they're not ready for a call yet, your reply IS your pitch — make it count with concrete insights, relevant experience, or a quick strategic observation about their project.
 5. End with a VALUE-FIRST soft close. Examples:
@@ -1662,8 +1663,9 @@ If your draft is under ${wordFloor} words, you have NOT included enough substanc
   // CTA-01: Timezone-resolved call-to-action injection (with smart day-of-week)
   if (objectionContext.hasCallDeferral) {
     prompt += `\n\n<timezone_cta>
-The client has DEFERRED scheduling a call. Do NOT suggest a specific meeting time.
-Instead, if appropriate, end with a soft availability statement like "Whenever you're ready, I'm happy to jump on a quick call."
+CALL DEFERRED — THIS OVERRIDES all "Call Ask Rules" in the template above.
+Do NOT suggest a specific meeting time. Do NOT write "Would [day] at [time] work?" or any variation.
+Instead, end with a soft availability statement woven into a value offer (see <call_deferral> rules above).
 NEVER propose a day, time, or timezone. Let them come back to you.
 </timezone_cta>`;
   } else {
@@ -1718,11 +1720,13 @@ function extractInternalBlocks(rawText) {
     return { cleanText: "", jobAnalysisBlock: null, linkAnalysisBlock: null, nextStepRawBlock: null };
   }
 
-  // Strip --- NEXT STEP SUMMARY (Internal) --- block before extracting clean text
-  // This block uses dash delimiters (not bracket markers) — must be handled separately
+  // Strip NEXT STEP SUMMARY block before extracting clean text
+  // Handles multiple formats: "--- NEXT STEP SUMMARY ---", "---\nNEXT STEP SUMMARY (Internal)",
+  // or just "NEXT STEP SUMMARY" on its own line. Captures everything after it to the end.
   let processedText = rawText;
   let nextStepRawBlock = null;
-  const nextStepBlockMatch = rawText.match(/---\s*NEXT STEP SUMMARY[^-]*---[\s\S]*?(?=---|$)/i);
+  const nextStepBlockMatch = rawText.match(/(?:^|\n)-{2,}\s*\n?\s*NEXT STEP SUMMARY[\s\S]*$/im)
+    || rawText.match(/(?:^|\n)NEXT STEP SUMMARY[^\n]*\n[\s\S]*$/im);
   if (nextStepBlockMatch) {
     nextStepRawBlock = nextStepBlockMatch[0];
     processedText = rawText.slice(0, nextStepBlockMatch.index).trim();
