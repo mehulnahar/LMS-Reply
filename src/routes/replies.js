@@ -252,6 +252,41 @@ router.post("/generate", requireAuth, async (req, res, next) => {
     // ── THREAD-04: CC contacts parsing (from cc_raw stored during sync)
     const ccContacts = parseCcContacts(email.cc_raw || null);
 
+    // ── Build the full set of emails the user owns:
+    //    - All detected outreach aliases (e.g. ashish@elevatehub.link, janet@hypeit.ink)
+    //    - All connected Gmail accounts (e.g. hiphype60@gmail.com, ashish@mycodeworks.tech)
+    //    - Monitoring addresses (e.g. hiphype679@gmail.com — auto-detected from sent CC)
+    //    This prevents the AI treating any of the user's own addresses as a CC'd third party.
+    const [{ rows: aliasRows }, { rows: accountRows }] = await Promise.all([
+      pool.query('SELECT alias_email FROM user_email_aliases WHERE user_id = $1', [req.user.id]),
+      pool.query('SELECT email FROM email_accounts WHERE user_id = $1', [req.user.id]),
+    ]);
+    const userOwnedEmails = new Set([
+      ...aliasRows.map(r => r.alias_email.toLowerCase()),
+      ...accountRows.map(r => r.email.toLowerCase()),
+    ]);
+
+    // Extract local-part (before @) for matching client's own alternate emails.
+    // e.g. joe@digitaljunkies.com.au CC'ing joebrown@digitaljunkies.com.au
+    //      lori@ac.com CC'ing lori.james@ac.com or lori@ff.com
+    const fromLocalPart = (email.from_email || '').split('@')[0].toLowerCase().replace(/[^a-z0-9]/g, '');
+
+    const filteredCcContacts = ccContacts.filter((c) => {
+      const addr = (c.email || '').toLowerCase();
+      // 1. Remove user's own addresses
+      if (userOwnedEmails.has(addr)) return false;
+      // 2. Remove client's own alternate emails:
+      //    If the CC local-part starts with the sender's local-part (or vice versa),
+      //    it's almost certainly the same person's secondary address.
+      //    e.g. "joe" vs "joebrown", "lori" vs "lorijames"
+      const ccLocalPart = addr.split('@')[0].replace(/[^a-z0-9]/g, '');
+      if (
+        fromLocalPart.length >= 3 &&
+        (ccLocalPart.startsWith(fromLocalPart) || fromLocalPart.startsWith(ccLocalPart))
+      ) return false;
+      return true;
+    });
+
     // ── Fire-and-forget: persist thread context to jobs table (non-blocking)
     if (job && promptType === 'THREAD_CONTINUATION_V1') {
       pool.query(
@@ -474,7 +509,11 @@ router.post("/generate", requireAuth, async (req, res, next) => {
     // ──────────────────────────────────────────────────────────
     // Step 5: Build context + call Claude (PREFETCH-04)
     // ──────────────────────────────────────────────────────────
-    const threadContext = { threadStage, clientMessageLength, stallType, ccContacts };
+    // ── Detect Janet persona: outreach was sent as "Janet" but reply is from Ashish
+    const outreachAlias = email.to_email || null;
+    const isJanetPersona = outreachAlias && /\bjanet\b/i.test(outreachAlias.split('@')[0]);
+
+    const threadContext = { threadStage, clientMessageLength, stallType, ccContacts: filteredCcContacts, isJanetPersona, outreachAlias };
     const systemPrompt = buildPromptWithContext(templateContent, email, job, linkAnalysis, tone, promptType, objectionContext, threadContext, timezoneCTA, pricingDetection);
     const userMessage = buildUserMessage(email, job);
 
@@ -1175,6 +1214,20 @@ Stall Type: ${stall}
 Recovery Strategy: ${stallInstructions[stall] || stallInstructions['UNKNOWN']}
 CRITICAL: Do not push. Do not guilt. Add value only.
 </stall_recovery>`;
+  }
+
+  // PERSONA-01: Janet persona handoff
+  // The outreach was sent as "Janet" — Ashish is now stepping in from his primary inbox.
+  // Claude must introduce Ashish and explain the handoff naturally in the first sentence.
+  if (threadContext.isJanetPersona) {
+    prompt += `\n\n<persona_intro>
+The initial outreach email to this client was sent by "Janet" — a persona used for cold outreach.
+You are now writing as Ashish, stepping in from the primary account.
+In your OPENING LINE only, briefly introduce the handoff in a natural, confident way.
+Example: "Janet from our team had reached out earlier — I'm Ashish, picking this up from here."
+Or: "Hi [client name], I'm Ashish — Janet looped me in to follow up on this."
+Keep it one sentence. Do not repeat it. Do not over-explain. After the intro, proceed normally.
+</persona_intro>`;
   }
 
   // THREAD-04: CC contact injection (when CC contacts exist)

@@ -55,6 +55,12 @@ export const api = {
   syncAllEmails: () => request("/api/emails/sync-all", { method: "POST" }),
   reanalyzeEmails: () => request("/api/emails/reanalyze", { method: "POST" }),
 
+  // Email Aliases
+  getEmailAliases: () => request('/api/settings/email-aliases'),
+  addEmailAlias: (aliasEmail, label) =>
+    request('/api/settings/email-aliases', { method: 'POST', body: JSON.stringify({ aliasEmail, label }) }),
+  deleteEmailAlias: (id) => request(`/api/settings/email-aliases/${id}`, { method: 'DELETE' }),
+
   // Jobs
   matchJob: (emailId) => request(`/api/jobs/match/${emailId}`, { method: "POST" }),
   matchJobByLink: (emailId, link) =>

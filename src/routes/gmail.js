@@ -307,17 +307,63 @@ router.post("/accounts/:id/sync", requireAuth, async (req, res, next) => {
 
       const emailSubject = getHeader("Subject") || "(No subject)";
       const ccRaw = getHeader("Cc") || null;
+      const toRaw = getHeader("To") || "";
+      const primaryEmail = (account.email || "").toLowerCase();
+
+      // Parse To: header — capture the first address as the canonical to_email
+      const parseFirstEmail = (raw) => {
+        if (!raw) return null;
+        const part = raw.split(",")[0].trim();
+        const m = part.match(/<([^>]+)>/);
+        return (m ? m[1] : part).trim().toLowerCase() || null;
+      };
+      const toEmail = parseFirstEmail(toRaw);
+
+      // ── Alias auto-detection ──────────────────────────────────────────────
+      // 1. From To: header of INCOMING emails — the alias clients reply to
+      const toEmails = toRaw.split(",").map((part) => {
+        const m = part.match(/<([^>]+)>/);
+        return (m ? m[1] : part).trim().toLowerCase();
+      }).filter(Boolean);
+      for (const toAddr of toEmails) {
+        if (toAddr && toAddr !== primaryEmail) {
+          pool.query(
+            `INSERT INTO user_email_aliases (user_id, alias_email, label)
+             VALUES ($1, $2, 'auto-detected')
+             ON CONFLICT (user_id, alias_email) DO NOTHING`,
+            [req.user.id, toAddr]
+          ).catch((e) => console.error("alias auto-detect (To) failed:", e.message));
+        }
+      }
+      // 2. From CC: header of SENT emails — monitoring addresses like hiphype679@gmail.com
+      //    that Ashish CC's on his own outbound emails so he can monitor replies
+      if (fromEmail.toLowerCase() === primaryEmail && ccRaw) {
+        const ccEmails = ccRaw.split(",").map((part) => {
+          const m = part.match(/<([^>]+)>/);
+          return (m ? m[1] : part).trim().toLowerCase();
+        }).filter(Boolean);
+        for (const ccAddr of ccEmails) {
+          if (ccAddr && ccAddr !== primaryEmail) {
+            pool.query(
+              `INSERT INTO user_email_aliases (user_id, alias_email, label)
+               VALUES ($1, $2, 'monitoring')
+               ON CONFLICT (user_id, alias_email) DO NOTHING`,
+              [req.user.id, ccAddr]
+            ).catch((e) => console.error("alias auto-detect (sent CC) failed:", e.message));
+          }
+        }
+      }
 
       await pool.query(
-        `INSERT INTO emails (user_id, account_id, gmail_id, thread_id, from_email, from_name, subject, snippet, body_text, body_html, received_at, cc_raw)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+        `INSERT INTO emails (user_id, account_id, gmail_id, thread_id, from_email, from_name, subject, snippet, body_text, body_html, received_at, cc_raw, to_email)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
          ON CONFLICT (account_id, gmail_id) DO NOTHING`,
         [
           req.user.id, account.id, msg.id, full.data.threadId,
           fromEmail, fromName, emailSubject,
           full.data.snippet || "", bodyText, bodyHtml,
           new Date(parseInt(full.data.internalDate)),
-          ccRaw,
+          ccRaw, toEmail,
         ]
       );
 

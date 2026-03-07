@@ -52,8 +52,12 @@ const BLOCKED_DOMAINS = [
  * @param {Object} pool                 - pg pool instance for DB persistence
  */
 async function ensureJobDescription(job, email, anthropicKey, leadhackCredentials, pool) {
-  // Cache hit — already have the raw description
-  if (job.job_description_raw) {
+  // Cache hit — already have description in either field
+  if (job.job_description_raw || job.job_description) {
+    // Normalize: ensure job_description_raw is set for downstream consumers
+    if (!job.job_description_raw && job.job_description) {
+      job.job_description_raw = job.job_description;
+    }
     return;
   }
 

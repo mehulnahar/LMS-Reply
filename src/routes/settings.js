@@ -600,4 +600,71 @@ router.get("/counter-moves", requireAuth, async (req, res, next) => {
   }
 });
 
+// ============================================================
+// EMAIL ALIASES — outreach email IDs owned by this user
+// Stored addresses are stripped from CC contacts during Thread Continuation
+// so the AI doesn't address them as third-party recipients.
+//
+// GET    /api/settings/email-aliases        — list aliases
+// POST   /api/settings/email-aliases        — add alias
+// DELETE /api/settings/email-aliases/:id    — remove alias
+// ============================================================
+
+const addAliasSchema = Joi.object({
+  aliasEmail: Joi.string().email({ tlds: { allow: false } }).required().messages({
+    'string.email': 'Invalid email address',
+    'any.required': 'Email address is required',
+  }),
+  label: Joi.string().trim().max(100).optional().allow('', null),
+});
+
+const aliasIdSchema = Joi.object({
+  id: Joi.number().integer().positive().required(),
+});
+
+router.get('/email-aliases', requireAuth, async (req, res, next) => {
+  try {
+    const { rows } = await pool.query(
+      'SELECT id, alias_email, label, created_at FROM user_email_aliases WHERE user_id = $1 ORDER BY created_at',
+      [req.user.id]
+    );
+    res.json(rows);
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.post('/email-aliases', requireAuth, validateBody(addAliasSchema), async (req, res, next) => {
+  try {
+    const { aliasEmail, label } = req.body;
+    const { rows } = await pool.query(
+      `INSERT INTO user_email_aliases (user_id, alias_email, label)
+       VALUES ($1, $2, $3)
+       RETURNING id, alias_email, label, created_at`,
+      [req.user.id, aliasEmail.toLowerCase(), label || null]
+    );
+    res.status(201).json(rows[0]);
+  } catch (err) {
+    if (err.code === '23505') {
+      return res.status(409).json({ error: 'This email alias already exists.' });
+    }
+    next(err);
+  }
+});
+
+router.delete('/email-aliases/:id', requireAuth, validateParams(aliasIdSchema), async (req, res, next) => {
+  try {
+    const result = await pool.query(
+      'DELETE FROM user_email_aliases WHERE id = $1 AND user_id = $2',
+      [req.params.id, req.user.id]
+    );
+    if (result.rowCount === 0) {
+      return res.status(404).json({ error: 'Alias not found' });
+    }
+    res.json({ message: 'Alias removed' });
+  } catch (err) {
+    next(err);
+  }
+});
+
 module.exports = router;
