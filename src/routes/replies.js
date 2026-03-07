@@ -1453,11 +1453,15 @@ The client has asked for your Upwork profile or portfolio link.
 You did NOT come through Upwork's proposal system — you found their project through independent research.
 Do NOT use a placeholder like "[Insert Upwork Profile Link]" or "[Your Upwork Profile]".
 
-MANDATORY RESPONSE:
-1. Acknowledge their request directly (one sentence).
-2. Explain briefly and confidently: "We actually found your project through our own research rather than Upwork's proposal system, so there isn't a formal proposal link to share."
-3. Redirect to the company website: "Here's our site with recent work and the team: https://hiphype.tech"
-4. Keep it brief, honest, and confident — NOT apologetic. Proactive outreach is a strength, not a limitation.
+HANDLE THE PROFILE REQUEST (2-3 sentences max):
+1. Acknowledge briefly: "We found your project through our own research rather than Upwork's proposal system, so there isn't a formal proposal link to share."
+2. Redirect to the company website: "Here's our site with recent work and the team: https://hiphype.tech"
+3. Frame proactive outreach as a STRENGTH, not a limitation. Be confident, not apologetic.
+
+CRITICAL: The profile redirect is NOT the whole reply. After handling the redirect, you MUST still:
+- Deliver value relevant to their project (insights, approach, relevant experience)
+- Include a clear next-step CTA (call, questions, or whatever fits the context)
+- The redirect should be 20-30% of the reply, NOT 100% of it
 </profile_redirect>`;
   }
 
@@ -1465,12 +1469,15 @@ MANDATORY RESPONSE:
   if (objectionContext.hasCallDeferral) {
     prompt += `\n\n<call_deferral>
 The client has DEFERRED the call — they said they'll get back to you about scheduling.
-CRITICAL RULES:
+RULES:
 1. Do NOT suggest a call time. Do NOT propose a specific day or time.
 2. Do NOT push for a call. Respect their pace completely.
-3. Focus your reply on answering their questions or providing value.
-4. End with a SOFT close only: "Whenever you're ready, happy to jump on a call" or similar.
-5. If they asked a question, answer it thoroughly — the call deferral means they want answers in writing first.
+3. Focus your reply on ANSWERING THEIR QUESTIONS and DELIVERING VALUE specific to their project.
+4. Since they're not ready for a call yet, your reply IS your pitch — make it count with concrete insights, relevant experience, or a quick strategic observation about their project.
+5. End with a VALUE-FIRST soft close. Examples:
+   - "Happy to put together a quick audit of [specific thing] if that would help — and whenever you're ready for a call, I'm around."
+   - "Let me know if you'd like me to sketch out an approach for [specific thing]. Also happy to jump on a call whenever works for you."
+   Do NOT just say "whenever you're ready" — offer something concrete PLUS the soft availability.
 </call_deferral>`;
   }
 
