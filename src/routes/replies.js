@@ -1320,7 +1320,12 @@ function getWordLimitOverride(promptType, threadStage, objectionType, job) {
 
   if (promptType === 'FOLLOW_UP_V2') {
     const followUpCount = (job && job.follow_up_count) || 0;
-    return followUpCount === 0 ? 100 : 70;
+    // FU1 (Day 3): 80-100 words - one insight + soft call ask
+    // FU2 (Day 5): 60-80 words - value nudge, lighter
+    // FU3 (Day 7): 40-60 words - graceful close, no pressure
+    if (followUpCount === 0) return 100;
+    if (followUpCount === 1) return 80;
+    return 60;
   }
 
   return null; // No override for other types
