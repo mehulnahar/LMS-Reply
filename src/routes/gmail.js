@@ -321,12 +321,12 @@ router.post("/accounts/:id/sync", requireAuth, async (req, res, next) => {
         }
       }
       // 2. From CC: of SENT emails — monitoring addresses (e.g. hiphype60@gmail.com)
-      // Only keep addresses whose local part contains "ashish", "janet", or "hiphype".
+      // Only keep addresses whose local part contains a known persona name.
       if (metaFrom === primaryEmail && metaCcRaw) {
         for (const ccAddr of parseEmails(metaCcRaw)) {
           if (!ccAddr || ccAddr === primaryEmail) continue;
           const local = ccAddr.split("@")[0].toLowerCase();
-          if (!local.includes("ashish") && !local.includes("janet") && !local.includes("hiphype")) continue;
+          if (!local.includes("ashish") && !local.includes("janet") && !local.includes("sanjana") && !local.includes("hiphype")) continue;
           pool.query(
             `INSERT INTO user_email_aliases (user_id, alias_email, label)
              VALUES ($1, $2, 'monitoring')
@@ -520,12 +520,12 @@ router.post("/aliases/detect", requireAuth, async (req, res, next) => {
             }
           } else if (fromEmail === primaryEmail && ccRaw) {
             // Ashish's sent email — CC reveals monitoring/outreach aliases.
-            // Only keep addresses whose local part contains "ashish", "janet", or "hiphype"
+            // Only keep addresses whose local part contains a known persona name
             // so client colleagues (kiruthika@, susindharan@, joebrown@, etc.) are excluded.
             for (const addr of localParseEmails(ccRaw)) {
               if (!addr || addr === primaryEmail) continue;
               const local = addr.split("@")[0].toLowerCase();
-              if (!local.includes("ashish") && !local.includes("janet") && !local.includes("hiphype")) continue;
+              if (!local.includes("ashish") && !local.includes("janet") && !local.includes("sanjana") && !local.includes("hiphype")) continue;
               toInsert.push({ email: addr, label: "monitoring" });
             }
           }
