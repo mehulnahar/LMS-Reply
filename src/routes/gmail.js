@@ -270,13 +270,76 @@ router.post("/accounts/:id/sync", requireAuth, async (req, res, next) => {
     const messages = listRes.data.messages || [];
     let synced = 0;
 
+    const primaryEmail = (account.email || "").toLowerCase();
+
+    // Helper: parse all email addresses from a header value
+    const parseEmails = (raw) => {
+      if (!raw) return [];
+      return raw.split(",").map((part) => {
+        const m = part.match(/<([^>]+)>/);
+        return (m ? m[1] : part).trim().toLowerCase();
+      }).filter(Boolean);
+    };
+
+    // Helper: parse the canonical first email from a header value
+    const parseFirstEmail = (raw) => {
+      if (!raw) return null;
+      const part = raw.split(",")[0].trim();
+      const m = part.match(/<([^>]+)>/);
+      return (m ? m[1] : part).trim().toLowerCase() || null;
+    };
+
     for (const msg of messages) {
+      // ── Step 1: Fetch lightweight metadata for ALL messages ───────────────
+      // Alias detection runs on every sync (new + existing) so that the first
+      // sync after deployment backfills aliases from already-stored emails.
+      const meta = await gmail.users.messages.get({
+        userId: "me",
+        id: msg.id,
+        format: "metadata",
+        metadataHeaders: ["To", "Cc", "From"],
+      });
+      const metaHeaders = meta.data.payload?.headers || [];
+      const getMetaHeader = (name) => metaHeaders.find((h) => h.name.toLowerCase() === name.toLowerCase())?.value || "";
+
+      const metaFrom = parseFirstEmail(getMetaHeader("From")) || "";
+      const metaToRaw = getMetaHeader("To");
+      const metaCcRaw = getMetaHeader("Cc");
+
+      // ── Alias auto-detection (runs on every message, new or existing) ─────
+      // 1. From To: header — the outreach alias clients reply to
+      for (const toAddr of parseEmails(metaToRaw)) {
+        if (toAddr && toAddr !== primaryEmail) {
+          pool.query(
+            `INSERT INTO user_email_aliases (user_id, alias_email, label)
+             VALUES ($1, $2, 'auto-detected')
+             ON CONFLICT (user_id, alias_email) DO NOTHING`,
+            [req.user.id, toAddr]
+          ).catch((e) => console.error("alias auto-detect (To) failed:", e.message));
+        }
+      }
+      // 2. From CC: of SENT emails — monitoring addresses (e.g. hiphype679@gmail.com)
+      if (metaFrom === primaryEmail && metaCcRaw) {
+        for (const ccAddr of parseEmails(metaCcRaw)) {
+          if (ccAddr && ccAddr !== primaryEmail) {
+            pool.query(
+              `INSERT INTO user_email_aliases (user_id, alias_email, label)
+               VALUES ($1, $2, 'monitoring')
+               ON CONFLICT (user_id, alias_email) DO NOTHING`,
+              [req.user.id, ccAddr]
+            ).catch((e) => console.error("alias auto-detect (sent CC) failed:", e.message));
+          }
+        }
+      }
+
+      // ── Step 2: Skip full fetch for already-stored emails ─────────────────
       const existing = await pool.query(
         "SELECT id FROM emails WHERE account_id = $1 AND gmail_id = $2",
         [account.id, msg.id]
       );
       if (existing.rows.length > 0) continue;
 
+      // ── Step 3: Full fetch for new emails only ────────────────────────────
       const full = await gmail.users.messages.get({
         userId: "me",
         id: msg.id,
@@ -308,51 +371,7 @@ router.post("/accounts/:id/sync", requireAuth, async (req, res, next) => {
       const emailSubject = getHeader("Subject") || "(No subject)";
       const ccRaw = getHeader("Cc") || null;
       const toRaw = getHeader("To") || "";
-      const primaryEmail = (account.email || "").toLowerCase();
-
-      // Parse To: header — capture the first address as the canonical to_email
-      const parseFirstEmail = (raw) => {
-        if (!raw) return null;
-        const part = raw.split(",")[0].trim();
-        const m = part.match(/<([^>]+)>/);
-        return (m ? m[1] : part).trim().toLowerCase() || null;
-      };
       const toEmail = parseFirstEmail(toRaw);
-
-      // ── Alias auto-detection ──────────────────────────────────────────────
-      // 1. From To: header of INCOMING emails — the alias clients reply to
-      const toEmails = toRaw.split(",").map((part) => {
-        const m = part.match(/<([^>]+)>/);
-        return (m ? m[1] : part).trim().toLowerCase();
-      }).filter(Boolean);
-      for (const toAddr of toEmails) {
-        if (toAddr && toAddr !== primaryEmail) {
-          pool.query(
-            `INSERT INTO user_email_aliases (user_id, alias_email, label)
-             VALUES ($1, $2, 'auto-detected')
-             ON CONFLICT (user_id, alias_email) DO NOTHING`,
-            [req.user.id, toAddr]
-          ).catch((e) => console.error("alias auto-detect (To) failed:", e.message));
-        }
-      }
-      // 2. From CC: header of SENT emails — monitoring addresses like hiphype679@gmail.com
-      //    that Ashish CC's on his own outbound emails so he can monitor replies
-      if (fromEmail.toLowerCase() === primaryEmail && ccRaw) {
-        const ccEmails = ccRaw.split(",").map((part) => {
-          const m = part.match(/<([^>]+)>/);
-          return (m ? m[1] : part).trim().toLowerCase();
-        }).filter(Boolean);
-        for (const ccAddr of ccEmails) {
-          if (ccAddr && ccAddr !== primaryEmail) {
-            pool.query(
-              `INSERT INTO user_email_aliases (user_id, alias_email, label)
-               VALUES ($1, $2, 'monitoring')
-               ON CONFLICT (user_id, alias_email) DO NOTHING`,
-              [req.user.id, ccAddr]
-            ).catch((e) => console.error("alias auto-detect (sent CC) failed:", e.message));
-          }
-        }
-      }
 
       await pool.query(
         `INSERT INTO emails (user_id, account_id, gmail_id, thread_id, from_email, from_name, subject, snippet, body_text, body_html, received_at, cc_raw, to_email)
