@@ -61,6 +61,32 @@ function getNextBusinessDay(daysAhead) {
   return date.toISOString().split('T')[0];
 }
 
+function buildFollowUpPrompt(clientName, projectType, snippet, jobDescription, tone) {
+  return `Write a short follow-up email (max 60 words) to ${clientName} about their project: "${projectType}".
+
+Tone: ${tone}
+
+## Job Description (READ THIS for domain/technical context):
+${jobDescription || 'Not available'}
+
+## Context from their previous email:
+"${snippet}"
+
+## Rules (MANDATORY):
+1. VALUE: Read the job description above. Include ONE specific domain or technical point that shows you understand their project. Weave it naturally -- never say "value" or "insight" explicitly.
+2. CALL ASK: Include a call ask: "Would tomorrow at 11 AM your time work for a quick chat?" (adapt naturally to the tone -- softer for final touch).
+3. NO ASSUMPTIONS: Only reference what the client explicitly stated. Don't assume scope, timeline, or tech choices.
+4. CLIENT-FIRST: Frame from their perspective -- their problem, their goals. Not "we can do X" but "your [project] could benefit from..."
+5. HUMAN & POLITE: Write like a real person. Warm, courteous, professional. No corporate jargon, no sales language.
+6. No buzzwords, no "I hope this finds you", no "Just checking in", no subject line.
+7. Each follow-up must be unique and different from the others.
+
+Sign off as:
+Best,
+Ashish
+HipHype Tech`;
+}
+
 const TONES = {
   professional: "You write in a professional, business-appropriate tone. Be courteous but direct.",
   friendly: "You write in a warm, friendly tone while remaining professional. Use a conversational style.",
@@ -345,7 +371,7 @@ router.post("/generate", requireAuth, async (req, res, next) => {
     // Step 2.5b: Mockup Decision Gate (MOCKUP-01, MOCKUP-05)
     // Always compute — used by both LOVABLE_MOCKUP_V1 gating and generateAll [link] hint
     // ──────────────────────────────────────────────────────────
-    const mockupDecisionGlobal = evaluateMockupDecision(job, email);
+    const mockupDecisionGlobal = await evaluateMockupDecision(job, email, anthropicKey);
 
     if (promptType === 'LOVABLE_MOCKUP_V1') {
       // MOCKUP-05: Follow-Up Day 7 gate — block mockup generation after 2 follow-ups
@@ -975,6 +1001,7 @@ router.post("/generate", requireAuth, async (req, res, next) => {
             : 'them';
           const projectType = job?.job_heading || 'their project';
           const snippet = (email.body_text || email.snippet || '').slice(0, 300);
+          const jobDescription = (job?.job_description_raw || job?.job_description || '').slice(0, 800);
           const schedules = [
             { days: 3, tone: 'gentle check-in' },
             { days: 5, tone: 'value-add nudge — mention a relevant idea or insight' },
@@ -983,7 +1010,7 @@ router.post("/generate", requireAuth, async (req, res, next) => {
           const results = await Promise.allSettled(schedules.map(async (s) => {
             const date = getNextBusinessDay(s.days);
             const label = new Date(date + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' });
-            const msg = `Write a short follow-up email (max 60 words) to ${clientName} about their project: "${projectType}". Tone: ${s.tone}. Context from their email: "${snippet}". Rules: natural, human, no buzzwords, no "I hope this finds you", no subject line, each follow-up must be unique and different from the others. Sign off as:\nBest,\nAshish\nHipHype Tech`;
+            const msg = buildFollowUpPrompt(clientName, projectType, snippet, jobDescription, s.tone);
             const text = await callClaudeHelper(null, msg, anthropicKey, 'claude-sonnet-4-6', 256);
             return { text: text.trim(), suggestedDate: date, label: `Send ${label}` };
           }));
@@ -1038,7 +1065,7 @@ router.post('/regenerate-lovable', requireAuth, async (req, res, next) => {
     const { email, job } = await loadEmailAndJob(emailId, req.user.id, pool);
     if (!email) return res.status(404).json({ error: 'Email not found' });
 
-    const decision = evaluateMockupDecision(job, email);
+    const decision = await evaluateMockupDecision(job, email, anthropicKey);
     if (!decision.shouldBuild) {
       return res.json({ applicable: false, reason: decision.alternativeSuggestion });
     }
@@ -1071,6 +1098,7 @@ router.post('/regenerate-followup', requireAuth, async (req, res, next) => {
       : 'them';
     const projectType = job?.job_heading || 'their project';
     const snippet = (email.body_text || email.snippet || '').slice(0, 300);
+    const jobDescription = (job?.job_description_raw || job?.job_description || '').slice(0, 800);
     const schedules = [
       { days: 3, tone: 'gentle check-in' },
       { days: 5, tone: 'value-add nudge — mention a relevant idea or insight' },
@@ -1079,7 +1107,7 @@ router.post('/regenerate-followup', requireAuth, async (req, res, next) => {
     const results = await Promise.allSettled(schedules.map(async (s) => {
       const date = getNextBusinessDay(s.days);
       const label = new Date(date + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' });
-      const msg = `Write a short follow-up email (max 60 words) to ${clientName} about their project: "${projectType}". Tone: ${s.tone}. Context from their email: "${snippet}". Rules: natural, human, no buzzwords, no "I hope this finds you", no subject line, each follow-up must be unique and different from the others. Sign off as:\nBest,\nAshish\nHipHype Tech`;
+      const msg = buildFollowUpPrompt(clientName, projectType, snippet, jobDescription, s.tone);
       const text = await callClaudeHelper(null, msg, anthropicKey, 'claude-sonnet-4-6', 256);
       return { text: text.trim(), suggestedDate: date, label: `Send ${label}` };
     }));

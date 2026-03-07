@@ -1,236 +1,156 @@
 'use strict';
 
 /**
- * Test Suite: mockupDecision — Decision Matrix for Lovable Mockup Generation
+ * Test Suite: mockupDecision — Claude-powered Mockup Decision
  * Phase 16: Lovable Mockup Generator
  * Requirements: MOCKUP-01
  *
- * Pure synchronous function — no DB, no Express, no HTTP, no mocking needed.
- * Uses Jest "unit" project (no setup.js).
+ * The function is now async with a Claude API call.
+ * Budget gate tests are pure (exit before fetch). Claude tests mock global.fetch.
  */
 
 const { evaluateMockupDecision } = require('../utils/mockupDecision');
 
+// Helper to mock fetch returning a Claude JSON response
+function mockClaudeResponse(json) {
+  global.fetch = jest.fn().mockResolvedValue({
+    ok: true,
+    json: async () => ({ content: [{ text: JSON.stringify(json) }] }),
+  });
+}
+
+function mockClaudeError(status = 500) {
+  global.fetch = jest.fn().mockResolvedValue({ ok: false, status });
+}
+
+afterEach(() => {
+  if (global.fetch?.mockRestore) global.fetch.mockRestore();
+  delete global.fetch;
+});
+
 // ============================================================
-// MOCKUP-01: Decision Matrix — YES classifications
+// Budget gate (sync, exits before Claude call)
 // ============================================================
-describe('MOCKUP-01: Decision Matrix — YES classifications', () => {
-  it('classifies SaaS dashboard as YES', () => {
-    const result = evaluateMockupDecision({ job_heading: 'Build a SaaS dashboard' }, null);
-    expect(result.shouldBuild).toBe(true);
-    expect(result.projectType).toMatch(/dashboard|web_app/);
-    expect(result.whatToMockup).toBeTruthy();
-    expect(result.alternativeSuggestion).toBeNull();
+describe('MOCKUP-01: Budget gate', () => {
+  it('blocks budget of $500 (low_budget)', async () => {
+    const result = await evaluateMockupDecision({ amount: '500' }, null, 'fake-key');
+    expect(result.shouldBuild).toBe(false);
+    expect(result.projectType).toBe('low_budget');
   });
 
-  it('classifies landing page as YES', () => {
-    const result = evaluateMockupDecision(
-      { job_description: 'Create a landing page for our startup' },
-      null
-    );
-    expect(result.shouldBuild).toBe(true);
-    expect(result.projectType).toBe('landing_page');
+  it('blocks budget of $999 (low_budget)', async () => {
+    const result = await evaluateMockupDecision({ amount: '999' }, null, 'fake-key');
+    expect(result.shouldBuild).toBe(false);
+    expect(result.projectType).toBe('low_budget');
   });
 
-  it('classifies e-commerce store as YES', () => {
-    const result = evaluateMockupDecision(
-      { job_heading: 'E-commerce store for cosmetics' },
-      null
-    );
+  it('does NOT block budget of $1000 (passes to Claude)', async () => {
+    mockClaudeResponse({ shouldBuild: true, projectType: 'dashboard', whatToMockup: 'Dashboard', alternativeSuggestion: null });
+    const result = await evaluateMockupDecision({ amount: '1000', job_heading: 'Build a SaaS dashboard' }, null, 'fake-key');
+    expect(result.shouldBuild).toBe(true);
+  });
+
+  it('does NOT block $0 amount (passes to Claude)', async () => {
+    mockClaudeResponse({ shouldBuild: true, projectType: 'web_app', whatToMockup: 'Web app', alternativeSuggestion: null });
+    const result = await evaluateMockupDecision({ amount: '0', job_heading: 'Build a web app' }, null, 'fake-key');
+    expect(result.shouldBuild).toBe(true);
+  });
+
+  it('does NOT block null amount (passes to Claude)', async () => {
+    mockClaudeResponse({ shouldBuild: true, projectType: 'web_app', whatToMockup: 'Web app', alternativeSuggestion: null });
+    const result = await evaluateMockupDecision({ amount: null, job_heading: 'Build a web app' }, null, 'fake-key');
+    expect(result.shouldBuild).toBe(true);
+  });
+});
+
+// ============================================================
+// Claude YES responses
+// ============================================================
+describe('MOCKUP-01: Claude YES decisions', () => {
+  it('returns shouldBuild true when Claude says YES', async () => {
+    mockClaudeResponse({ shouldBuild: true, projectType: 'ecommerce', whatToMockup: 'E-commerce storefront', alternativeSuggestion: null });
+    const result = await evaluateMockupDecision({ job_heading: 'Build e-commerce store for cosmetics' }, null, 'fake-key');
     expect(result.shouldBuild).toBe(true);
     expect(result.projectType).toBe('ecommerce');
+    expect(result.whatToMockup).toBe('E-commerce storefront');
   });
 
-  it('classifies mobile app as YES', () => {
-    const result = evaluateMockupDecision(
-      { job_description: 'Build a mobile app for iOS and Android' },
-      null
-    );
-    expect(result.shouldBuild).toBe(true);
-    expect(result.projectType).toBe('mobile_app');
-  });
-
-  it('classifies web app for project management as YES', () => {
-    const result = evaluateMockupDecision(
-      { job_heading: 'Web app for project management' },
-      null
-    );
-    expect(result.shouldBuild).toBe(true);
-    expect(result.projectType).toBe('web_app');
-  });
-
-  it('classifies AI chatbot interface as YES', () => {
-    const result = evaluateMockupDecision(
-      { job_description: 'AI chatbot interface for customer support' },
-      null
-    );
-    expect(result.shouldBuild).toBe(true);
-    expect(result.projectType).toBe('ai_chatbot');
-  });
-
-  it('classifies automation tool with workflow builder as YES', () => {
-    const result = evaluateMockupDecision(
-      { job_description: 'Automation tool with workflow builder UI' },
-      null
-    );
-    expect(result.shouldBuild).toBe(true);
-    expect(result.projectType).toBe('automation_tool');
-  });
-
-  it('classifies UI/UX redesign as YES', () => {
-    const result = evaluateMockupDecision(
-      { job_heading: 'UI/UX redesign of existing product' },
-      null
-    );
-    expect(result.shouldBuild).toBe(true);
-    expect(result.projectType).toBe('generic_ui');
+  it('passes job heading and description to Claude', async () => {
+    mockClaudeResponse({ shouldBuild: true, projectType: 'dashboard', whatToMockup: 'Analytics dashboard', alternativeSuggestion: null });
+    await evaluateMockupDecision({ job_heading: 'Analytics Dashboard', job_description: 'Build a real-time analytics dashboard' }, { body_text: 'Hi, interested in your proposal' }, 'fake-key');
+    const callBody = JSON.parse(global.fetch.mock.calls[0][1].body);
+    expect(callBody.messages[0].content).toContain('Analytics Dashboard');
+    expect(callBody.messages[0].content).toContain('real-time analytics dashboard');
+    expect(callBody.messages[0].content).toContain('interested in your proposal');
   });
 });
 
 // ============================================================
-// MOCKUP-01: Decision Matrix — NO classifications
+// Claude NO responses
 // ============================================================
-describe('MOCKUP-01: Decision Matrix — NO classifications', () => {
-  it('classifies SEO optimization as NO (service-type wins over e-commerce keyword)', () => {
-    const result = evaluateMockupDecision(
-      { job_heading: 'SEO optimization for e-commerce site' },
-      null
-    );
+describe('MOCKUP-01: Claude NO decisions', () => {
+  it('returns shouldBuild false when Claude says NO', async () => {
+    mockClaudeResponse({ shouldBuild: false, projectType: 'hiring', whatToMockup: null, alternativeSuggestion: 'Relevant case study' });
+    const result = await evaluateMockupDecision({ job_heading: 'WordPress developer with e-commerce experience' }, null, 'fake-key');
     expect(result.shouldBuild).toBe(false);
-    expect(result.projectType).toBe('seo');
-    expect(result.alternativeSuggestion).toMatch(/keyword|competitor/i);
+    expect(result.projectType).toBe('hiring');
+    expect(result.alternativeSuggestion).toBe('Relevant case study');
   });
 
-  it('classifies DevOps pipeline as NO with architecture diagram suggestion', () => {
-    const result = evaluateMockupDecision(
-      { job_description: 'DevOps pipeline setup with Docker' },
-      null
-    );
+  it('returns NO for SEO service job', async () => {
+    mockClaudeResponse({ shouldBuild: false, projectType: 'seo', whatToMockup: null, alternativeSuggestion: 'Keyword analysis' });
+    const result = await evaluateMockupDecision({ job_heading: 'SEO optimization for our website' }, null, 'fake-key');
     expect(result.shouldBuild).toBe(false);
-    expect(result.alternativeSuggestion).toMatch(/Architecture diagram/i);
-  });
-
-  it('classifies copywriting as NO', () => {
-    const result = evaluateMockupDecision(
-      { job_description: 'Copywriting for tech blog posts' },
-      null
-    );
-    expect(result.shouldBuild).toBe(false);
-    expect(result.projectType).toBe('content');
-    expect(result.alternativeSuggestion).toMatch(/content calendar/i);
-  });
-
-  it('classifies data entry as NO', () => {
-    const result = evaluateMockupDecision(
-      { job_description: 'Data entry for spreadsheets' },
-      null
-    );
-    expect(result.shouldBuild).toBe(false);
-    expect(result.projectType).toBe('data_entry');
-    expect(result.alternativeSuggestion).toMatch(/workflow/i);
-  });
-
-  it('classifies backend API microservice as NO', () => {
-    const result = evaluateMockupDecision(
-      { job_description: 'Backend API microservice' },
-      null
-    );
-    expect(result.shouldBuild).toBe(false);
-    expect(result.projectType).toBe('backend');
-    expect(result.alternativeSuggestion).toMatch(/code audit/i);
   });
 });
 
 // ============================================================
-// MOCKUP-01: Decision Matrix — Budget gate
+// Error handling / fallbacks
 // ============================================================
-describe('MOCKUP-01: Decision Matrix — Budget gate', () => {
-  it('blocks budget of $500 (low_budget)', () => {
-    const result = evaluateMockupDecision({ amount: '500' }, null);
-    expect(result.shouldBuild).toBe(false);
-    expect(result.projectType).toBe('low_budget');
-  });
-
-  it('blocks budget of $999 (low_budget)', () => {
-    const result = evaluateMockupDecision({ amount: '999' }, null);
-    expect(result.shouldBuild).toBe(false);
-    expect(result.projectType).toBe('low_budget');
-  });
-
-  it('does NOT block budget of $1000 (passes through)', () => {
-    const result = evaluateMockupDecision(
-      { amount: '1000', job_heading: 'Build a SaaS dashboard' },
-      null
-    );
-    expect(result.shouldBuild).toBe(true);
-  });
-
-  it('does NOT block budget of $0 (treated as no budget info)', () => {
-    const result = evaluateMockupDecision(
-      { amount: '0', job_heading: 'Build a SaaS dashboard' },
-      null
-    );
-    expect(result.shouldBuild).toBe(true);
-  });
-
-  it('does NOT block null amount (treated as no budget info)', () => {
-    const result = evaluateMockupDecision(
-      { amount: null, job_heading: 'Build a SaaS dashboard' },
-      null
-    );
-    expect(result.shouldBuild).toBe(true);
-  });
-});
-
-// ============================================================
-// MOCKUP-01: Decision Matrix — Mixed projects
-// ============================================================
-describe('MOCKUP-01: Decision Matrix — Mixed projects', () => {
-  it('classifies REST API + React dashboard as YES (visual component overrides infra)', () => {
-    const result = evaluateMockupDecision(
-      { job_description: 'Build REST API and React dashboard' },
-      null
-    );
-    expect(result.shouldBuild).toBe(true);
-    expect(result.projectType).toBe('dashboard');
-  });
-
-  it('classifies DevOps pipeline with monitoring dashboard as YES (visual overrides infra)', () => {
-    const result = evaluateMockupDecision(
-      { job_description: 'DevOps pipeline with monitoring dashboard' },
-      null
-    );
-    expect(result.shouldBuild).toBe(true);
-    expect(result.projectType).toBe('dashboard');
-  });
-});
-
-// ============================================================
-// MOCKUP-01: Decision Matrix — Edge cases
-// ============================================================
-describe('MOCKUP-01: Decision Matrix — Edge cases', () => {
-  it('handles null job without throwing', () => {
-    const result = evaluateMockupDecision(null, null);
+describe('MOCKUP-01: Error handling', () => {
+  it('returns fallback when no API key provided', async () => {
+    const result = await evaluateMockupDecision({ job_heading: 'Build a dashboard' }, null, null);
     expect(result.shouldBuild).toBe(false);
     expect(result.projectType).toBe('unknown');
   });
 
-  it('handles undefined job without throwing', () => {
-    const result = evaluateMockupDecision(undefined, null);
+  it('returns fallback when Claude API returns error', async () => {
+    mockClaudeError(500);
+    const result = await evaluateMockupDecision({ job_heading: 'Build a dashboard' }, null, 'fake-key');
     expect(result.shouldBuild).toBe(false);
     expect(result.projectType).toBe('unknown');
   });
 
-  it('handles empty string job_heading as no signal', () => {
-    const result = evaluateMockupDecision({ job_heading: '' }, null);
+  it('returns fallback when Claude returns invalid JSON', async () => {
+    global.fetch = jest.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ content: [{ text: 'not valid json at all' }] }),
+    });
+    const result = await evaluateMockupDecision({ job_heading: 'Build a dashboard' }, null, 'fake-key');
     expect(result.shouldBuild).toBe(false);
     expect(result.projectType).toBe('unknown');
   });
 
-  it('handles job with no relevant fields as unknown', () => {
-    const result = evaluateMockupDecision({ id: 123, some_other_field: 'value' }, null);
+  it('returns fallback when Claude returns JSON without shouldBuild boolean', async () => {
+    mockClaudeResponse({ projectType: 'web_app' }); // missing shouldBuild
+    const result = await evaluateMockupDecision({ job_heading: 'Build a web app' }, null, 'fake-key');
+    expect(result.shouldBuild).toBe(false);
+  });
+
+  it('handles null job without throwing', async () => {
+    const result = await evaluateMockupDecision(null, null, 'fake-key');
     expect(result.shouldBuild).toBe(false);
     expect(result.projectType).toBe('unknown');
-    expect(result.alternativeSuggestion).toMatch(/unclear/i);
+  });
+
+  it('handles undefined job without throwing', async () => {
+    const result = await evaluateMockupDecision(undefined, null, 'fake-key');
+    expect(result.shouldBuild).toBe(false);
+    expect(result.projectType).toBe('unknown');
+  });
+
+  it('handles job with no text fields', async () => {
+    const result = await evaluateMockupDecision({ id: 123 }, null, null);
+    expect(result.shouldBuild).toBe(false);
   });
 });
