@@ -490,7 +490,7 @@ export default function Inbox() {
       if (!detail.job || detail.job.matchStatus === 'error') {
         try { const j = await api.matchJob(detail.email.id); setDetail(p => ({ ...p, job: j.job })); } catch { /* ok */ }
       }
-      const data = await api.generateAll(detail.email.id, { tone, promptOverride: promptOverride || null, source });
+      const data = await api.generateAll(detail.email.id, { tone, promptOverride: promptOverride || null, source: null });
 
       if (data.killSwitch) {
         setKillSwitch(true); setKillSwitchReason(data.reason || 'Follow-up limit reached.');
