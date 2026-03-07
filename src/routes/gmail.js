@@ -307,18 +307,20 @@ router.post("/accounts/:id/sync", requireAuth, async (req, res, next) => {
       const metaCcRaw = getMetaHeader("Cc");
 
       // ── Alias auto-detection (runs on every message, new or existing) ─────
-      // 1. From To: header — the outreach alias clients reply to
-      for (const toAddr of parseEmails(metaToRaw)) {
-        if (toAddr && toAddr !== primaryEmail) {
-          pool.query(
-            `INSERT INTO user_email_aliases (user_id, alias_email, label)
-             VALUES ($1, $2, 'auto-detected')
-             ON CONFLICT (user_id, alias_email) DO NOTHING`,
-            [req.user.id, toAddr]
-          ).catch((e) => console.error("alias auto-detect (To) failed:", e.message));
+      // 1. From To: header — only on client replies (not Ashish's own sent messages)
+      if (metaFrom !== primaryEmail) {
+        for (const toAddr of parseEmails(metaToRaw)) {
+          if (toAddr && toAddr !== primaryEmail) {
+            pool.query(
+              `INSERT INTO user_email_aliases (user_id, alias_email, label)
+               VALUES ($1, $2, 'auto-detected')
+               ON CONFLICT (user_id, alias_email) DO NOTHING`,
+              [req.user.id, toAddr]
+            ).catch((e) => console.error("alias auto-detect (To) failed:", e.message));
+          }
         }
       }
-      // 2. From CC: of SENT emails — monitoring addresses (e.g. hiphype679@gmail.com)
+      // 2. From CC: of SENT emails — monitoring addresses (e.g. hiphype60@gmail.com)
       if (metaFrom === primaryEmail && metaCcRaw) {
         for (const ccAddr of parseEmails(metaCcRaw)) {
           if (ccAddr && ccAddr !== primaryEmail) {
@@ -439,8 +441,10 @@ router.post("/accounts/:id/sync", requireAuth, async (req, res, next) => {
         const aToRaw = getAHeader("To");
         const aCcRaw = getAHeader("Cc");
 
-        if (!aMsg.sent) {
-          // Incoming: To: header reveals the outreach alias the client replied to
+        if (!aMsg.sent && aFromEmail !== primaryEmail) {
+          // Incoming client reply: To: header reveals the outreach alias Ashish used.
+          // Guard aFromEmail !== primaryEmail — inbox query also returns Ashish's own
+          // sent replies in threads; their To: is the client (wrong alias target).
           for (const toAddr of parseEmails(aToRaw)) {
             if (toAddr && toAddr !== primaryEmail) {
               pool.query(
