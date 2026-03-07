@@ -410,6 +410,66 @@ router.post("/accounts/:id/sync", requireAuth, async (req, res, next) => {
       synced++;
     }
 
+    // ── Alias backfill: runs on ALL messages (not just unread) ───────────────
+    // The main loop only processes unread emails, so alias detection would miss
+    // everything if all emails are already read. This pass fetches lightweight
+    // metadata from the last 100 Upwork emails to backfill any missed aliases.
+    try {
+      const [inboxListRes, sentListRes] = await Promise.all([
+        gmail.users.messages.list({ userId: "me", q: "subject:Upwork -in:sent", maxResults: 100 }),
+        gmail.users.messages.list({ userId: "me", q: "subject:Upwork in:sent", maxResults: 50 }),
+      ]);
+
+      const aliasMessages = [
+        ...((inboxListRes.data.messages || []).map((m) => ({ ...m, sent: false }))),
+        ...((sentListRes.data.messages || []).map((m) => ({ ...m, sent: true }))),
+      ];
+
+      for (const aMsg of aliasMessages) {
+        const aMeta = await gmail.users.messages.get({
+          userId: "me",
+          id: aMsg.id,
+          format: "metadata",
+          metadataHeaders: ["To", "Cc", "From"],
+        });
+        const aHeaders = aMeta.data.payload?.headers || [];
+        const getAHeader = (name) => aHeaders.find((h) => h.name.toLowerCase() === name.toLowerCase())?.value || "";
+
+        const aFromEmail = parseFirstEmail(getAHeader("From")) || "";
+        const aToRaw = getAHeader("To");
+        const aCcRaw = getAHeader("Cc");
+
+        if (!aMsg.sent) {
+          // Incoming: To: header reveals the outreach alias the client replied to
+          for (const toAddr of parseEmails(aToRaw)) {
+            if (toAddr && toAddr !== primaryEmail) {
+              pool.query(
+                `INSERT INTO user_email_aliases (user_id, alias_email, label)
+                 VALUES ($1, $2, 'auto-detected')
+                 ON CONFLICT (user_id, alias_email) DO NOTHING`,
+                [req.user.id, toAddr]
+              ).catch((e) => console.error("alias backfill (To) failed:", e.message));
+            }
+          }
+        } else if (aFromEmail === primaryEmail && aCcRaw) {
+          // Sent by primary: CC: header reveals monitoring addresses
+          for (const ccAddr of parseEmails(aCcRaw)) {
+            if (ccAddr && ccAddr !== primaryEmail) {
+              pool.query(
+                `INSERT INTO user_email_aliases (user_id, alias_email, label)
+                 VALUES ($1, $2, 'monitoring')
+                 ON CONFLICT (user_id, alias_email) DO NOTHING`,
+                [req.user.id, ccAddr]
+              ).catch((e) => console.error("alias backfill (sent CC) failed:", e.message));
+            }
+          }
+        }
+      }
+    } catch (aliasErr) {
+      // Non-fatal: alias backfill failure should not break the sync response
+      console.error("Alias backfill failed:", aliasErr.message);
+    }
+
     await pool.query(
       "UPDATE email_accounts SET last_sync_at = NOW(), status = 'connected', error_message = NULL, updated_at = NOW() WHERE id = $1",
       [account.id]
