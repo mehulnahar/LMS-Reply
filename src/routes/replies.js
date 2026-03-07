@@ -1661,6 +1661,16 @@ Conversation Stage for Send Message: ${mockupStage}
 Generate the SEND MESSAGE using the "${mockupStage}" template from the prompt.
 </mockup_context>`;
 
+    prompt += `\n\n<favicon_requirement>
+MANDATORY: Your Lovable prompt MUST include a FAVICON section with:
+1. A custom SVG favicon design that matches the brand/project identity
+2. Use the primary brand color as the dominant favicon color
+3. Design a simple, recognizable icon (stylized letter from brand name, or relevant product icon)
+4. Include the exact implementation: <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'>...</svg>" />
+5. NEVER leave the default Lovable/Vite favicon. Every mockup MUST have a unique, branded favicon.
+If you skip the favicon or use a generic one, the mockup is INCOMPLETE.
+</favicon_requirement>`;
+
     // Inject brand colors from link analysis if available (MOCKUP-02)
     if (Array.isArray(linkAnalysis) && linkAnalysis.length > 0) {
       const siteWithColors = linkAnalysis.find((r) => r.colors && r.colors.length > 0);

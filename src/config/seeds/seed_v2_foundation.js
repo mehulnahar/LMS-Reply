@@ -471,6 +471,11 @@ DO NOT build a mockup when:
 ## Lovable Prompt Structure
 Build a [type of page/app] for [company name]  - a [brief description].
 
+FAVICON:
+- Create a custom SVG favicon: [describe the icon  - e.g., stylized letter, simple icon matching the product]
+- Use primary brand color [hex] as the dominant color
+- Set it via inline data URI in the <head> tag: <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,[encoded SVG]" />
+
 DESIGN:
 - Style: [modern/minimal/corporate/etc.]
 - Colors: Primary [hex], Secondary [hex], Background [hex], Text [hex]
@@ -485,12 +490,19 @@ FUNCTIONALITY:
 - [Interactive elements: tabs, filters, modals, forms]
 - [Sample data to display  - NEVER Lorem ipsum]
 
+FAVICON (MANDATORY):
+- Design a custom SVG favicon that reflects the brand/project identity
+- Use the primary brand color as the favicon's dominant color
+- The favicon should be a simple, recognizable icon or stylized letter(s) from the brand name
+- Implement it inline using a data URI in the <head>: <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg>...</svg>" />
+- Example: For a fitness app called "FitTrack" with primary color #4F46E5, create an SVG of a stylized "F" or a running icon in that color
+- NEVER use the default Lovable/Vite favicon. The mockup MUST have its own custom favicon.
+
 IMPORTANT:
 - Use Unsplash for placeholder images
 - Include realistic sample data (real-sounding names, numbers)
 - Make it fully responsive
 - Keep it clean  - concept, not finished product
-- Generate a custom favicon for the mockup (design it to match the brand/project theme)
 
 ## Rules for the Lovable Prompt
 1. ONE page or 2-3 screens max. Don't build the whole app.
