@@ -239,6 +239,80 @@ function detectScopeFraming(emailText) {
 }
 
 // ---------------------------------------------------------------------------
+// detectDueDiligence(emailText) — DUE_DILIGENCE detection
+// ---------------------------------------------------------------------------
+
+/**
+ * PROOF_OF_WORK_PATTERNS — client is asking to see past portfolio evidence.
+ *
+ * Scanned against EMAIL TEXT (what the client wrote).
+ * When matched, the reply should redirect to the mockup instead of real portfolio.
+ */
+const PROOF_OF_WORK_PATTERNS = [
+  /\bscreenshot\b/i,
+  /\bvideo walkthrough\b/i,
+  /\bpersonally built\b/i,
+  /\bactually (?:wired|built|created|implemented)\b/i,
+  /\bspecific role\b/i,
+  /\bpast (?:work|project|example|build)\b/i,
+  /\bshow me\b/i,
+  /\bsend me (?:a|an)\b.*(?:screenshot|video|example|sample)\b/i,
+  /\byou (?:personally|yourself)\b/i,
+  /\bnot (?:designed|designed,)\s*but\b/i,
+];
+
+/**
+ * detectProofOfWorkRequest(emailText) — boolean
+ *
+ * Returns true when the client is asking for portfolio evidence, screenshots,
+ * video walkthroughs, or proof that you personally built something.
+ *
+ * @param {string} emailText - The client's email body text
+ * @returns {boolean}
+ */
+function detectProofOfWorkRequest(emailText) {
+  if (!emailText) return false;
+  return PROOF_OF_WORK_PATTERNS.some((p) => p.test(emailText));
+}
+
+/**
+ * countNumberedQuestions(text) — counts lines starting with "1.", "2.", "3." etc.
+ *
+ * @param {string} text
+ * @returns {number}
+ */
+function countNumberedQuestions(text) {
+  const matches = text.match(/^\s*\d+\.\s/gm) || [];
+  return matches.length;
+}
+
+/**
+ * detectDueDiligence(emailText) — boolean
+ *
+ * Returns true when the client is doing structured vendor vetting:
+ * - 3+ numbered/structured questions, OR
+ * - Any proof-of-work request (screenshot, video, past build, etc.)
+ *
+ * When true, the reply pipeline should switch to DUE_DILIGENCE mode:
+ * answer 2 questions with real substance, redirect proof-of-work to mockup,
+ * bridge the rest to a call.
+ *
+ * @param {string} emailText - The client's email body text
+ * @returns {boolean}
+ */
+function detectDueDiligence(emailText) {
+  if (!emailText) return false;
+
+  // 3+ numbered questions = structured vetting
+  if (countNumberedQuestions(emailText) >= 3) return true;
+
+  // Proof-of-work request = credibility challenge
+  if (detectProofOfWorkRequest(emailText)) return true;
+
+  return false;
+}
+
+// ---------------------------------------------------------------------------
 // Exports
 // ---------------------------------------------------------------------------
 
@@ -246,4 +320,6 @@ module.exports = {
   detectObjection,
   detectAgencySensitivity,
   detectScopeFraming,
+  detectDueDiligence,
+  detectProofOfWorkRequest,
 };

@@ -17,7 +17,7 @@ const {
   analyzeAllUrls,
 } = require("../utils/prefetch");
 const { proposalGate, bannedPhraseScanner, nextStepScanner } = require("../utils/validateReply");
-const { detectObjection, detectAgencySensitivity, detectScopeFraming } = require("../utils/detectSignals");
+const { detectObjection, detectAgencySensitivity, detectScopeFraming, detectDueDiligence, detectProofOfWorkRequest } = require("../utils/detectSignals");
 const {
   classifyThreadStage,
   measureClientMessageLength,
@@ -230,6 +230,10 @@ router.post("/generate", requireAuth, async (req, res, next) => {
 
     const currentFollowUpCount = job ? (job.follow_up_count || 0) : 0;
 
+    // DUE_DILIGENCE detection — runs on email text (client's message)
+    const isDueDiligence = detectDueDiligence(emailText);
+    const hasProofOfWorkRequest = isDueDiligence ? detectProofOfWorkRequest(emailText) : false;
+
     // Fire-and-forget DB update — never blocks response
     if (job) {
       pool.query(
@@ -260,7 +264,7 @@ router.post("/generate", requireAuth, async (req, res, next) => {
       }
     }
 
-    const objectionContext = { objectionType, agencySensitive, scopeFraming, counterMove };
+    const objectionContext = { objectionType, agencySensitive, scopeFraming, counterMove, isDueDiligence, hasProofOfWorkRequest };
 
     // ──────────────────────────────────────────────────────────
     // Step 2: Prompt routing
@@ -1252,6 +1256,50 @@ async function getPromptTemplate(promptType, userId, dbPool) {
  * @param {string} promptType - Current prompt type (for FOLLOW_UP_V2 angle injection)
  * @returns {string}
  */
+/**
+ * getWordLimitOverride — returns the word limit ceiling for a given generation context.
+ *
+ * Overrides baked-in template limits to allow richer, more impactful replies.
+ * Strategy-driven stages (CALL_BOOKING, CLOSING, STALLED, FU2) stay short by design.
+ * DUE_DILIGENCE and LOVABLE_MOCKUP_V1 handle their own limits — do not call for those.
+ *
+ * @param {string} promptType
+ * @param {string} threadStage
+ * @param {string} objectionType
+ * @param {Object|null} job
+ * @returns {number|null} word limit, or null if no override needed
+ */
+function getWordLimitOverride(promptType, threadStage, objectionType, job) {
+  if (promptType === 'EMAIL_REPLY_V2') {
+    // Single technical question — slightly tighter but still detailed
+    if (objectionType === 'TECHNICAL_Q') return 150;
+    // All other first replies (NEUTRAL, POSITIVE) — room to show real value
+    return 275;
+  }
+
+  if (promptType === 'THREAD_CONTINUATION_V1') {
+    const stage = threadStage || 'DISCOVERY';
+    const limits = {
+      DISCOVERY:    275, // answering questions, building rapport — needs room
+      POST_CALL:    250, // recap is structured but needs detail
+      NEGOTIATION:  250, // price/scope discussion needs nuance
+      CALL_BOOKING:  30, // just confirm the time, nothing else
+      CLOSING:       50, // close fast — longer = weaker
+      STALLED:       60, // light touch is the strategy — do not bloat
+    };
+    return limits[stage] || 275;
+  }
+
+  if (promptType === 'FOLLOW_UP_V2') {
+    // FU1 (Day 3, follow_up_count=0) — more value, slightly longer
+    // FU2 (Day 7, follow_up_count=1) — final ping, keep light
+    const followUpCount = (job && job.follow_up_count) || 0;
+    return followUpCount === 0 ? 150 : 70;
+  }
+
+  return null; // No override for other types
+}
+
 function buildPromptWithContext(templateContent, email, job, linkAnalysis, tone, promptType, objectionContext = {}, threadContext = {}, timezoneCTA = '11 AM your time', pricingDetection = null) {
   let prompt = templateContent;
 
@@ -1303,25 +1351,56 @@ Client: ${clientName}`;
     }
   }
 
-  // OBJECTION-02: Counter-move template injection (soft instruction — Claude follows as guidance)
-  if (objectionContext.counterMove) {
-    const cm = objectionContext.counterMove;
-    prompt += `\n\n<counter_move>
+  // DUE_DILIGENCE: Structured vetting — overrides TECHNICAL_Q counter-move when active
+  if (objectionContext.isDueDiligence) {
+    const proofRedirect = objectionContext.hasProofOfWorkRequest
+      ? `
+PROOF-OF-WORK REQUEST DETECTED: The client asked for screenshots, videos, or evidence of past builds.
+Do NOT try to provide real portfolio evidence. Instead, redirect to the mockup:
+"Rather than a screenshot from a different client's project, I put together a quick concept for YOUR setup specifically — [link]. Easier to react to than past screenshots."
+This redirect counts as your answer to the proof-of-work question.`
+      : '';
+
+    prompt += `\n\n<due_diligence>
+The client is doing STRUCTURED VENDOR VETTING — they sent 3+ qualification questions.
+This is NOT a casual technical question. They are evaluating multiple vendors seriously.
+
+WORD LIMIT: 250–300 words total. Do not exceed 300 words.
+
+MANDATORY STRUCTURE (follow in order):
+1. Answer the first technical question directly with real substance — 2-3 sentences, specific detail, no vagueness.
+2. ${proofRedirect || 'Answer the next most important question with real technical specificity (tools, approach, concrete detail).'}
+3. Answer one more question briefly (1-2 sentences) OR use remaining questions as the natural bridge to a call.
+4. ONE call-to-action at the end ONLY — tied to "walk through the remaining questions live" or "go through the full architecture together."
+
+CRITICAL RULES:
+- Do NOT ignore any question. Acknowledge all questions exist even if some are deferred to the call.
+- Do NOT repeat the call ask mid-reply. ONE CTA, at the very end.
+- Do NOT deflect ALL questions to the call — that looks evasive. Answer at least 2 with substance.
+- Do NOT ask a curiosity question back — this is not a single-question reply. Save questions for the call.
+- Give real technical specifics. Generic answers will lose this client.
+</due_diligence>`;
+  } else {
+    // OBJECTION-02: Counter-move template injection (soft instruction — Claude follows as guidance)
+    if (objectionContext.counterMove) {
+      const cm = objectionContext.counterMove;
+      prompt += `\n\n<counter_move>
 Objection type detected: ${objectionContext.objectionType}
 Counter-move strategy: ${cm.counter_move_template}
 CRITICAL: Keep your reply under ${cm.max_words} words. Follow the counter-move strategy above.
 </counter_move>`;
-  }
+    }
 
-  // OBJECTION-03: Technical Q structure enforcement
-  if (objectionContext.objectionType === 'TECHNICAL_Q') {
-    prompt += `\n\n<technical_q_pattern>
+    // OBJECTION-03: Technical Q structure enforcement
+    if (objectionContext.objectionType === 'TECHNICAL_Q') {
+      prompt += `\n\n<technical_q_pattern>
 MANDATORY STRUCTURE for this technical question reply:
 1. Answer their question directly in 1-2 sentences
 2. Ask exactly ONE curiosity question about their specific use case (not a generic question)
 3. End with a call-to-action (suggest a call)
 DO NOT ask more than one question. One question only.
 </technical_q_pattern>`;
+    }
   }
 
   // OBJECTION-04: Agency disclosure injection
@@ -1477,6 +1556,18 @@ ${siteWithColors.colors.join(', ')}
 Use these as the primary color palette in the DESIGN section of the Lovable prompt.
 </brand_colors>`;
       }
+    }
+  }
+
+  // WORD LIMIT OVERRIDE — supersedes baked-in template limits for richer replies
+  // DUE_DILIGENCE handles its own limit inline (250–300). Skip for mockups + call-booking/closing/stalled.
+  if (!objectionContext.isDueDiligence && promptType !== 'LOVABLE_MOCKUP_V1') {
+    const wordLimit = getWordLimitOverride(promptType, threadContext.threadStage, objectionContext.objectionType, job);
+    if (wordLimit) {
+      prompt += `\n\n<word_limit_override>
+WORD LIMIT: ${wordLimit} words maximum. This supersedes any other word limit in these instructions.
+Do NOT pad to hit the limit — be concise and human. The limit is a ceiling, not a target.
+</word_limit_override>`;
     }
   }
 
