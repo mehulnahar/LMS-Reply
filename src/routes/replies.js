@@ -1633,9 +1633,12 @@ Use these as the primary color palette in the DESIGN section of the Lovable prom
   if (!objectionContext.isDueDiligence && promptType !== 'LOVABLE_MOCKUP_V1') {
     const wordLimit = getWordLimitOverride(promptType, threadContext.threadStage, objectionContext.objectionType, job);
     if (wordLimit) {
+      const wordFloor = Math.max(Math.round(wordLimit * 0.85), 20);
       prompt += `\n\n<word_limit_override>
-WORD LIMIT: ${wordLimit} words maximum. This supersedes any other word limit in these instructions.
-Do NOT pad to hit the limit — be concise and human. The limit is a ceiling, not a target.
+WORD COUNT TARGET: ${wordFloor}–${wordLimit} words. This supersedes any other word limit in these instructions.
+Your reply MUST be at least ${wordFloor} words. Aim for the middle of the range (${Math.round((wordFloor + wordLimit) / 2)} words).
+Use the space to deliver real value — project-specific insights, relevant experience, strategic observations.
+Do NOT write a thin 3-sentence reply. If your draft is under ${wordFloor} words, add more substance.
 </word_limit_override>`;
     }
   }
