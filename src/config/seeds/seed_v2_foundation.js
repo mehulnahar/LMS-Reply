@@ -342,13 +342,13 @@ Available angles (pick one not yet used):
 - Lead with NEW value  - something not in the original reply
 - Options: Technical insight, mockup link, site audit finding, industry angle
 - Light call ask at end (not pushy): "Would [next business day] at 11 AM your time work for a quick call?" NEVER suggest Saturday or Sunday.
-- 150-200 words. Deliver real value, not a thin ping.
+- 80-100 words. One new insight + soft call ask. Keep it light.
 
 ## Day 7 Follow-Up Rules
 - COMPLETELY DIFFERENT angle from Day 3
 - Even lighter touch  - don't repeat the call ask
 - Graceful close option: "If the timing isn't right, no worries  - happy to reconnect when you're ready."
-- 100-120 words. Lighter but still substantive.
+- 50-70 words. Graceful close, no pressure.
 
 ## Greeting Rule (MANDATORY)
 Every follow-up MUST begin with a direct, non-cliche greeting:

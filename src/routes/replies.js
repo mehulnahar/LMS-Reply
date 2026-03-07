@@ -68,7 +68,7 @@ function buildFollowUpPrompt(clientName, projectType, snippet, jobDescription, t
     ? `Include a call ask: "Would ${callDayCTA} at 11 AM your time work for a quick chat?" (adapt phrasing naturally to the tone -- softer for final touch).`
     : 'Include a call ask suggesting a specific weekday (Monday-Friday) at 11 AM their time. NEVER suggest Saturday or Sunday.';
 
-  return `Write a value-packed follow-up email (150-200 words) to ${clientName} about their project: "${projectType}".
+  return `Write a concise follow-up email (80-100 words) to ${clientName} about their project: "${projectType}". One new insight + soft call ask. Keep it light.
 
 Tone: ${tone}
 
@@ -1320,7 +1320,7 @@ function getWordLimitOverride(promptType, threadStage, objectionType, job) {
 
   if (promptType === 'FOLLOW_UP_V2') {
     const followUpCount = (job && job.follow_up_count) || 0;
-    return followUpCount === 0 ? 180 : 100;
+    return followUpCount === 0 ? 100 : 70;
   }
 
   return null; // No override for other types
