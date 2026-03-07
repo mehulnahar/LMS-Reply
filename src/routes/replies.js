@@ -79,13 +79,14 @@ ${jobDescription || 'Not available'}
 "${snippet}"
 
 ## Rules (MANDATORY):
-1. VALUE: Read the job description above. Include ONE specific domain or technical point that shows you understand their project. Weave it naturally -- never say "value" or "insight" explicitly.
+1. VALUE FIRST: Read the job description above. Lead with ONE specific, non-obvious observation about their project - a risk they may not have considered, a technical insight, a quick win, or a relevant trend in their industry. This is NOT optional. Every follow-up must teach them something or give them a reason to reply.
 2. CALL ASK: ${callAsk}
 3. NO ASSUMPTIONS: Only reference what the client explicitly stated. Don't assume scope, timeline, or tech choices.
-4. CLIENT-FIRST: Frame from their perspective -- their problem, their goals. Not "we can do X" but "your [project] could benefit from..."
+4. CLIENT-FIRST: Frame from their perspective - their problem, their goals. Not "we can do X" but "your [project] could benefit from..."
 5. HUMAN & POLITE: Write like a real person. Warm, courteous, professional. No corporate jargon, no sales language.
 6. No buzzwords, no "I hope this finds you", no "Just checking in", no subject line.
-7. Each follow-up must be unique and different from the others.
+7. Each follow-up must be unique - different angle, different insight. Never repeat what was said before.
+8. CONCISE BUT SUBSTANTIAL: Short does not mean empty. Every sentence must carry weight. If a sentence doesn't add value, cut it.
 
 Sign off as:
 Best,
