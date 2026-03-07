@@ -1294,30 +1294,26 @@ async function getPromptTemplate(promptType, userId, dbPool) {
  */
 function getWordLimitOverride(promptType, threadStage, objectionType, job) {
   if (promptType === 'EMAIL_REPLY_V2') {
-    // Technical questions — demonstrate expertise with a thorough answer
-    if (objectionType === 'TECHNICAL_Q') return 275;
-    // All other first replies (NEUTRAL, POSITIVE) — room to show real value
-    return 275;
+    // All first replies — 200-250 word range
+    return 250;
   }
 
   if (promptType === 'THREAD_CONTINUATION_V1') {
     const stage = threadStage || 'DISCOVERY';
     const limits = {
-      DISCOVERY:    275, // answering questions, building rapport — needs room
-      POST_CALL:    250, // recap is structured but needs detail
-      NEGOTIATION:  250, // price/scope discussion needs nuance
-      CALL_BOOKING:  30, // just confirm the time, nothing else
-      CLOSING:       50, // close fast — longer = weaker
-      STALLED:       60, // light touch is the strategy — do not bloat
+      DISCOVERY:    250, // answering questions, building rapport
+      POST_CALL:    225, // recap with action items
+      NEGOTIATION:  225, // price/scope discussion
+      CALL_BOOKING:  30, // just confirm the time
+      CLOSING:       50, // close fast
+      STALLED:       60, // light touch
     };
-    return limits[stage] || 275;
+    return limits[stage] || 250;
   }
 
   if (promptType === 'FOLLOW_UP_V2') {
-    // FU1 (Day 3, follow_up_count=0) — more value, slightly longer
-    // FU2 (Day 7, follow_up_count=1) — final ping, keep light
     const followUpCount = (job && job.follow_up_count) || 0;
-    return followUpCount === 0 ? 200 : 120;
+    return followUpCount === 0 ? 180 : 100;
   }
 
   return null; // No override for other types
