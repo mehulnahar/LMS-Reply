@@ -60,6 +60,7 @@ export const api = {
   addEmailAlias: (aliasEmail, label) =>
     request('/api/settings/email-aliases', { method: 'POST', body: JSON.stringify({ aliasEmail, label }) }),
   deleteEmailAlias: (id) => request(`/api/settings/email-aliases/${id}`, { method: 'DELETE' }),
+  detectAliases: () => request('/api/gmail/aliases/detect', { method: 'POST' }),
 
   // Jobs
   matchJob: (emailId) => request(`/api/jobs/match/${emailId}`, { method: "POST" }),

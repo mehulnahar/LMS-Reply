@@ -412,68 +412,6 @@ router.post("/accounts/:id/sync", requireAuth, async (req, res, next) => {
       synced++;
     }
 
-    // ── Alias backfill: runs on ALL messages (not just unread) ───────────────
-    // The main loop only processes unread emails, so alias detection would miss
-    // everything if all emails are already read. This pass fetches lightweight
-    // metadata from the last 100 Upwork emails to backfill any missed aliases.
-    try {
-      const [inboxListRes, sentListRes] = await Promise.all([
-        gmail.users.messages.list({ userId: "me", q: "subject:Upwork -in:sent", maxResults: 100 }),
-        gmail.users.messages.list({ userId: "me", q: "subject:Upwork in:sent", maxResults: 50 }),
-      ]);
-
-      const aliasMessages = [
-        ...((inboxListRes.data.messages || []).map((m) => ({ ...m, sent: false }))),
-        ...((sentListRes.data.messages || []).map((m) => ({ ...m, sent: true }))),
-      ];
-
-      for (const aMsg of aliasMessages) {
-        const aMeta = await gmail.users.messages.get({
-          userId: "me",
-          id: aMsg.id,
-          format: "metadata",
-          metadataHeaders: ["To", "Cc", "From"],
-        });
-        const aHeaders = aMeta.data.payload?.headers || [];
-        const getAHeader = (name) => aHeaders.find((h) => h.name.toLowerCase() === name.toLowerCase())?.value || "";
-
-        const aFromEmail = parseFirstEmail(getAHeader("From")) || "";
-        const aToRaw = getAHeader("To");
-        const aCcRaw = getAHeader("Cc");
-
-        if (!aMsg.sent && aFromEmail !== primaryEmail) {
-          // Incoming client reply: To: header reveals the outreach alias Ashish used.
-          // Guard aFromEmail !== primaryEmail — inbox query also returns Ashish's own
-          // sent replies in threads; their To: is the client (wrong alias target).
-          for (const toAddr of parseEmails(aToRaw)) {
-            if (toAddr && toAddr !== primaryEmail) {
-              pool.query(
-                `INSERT INTO user_email_aliases (user_id, alias_email, label)
-                 VALUES ($1, $2, 'auto-detected')
-                 ON CONFLICT (user_id, alias_email) DO NOTHING`,
-                [req.user.id, toAddr]
-              ).catch((e) => console.error("alias backfill (To) failed:", e.message));
-            }
-          }
-        } else if (aFromEmail === primaryEmail && aCcRaw) {
-          // Sent by primary: CC: header reveals monitoring addresses
-          for (const ccAddr of parseEmails(aCcRaw)) {
-            if (ccAddr && ccAddr !== primaryEmail) {
-              pool.query(
-                `INSERT INTO user_email_aliases (user_id, alias_email, label)
-                 VALUES ($1, $2, 'monitoring')
-                 ON CONFLICT (user_id, alias_email) DO NOTHING`,
-                [req.user.id, ccAddr]
-              ).catch((e) => console.error("alias backfill (sent CC) failed:", e.message));
-            }
-          }
-        }
-      }
-    } catch (aliasErr) {
-      // Non-fatal: alias backfill failure should not break the sync response
-      console.error("Alias backfill failed:", aliasErr.message);
-    }
-
     await pool.query(
       "UPDATE email_accounts SET last_sync_at = NOW(), status = 'connected', error_message = NULL, updated_at = NOW() WHERE id = $1",
       [account.id]
@@ -490,6 +428,129 @@ router.post("/accounts/:id/sync", requireAuth, async (req, res, next) => {
       [err.message, req.params.id]
     ).catch(() => {});
 
+    next(err);
+  }
+});
+
+// ============================================================
+// POST /api/gmail/aliases/detect — Scan Gmail for outreach aliases
+// Fetches 10 inbox + 10 sent messages per connected account (parallel),
+// extracts To:/CC: addresses, inserts into user_email_aliases, returns results.
+// ============================================================
+router.post("/aliases/detect", requireAuth, async (req, res, next) => {
+  try {
+    const { rows: accounts } = await pool.query(
+      "SELECT * FROM email_accounts WHERE user_id = $1 AND status = 'connected'",
+      [req.user.id]
+    );
+
+    if (accounts.length === 0) {
+      return res.json({ detected: 0, total: 0, aliases: [], message: "No connected Gmail accounts found." });
+    }
+
+    const redirectUri = `${req.protocol}://${req.get("host")}/api/gmail/callback`;
+    const detectedSet = new Set();
+    const accountErrors = [];
+
+    for (const account of accounts) {
+      try {
+        const oauth2 = await getOAuth2ClientForUser(req.user.id, redirectUri);
+        if (!oauth2) continue;
+
+        oauth2.setCredentials({
+          access_token: account.access_token,
+          refresh_token: account.refresh_token,
+          expiry_date: account.token_expiry ? new Date(account.token_expiry).getTime() : null,
+        });
+
+        const gmail = google.gmail({ version: "v1", auth: oauth2 });
+        const primaryEmail = account.email.toLowerCase();
+
+        const localParseEmails = (raw) => {
+          if (!raw) return [];
+          return raw.split(",").map((part) => {
+            const m = part.match(/<([^>]+)>/);
+            return (m ? m[1] : part).trim().toLowerCase();
+          }).filter(Boolean);
+        };
+        const localParseFirst = (raw) => {
+          if (!raw) return null;
+          const part = raw.split(",")[0].trim();
+          const m = part.match(/<([^>]+)>/);
+          return (m ? m[1] : part).trim().toLowerCase() || null;
+        };
+
+        // Fetch 10 inbox + 10 sent messages in parallel
+        const [inboxRes, sentRes] = await Promise.all([
+          gmail.users.messages.list({ userId: "me", q: "subject:Upwork -in:sent", maxResults: 10 }),
+          gmail.users.messages.list({ userId: "me", q: "subject:Upwork in:sent", maxResults: 10 }),
+        ]);
+
+        const msgList = [
+          ...((inboxRes.data.messages || []).map((m) => ({ id: m.id, sent: false }))),
+          ...((sentRes.data.messages || []).map((m) => ({ id: m.id, sent: true }))),
+        ];
+
+        // Fetch all metadata in parallel
+        const metaResults = await Promise.all(
+          msgList.map(({ id, sent }) =>
+            gmail.users.messages.get({ userId: "me", id, format: "metadata", metadataHeaders: ["To", "Cc", "From"] })
+              .then((r) => ({ data: r.data, sent }))
+              .catch(() => null)
+          )
+        );
+
+        const toInsert = [];
+        for (const result of metaResults) {
+          if (!result) continue;
+          const headers = result.data.payload?.headers || [];
+          const getH = (name) => headers.find((h) => h.name.toLowerCase() === name.toLowerCase())?.value || "";
+          const fromEmail = localParseFirst(getH("From")) || "";
+          const toRaw = getH("To");
+          const ccRaw = getH("Cc");
+
+          if (!result.sent && fromEmail !== primaryEmail) {
+            // Client reply — To: reveals the outreach alias used
+            for (const addr of localParseEmails(toRaw)) {
+              if (addr && addr !== primaryEmail) toInsert.push({ email: addr, label: "auto-detected" });
+            }
+          } else if (fromEmail === primaryEmail && ccRaw) {
+            // Ashish's sent email — CC reveals monitoring/outreach aliases
+            for (const addr of localParseEmails(ccRaw)) {
+              if (addr && addr !== primaryEmail) toInsert.push({ email: addr, label: "monitoring" });
+            }
+          }
+        }
+
+        // Awaited inserts — we actually confirm they're saved
+        for (const { email, label } of toInsert) {
+          if (detectedSet.has(email)) continue;
+          const result = await pool.query(
+            `INSERT INTO user_email_aliases (user_id, alias_email, label)
+             VALUES ($1, $2, $3)
+             ON CONFLICT (user_id, alias_email) DO NOTHING`,
+            [req.user.id, email, label]
+          );
+          if (result.rowCount > 0) detectedSet.add(email);
+        }
+      } catch (accountErr) {
+        accountErrors.push({ account: account.email, error: accountErr.message });
+      }
+    }
+
+    // Return full alias list so UI can refresh in one shot
+    const { rows: aliases } = await pool.query(
+      "SELECT id, alias_email, label, created_at FROM user_email_aliases WHERE user_id = $1 ORDER BY created_at",
+      [req.user.id]
+    );
+
+    res.json({
+      detected: detectedSet.size,
+      total: aliases.length,
+      aliases,
+      errors: accountErrors.length > 0 ? accountErrors : undefined,
+    });
+  } catch (err) {
     next(err);
   }
 });

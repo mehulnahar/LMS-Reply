@@ -84,6 +84,7 @@ export default function Settings() {
   const [aliasLabel, setAliasLabel] = useState('');
   const [aliasAdding, setAliasAdding] = useState(false);
   const [aliasRemoving, setAliasRemoving] = useState(null);
+  const [aliasDetecting, setAliasDetecting] = useState(false);
   const [loading, setLoading] = useState(true);
 
   // Edit state
@@ -431,6 +432,23 @@ export default function Settings() {
       showError(err.message || 'Failed to add alias');
     } finally {
       setAliasAdding(false);
+    }
+  };
+
+  const handleDetectAliases = async () => {
+    setAliasDetecting(true);
+    try {
+      const result = await api.detectAliases();
+      setAliases(result.aliases);
+      if (result.detected > 0) {
+        showSuccess(`Detected ${result.detected} new alias${result.detected === 1 ? '' : 'es'} (${result.total} total)`);
+      } else {
+        showSuccess(`No new aliases found. ${result.total} already saved.`);
+      }
+    } catch (err) {
+      showError(err.message || 'Alias detection failed');
+    } finally {
+      setAliasDetecting(false);
     }
   };
 
@@ -830,19 +848,32 @@ export default function Settings() {
             </p>
           </div>
           <div className="px-6 py-5 space-y-3">
-            {/* Auto-detect notice */}
-            <div className="flex items-start gap-2.5 px-3 py-2.5 rounded-lg bg-blue-50 dark:bg-blue-900/20 border border-blue-100 dark:border-blue-800/40">
-              <svg className="w-4 h-4 text-blue-500 flex-shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" d="M9.813 15.904L9 18.75l-.813-2.846a4.5 4.5 0 00-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 003.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 003.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 00-3.09 3.09z" />
-              </svg>
-              <p className="text-xs text-blue-700 dark:text-blue-300 leading-relaxed">
-                Aliases are discovered automatically each time you sync Gmail — no manual entry needed. Sync your accounts to populate this list.
+            {/* Detect button */}
+            <div className="flex items-center justify-between gap-3">
+              <p className="text-xs text-gray-500 dark:text-gray-400 leading-relaxed">
+                Scans your last 10 inbox + 10 sent Upwork emails to detect outreach aliases automatically.
               </p>
+              <button
+                onClick={handleDetectAliases}
+                disabled={aliasDetecting}
+                className="flex-shrink-0 flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white transition-colors disabled:opacity-50"
+              >
+                {aliasDetecting ? (
+                  <><Spinner /> Detecting…</>
+                ) : (
+                  <>
+                    <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z" />
+                    </svg>
+                    Detect from Gmail
+                  </>
+                )}
+              </button>
             </div>
 
             {/* Alias list */}
             {aliases.length === 0 ? (
-              <p className="text-xs text-gray-400 dark:text-gray-500 italic px-1">No aliases detected yet. Sync a Gmail account to auto-populate.</p>
+              <p className="text-xs text-gray-400 dark:text-gray-500 italic px-1">No aliases detected yet. Click &quot;Detect from Gmail&quot; to scan.</p>
             ) : (
               <ul className="space-y-1.5">
                 {aliases.map(alias => (
