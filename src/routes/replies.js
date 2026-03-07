@@ -419,11 +419,12 @@ router.post("/generate", requireAuth, async (req, res, next) => {
     }
 
     // ──────────────────────────────────────────────────────────
-    // Step 2.5: Kill Switch with 30-day re-engagement gate (OBJECTION-06)
+    // Step 2.5: Kill Switch — soft warning, never blocks generation (OBJECTION-06)
+    // Records dormant status + re-engagement strategy but always falls through
+    // so the user can regenerate anytime.
     // ──────────────────────────────────────────────────────────
+    let killSwitchWarning = null;
     if (promptType === 'FOLLOW_UP_V2' && currentFollowUpCount >= 2) {
-      // 30-day re-engagement gate: if kill_switch_at is set but more than 30 days old,
-      // allow generation and clear the kill switch to start a fresh sequence.
       const THIRTY_DAYS_MS = 30 * 24 * 60 * 60 * 1000;
       const killSwitchAt = job && job.kill_switch_at ? new Date(job.kill_switch_at) : null;
       const isReEngageable = killSwitchAt && (Date.now() - killSwitchAt.getTime()) > THIRTY_DAYS_MS;
@@ -434,16 +435,15 @@ router.post("/generate", requireAuth, async (req, res, next) => {
           'UPDATE jobs SET kill_switch_at = NULL, match_status = $1, follow_up_count = 0 WHERE id = $2',
           ['matched', job.id]
         ).catch(() => {});
-        // Fall through to normal generation (do NOT return here)
       } else {
-        // Kill switch fires: record timestamp (only if not already set)
+        // Record dormant status (only if not already set)
         if (job) {
           pool.query(
             'UPDATE jobs SET kill_switch_at = NOW(), match_status = $1 WHERE id = $2 AND kill_switch_at IS NULL',
             ['dormant', job.id]
           ).catch(() => {});
         }
-        // THREAD-06: Generate re_engagement_strategy via Haiku (fire-and-forget — never blocks kill switch response)
+        // Generate re_engagement_strategy via Haiku (fire-and-forget)
         if (job && job.id) {
           (async () => {
             try {
@@ -476,13 +476,10 @@ router.post("/generate", requireAuth, async (req, res, next) => {
             }
           })();
         }
-        return res.json({
-          killSwitch: true,
-          reason: 'Maximum follow-ups reached (2). Lead moved to DORMANT. Re-engage after 30 days.',
-          followUpCount: currentFollowUpCount,
-          promptType,
-        });
+        // Soft warning — included in response but does NOT block generation
+        killSwitchWarning = 'Follow-up limit reached (2). Lead marked DORMANT — but you can still generate.';
       }
+      // Always fall through to normal generation
     }
 
     // ──────────────────────────────────────────────────────────
@@ -1052,6 +1049,11 @@ router.post("/generate", requireAuth, async (req, res, next) => {
         ? followUpResult.value
         : [{ text: '', error: followUpResult.reason?.message }];
 
+    }
+
+    // Include soft kill switch warning if applicable (never blocks generation)
+    if (killSwitchWarning) {
+      responseBody.killSwitchWarning = killSwitchWarning;
     }
 
     res.json(responseBody);

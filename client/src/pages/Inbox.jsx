@@ -440,13 +440,14 @@ export default function Inbox() {
         source,
       });
 
-      // Handle Kill Switch (OBJECTION-06) — follow-up limit reached, lead is DORMANT
-      if (data.killSwitch) {
+      // Handle soft kill switch warning (OBJECTION-06) — show info banner but don't block
+      if (data.killSwitchWarning) {
         setKillSwitch(true);
-        setKillSwitchReason(data.reason || 'Follow-up limit reached. Lead moved to DORMANT.');
-        setReplyText('');
-        setActiveReplyId(null);
-        return;
+        setKillSwitchReason(data.killSwitchWarning);
+        // Don't return — fall through to display the generated reply
+      } else {
+        setKillSwitch(false);
+        setKillSwitchReason('');
       }
 
       // Handle STOP suppression
@@ -1651,18 +1652,18 @@ export default function Inbox() {
                     </div>
                   </div>
                   <div className="p-5">
-                    {killSwitch ? (
-                      <div className="flex items-start gap-3 p-4 rounded-lg bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800">
-                        <svg className="w-4 h-4 text-red-500 flex-shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
-                          <path strokeLinecap="round" strokeLinejoin="round" d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636" />
+                    {killSwitch && (
+                      <div className="flex items-start gap-3 p-3 mb-3 rounded-lg bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800">
+                        <svg className="w-4 h-4 text-amber-500 flex-shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z" />
                         </svg>
                         <div>
-                          <p className="text-sm font-medium text-red-800 dark:text-red-300">Kill Switch — Follow-Up Limit Reached</p>
-                          <p className="text-xs text-red-700 dark:text-red-400 mt-0.5">{killSwitchReason}</p>
-                          <p className="text-xs text-red-600 dark:text-red-500 mt-1.5">This lead is now DORMANT. Re-engage manually after 30 days if appropriate.</p>
+                          <p className="text-xs font-medium text-amber-800 dark:text-amber-300">Follow-Up Limit Reached</p>
+                          <p className="text-xs text-amber-700 dark:text-amber-400 mt-0.5">{killSwitchReason}</p>
                         </div>
                       </div>
-                    ) : suppressed ? (
+                    )}
+                    {suppressed ? (
                       <div className="flex items-start gap-3 p-4 rounded-lg bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800">
                         <svg className="w-4 h-4 text-amber-500 flex-shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
                           <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z" />
