@@ -968,27 +968,35 @@ router.post("/generate", requireAuth, async (req, res, next) => {
           return { applicable: true, alreadySent: false, prompt: parsed.lovablePrompt, analysis: parsed.mockupAnalysis };
         })(),
 
-        // ── Follow-up block ──────────────────────────────────
+        // ── Follow-up block (3 follow-ups) ──────────────────
         (async () => {
           const clientName = job
             ? ([job.client_first_name, job.client_last_name].filter(Boolean).join(' ') || 'them')
             : 'them';
           const projectType = job?.job_heading || 'their project';
-          const suggestedDate = getNextBusinessDay(3);
-          const dateLabel = new Date(suggestedDate + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' });
           const snippet = (email.body_text || email.snippet || '').slice(0, 300);
-          const fuMsg = `Write a short follow-up email (max 60 words) to ${clientName} about their project: "${projectType}". Context from their email: "${snippet}". Rules: natural, human, no buzzwords, no "I hope this finds you", no subject line. Sign off as:\nBest,\nAshish\nHipHype Tech`;
-          const fuText = await callClaudeHelper(null, fuMsg, anthropicKey, 'claude-sonnet-4-6', 256);
-          return { text: fuText.trim(), suggestedDate, label: `Send ${dateLabel}` };
+          const schedules = [
+            { days: 3, tone: 'gentle check-in' },
+            { days: 5, tone: 'value-add nudge — mention a relevant idea or insight' },
+            { days: 7, tone: 'final touch — polite last ping before closing the loop' },
+          ];
+          const results = await Promise.allSettled(schedules.map(async (s) => {
+            const date = getNextBusinessDay(s.days);
+            const label = new Date(date + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' });
+            const msg = `Write a short follow-up email (max 60 words) to ${clientName} about their project: "${projectType}". Tone: ${s.tone}. Context from their email: "${snippet}". Rules: natural, human, no buzzwords, no "I hope this finds you", no subject line, each follow-up must be unique and different from the others. Sign off as:\nBest,\nAshish\nHipHype Tech`;
+            const text = await callClaudeHelper(null, msg, anthropicKey, 'claude-sonnet-4-6', 256);
+            return { text: text.trim(), suggestedDate: date, label: `Send ${label}` };
+          }));
+          return results.map((r) => r.status === 'fulfilled' ? r.value : { text: '', error: r.reason?.message });
         })(),
       ]);
 
       responseBody.lovable = lovableResult.status === 'fulfilled'
         ? lovableResult.value
         : { applicable: false, error: lovableResult.reason?.message };
-      responseBody.followUp = followUpResult.status === 'fulfilled'
+      responseBody.followUps = followUpResult.status === 'fulfilled'
         ? followUpResult.value
-        : { text: '', error: followUpResult.reason?.message };
+        : [{ text: '', error: followUpResult.reason?.message }];
     }
 
     res.json(responseBody);
@@ -1062,12 +1070,20 @@ router.post('/regenerate-followup', requireAuth, async (req, res, next) => {
       ? ([job.client_first_name, job.client_last_name].filter(Boolean).join(' ') || 'them')
       : 'them';
     const projectType = job?.job_heading || 'their project';
-    const suggestedDate = getNextBusinessDay(3);
-    const dateLabel = new Date(suggestedDate + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' });
     const snippet = (email.body_text || email.snippet || '').slice(0, 300);
-    const fuMsg = `Write a short follow-up email (max 60 words) to ${clientName} about their project: "${projectType}". Context from their email: "${snippet}". Rules: natural, human, no buzzwords, no "I hope this finds you", no subject line. Sign off as:\nBest,\nAshish\nHipHype Tech`;
-    const fuText = await callClaudeHelper(null, fuMsg, anthropicKey, 'claude-sonnet-4-6', 256);
-    res.json({ text: fuText.trim(), suggestedDate, label: `Send ${dateLabel}` });
+    const schedules = [
+      { days: 3, tone: 'gentle check-in' },
+      { days: 5, tone: 'value-add nudge — mention a relevant idea or insight' },
+      { days: 7, tone: 'final touch — polite last ping before closing the loop' },
+    ];
+    const results = await Promise.allSettled(schedules.map(async (s) => {
+      const date = getNextBusinessDay(s.days);
+      const label = new Date(date + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' });
+      const msg = `Write a short follow-up email (max 60 words) to ${clientName} about their project: "${projectType}". Tone: ${s.tone}. Context from their email: "${snippet}". Rules: natural, human, no buzzwords, no "I hope this finds you", no subject line, each follow-up must be unique and different from the others. Sign off as:\nBest,\nAshish\nHipHype Tech`;
+      const text = await callClaudeHelper(null, msg, anthropicKey, 'claude-sonnet-4-6', 256);
+      return { text: text.trim(), suggestedDate: date, label: `Send ${label}` };
+    }));
+    res.json(results.map((r) => r.status === 'fulfilled' ? r.value : { text: '', error: r.reason?.message }));
   } catch (err) { next(err); }
 });
 

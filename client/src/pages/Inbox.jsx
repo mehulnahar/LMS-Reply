@@ -209,11 +209,11 @@ export default function Inbox() {
   const [messageCopied, setMessageCopied] = useState(false);
   // 3-block state (Generate All)
   const [lovableBlock, setLovableBlock] = useState(null);   // { applicable, alreadySent, prompt, analysis, loading, error }
-  const [followUpBlock, setFollowUpBlock] = useState(null); // { text, suggestedDate, label, loading, error }
+  const [followUpBlocks, setFollowUpBlocks] = useState(null); // array of { text, suggestedDate, label, loading, error }
   const [generatingLovable, setGeneratingLovable] = useState(false);
   const [generatingFollowUp, setGeneratingFollowUp] = useState(false);
   const [lovablePromptCopied, setLovablePromptCopied] = useState(false);
-  const [followUpCopied, setFollowUpCopied] = useState(false);
+  const [followUpCopied, setFollowUpCopied] = useState([false, false, false]);
   // UIUP-01/05: Analysis panel + variant A/B selector state
   const [jobAnalysisBlock, setJobAnalysisBlock] = useState(null);
   const [linkAnalysisBlock, setLinkAnalysisBlock] = useState(null);
@@ -293,7 +293,7 @@ export default function Inbox() {
     setPromptCopied(false);
     setMessageCopied(false);
     setLovableBlock(null);
-    setFollowUpBlock(null);
+    setFollowUpBlocks(null);
     setReactivating(false);
     // UIUP-01/05: Clear analysis/variant state on email switch
     setJobAnalysisBlock(null);
@@ -480,7 +480,7 @@ export default function Inbox() {
     setReplyText('');
     setActiveReplyId(null);
     setLovableBlock({ loading: true });
-    setFollowUpBlock({ loading: true });
+    setFollowUpBlocks([{ loading: true }, { loading: true }, { loading: true }]);
     setMockupData(null);
     setMockupDeclined(null);
     setKillSwitch(false);
@@ -494,11 +494,11 @@ export default function Inbox() {
 
       if (data.killSwitch) {
         setKillSwitch(true); setKillSwitchReason(data.reason || 'Follow-up limit reached.');
-        setLovableBlock(null); setFollowUpBlock(null); return;
+        setLovableBlock(null); setFollowUpBlocks(null); return;
       }
       if (data.suppressed) {
         setSuppressed(true); setSuppressedReason(data.reason || 'Generation suppressed.');
-        setLovableBlock(null); setFollowUpBlock(null); return;
+        setLovableBlock(null); setFollowUpBlocks(null); return;
       }
 
       // Block 1 — Reply
@@ -522,12 +522,13 @@ export default function Inbox() {
       // Block 2 — Lovable
       setLovableBlock(data.lovable ? { ...data.lovable, loading: false } : { loading: false, applicable: false });
 
-      // Block 3 — Follow-up
-      setFollowUpBlock(data.followUp ? { ...data.followUp, loading: false } : { loading: false, text: '', error: 'Follow-up generation failed' });
+      // Block 3 — Follow-ups (array of 3)
+      setFollowUpBlocks(Array.isArray(data.followUps) ? data.followUps.map(fu => ({ ...fu, loading: false })) : [{ loading: false, text: '', error: 'Follow-up generation failed' }]);
+      setFollowUpCopied([false, false, false]);
 
     } catch (err) {
       setLovableBlock({ loading: false, applicable: false, error: err.message });
-      setFollowUpBlock({ loading: false, text: '', error: err.message });
+      setFollowUpBlocks([{ loading: false, text: '', error: err.message }]);
     } finally {
       setGenerating(false);
     }
@@ -550,12 +551,13 @@ export default function Inbox() {
   const handleRegenerateFollowUp = async () => {
     if (!detail?.email || generatingFollowUp) return;
     setGeneratingFollowUp(true);
-    setFollowUpBlock(prev => ({ ...prev, loading: true }));
+    setFollowUpBlocks(prev => (prev || []).map(fu => ({ ...fu, loading: true })));
     try {
       const data = await api.regenerateFollowUp(detail.email.id);
-      setFollowUpBlock({ ...data, loading: false });
+      setFollowUpBlocks(Array.isArray(data) ? data.map(fu => ({ ...fu, loading: false })) : [{ loading: false, text: '', error: 'Regeneration failed' }]);
+      setFollowUpCopied([false, false, false]);
     } catch (err) {
-      setFollowUpBlock(prev => ({ ...prev, loading: false, error: err.message }));
+      setFollowUpBlocks(prev => (prev || []).map(fu => ({ ...fu, loading: false, error: err.message })));
     } finally {
       setGeneratingFollowUp(false);
     }
@@ -1900,73 +1902,81 @@ export default function Inbox() {
                   </div>
                 )}
 
-                {/* Block 3 — Follow-Up */}
-                {followUpBlock !== null && (
+                {/* Block 3 — Follow-Ups (×3) */}
+                {followUpBlocks !== null && followUpBlocks.length > 0 && (
                   <div className="card">
                     <div className="px-5 py-3 border-b border-gray-200 dark:border-gray-800 flex items-center justify-between">
-                      <div className="flex items-center gap-2">
-                        <span className="text-xs font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400">Follow-Up</span>
-                        {followUpBlock?.label && !followUpBlock?.loading && (
-                          <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400 border border-blue-200 dark:border-blue-800">
-                            {followUpBlock.label}
-                          </span>
-                        )}
-                      </div>
-                      {!followUpBlock?.loading && (
+                      <span className="text-xs font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400">Follow-Ups</span>
+                      {!followUpBlocks.some(fu => fu.loading) && (
                         <button
                           onClick={handleRegenerateFollowUp}
                           disabled={generatingFollowUp}
                           className="text-xs text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300 disabled:opacity-50"
                         >
-                          {generatingFollowUp ? <Spinner /> : 'Regenerate'}
+                          {generatingFollowUp ? <Spinner /> : 'Regenerate All'}
                         </button>
                       )}
                     </div>
-                    <div className="p-5">
-                      {followUpBlock?.loading ? (
-                        <div className="flex items-center gap-2 text-xs text-gray-400">
-                          <Spinner /> Generating follow-up…
-                        </div>
-                      ) : followUpBlock?.error ? (
-                        <p className="text-xs text-red-500">{followUpBlock.error}</p>
-                      ) : followUpBlock?.text ? (
-                        <div className="space-y-3">
-                          <textarea
-                            value={followUpBlock.text}
-                            onChange={(e) => setFollowUpBlock(prev => ({ ...prev, text: e.target.value }))}
-                            rows={5}
-                            className="w-full px-4 py-3 text-sm rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 focus:outline-none focus:ring-2 focus:ring-brand-500 resize-y font-sans leading-relaxed"
-                          />
-                          <div className="flex items-center justify-between gap-2">
-                            <button
-                              onClick={async () => {
-                                try {
-                                  await navigator.clipboard.writeText(followUpBlock.text);
-                                  setFollowUpCopied(true);
-                                  setTimeout(() => setFollowUpCopied(false), 2000);
-                                } catch { /* silent */ }
-                              }}
-                              className={`inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md transition-all ${
-                                followUpCopied
-                                  ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400'
-                                  : 'bg-gray-900 text-white dark:bg-gray-100 dark:text-gray-900 hover:bg-gray-800 dark:hover:bg-gray-200'
-                              }`}
-                            >
-                              {followUpCopied ? 'Copied!' : 'Copy Follow-Up'}
-                            </button>
-                            {followUpBlock.suggestedDate && (
-                              <p className="text-xs text-gray-400 dark:text-gray-500">
-                                Suggested: send on{' '}
-                                <span className="font-medium text-gray-600 dark:text-gray-300">
-                                  {new Date(followUpBlock.suggestedDate + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' })}
-                                </span>
-                              </p>
+                    <div className="p-5 space-y-5">
+                      {followUpBlocks.map((fu, idx) => (
+                        <div key={idx} className={idx > 0 ? 'pt-5 border-t border-gray-100 dark:border-gray-800' : ''}>
+                          <div className="flex items-center gap-2 mb-2">
+                            <span className="text-xs font-medium text-gray-600 dark:text-gray-300">Follow-Up {idx + 1}</span>
+                            {fu.label && !fu.loading && (
+                              <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400 border border-blue-200 dark:border-blue-800">
+                                {fu.label}
+                              </span>
                             )}
                           </div>
+                          {fu.loading ? (
+                            <div className="flex items-center gap-2 text-xs text-gray-400">
+                              <Spinner /> Generating follow-up {idx + 1}…
+                            </div>
+                          ) : fu.error ? (
+                            <p className="text-xs text-red-500">{fu.error}</p>
+                          ) : fu.text ? (
+                            <div className="space-y-2">
+                              <textarea
+                                value={fu.text}
+                                onChange={(e) => {
+                                  const val = e.target.value;
+                                  setFollowUpBlocks(prev => prev.map((f, i) => i === idx ? { ...f, text: val } : f));
+                                }}
+                                rows={4}
+                                className="w-full px-4 py-3 text-sm rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 focus:outline-none focus:ring-2 focus:ring-brand-500 resize-y font-sans leading-relaxed"
+                              />
+                              <div className="flex items-center justify-between gap-2">
+                                <button
+                                  onClick={async () => {
+                                    try {
+                                      await navigator.clipboard.writeText(fu.text);
+                                      setFollowUpCopied(prev => prev.map((v, i) => i === idx ? true : v));
+                                      setTimeout(() => setFollowUpCopied(prev => prev.map((v, i) => i === idx ? false : v)), 2000);
+                                    } catch { /* silent */ }
+                                  }}
+                                  className={`inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md transition-all ${
+                                    followUpCopied[idx]
+                                      ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400'
+                                      : 'bg-gray-900 text-white dark:bg-gray-100 dark:text-gray-900 hover:bg-gray-800 dark:hover:bg-gray-200'
+                                  }`}
+                                >
+                                  {followUpCopied[idx] ? 'Copied!' : `Copy #${idx + 1}`}
+                                </button>
+                                {fu.suggestedDate && (
+                                  <p className="text-xs text-gray-400 dark:text-gray-500">
+                                    Send on{' '}
+                                    <span className="font-medium text-gray-600 dark:text-gray-300">
+                                      {new Date(fu.suggestedDate + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' })}
+                                    </span>
+                                  </p>
+                                )}
+                              </div>
+                            </div>
+                          ) : (
+                            <p className="text-xs text-gray-400 dark:text-gray-500">No follow-up generated.</p>
+                          )}
                         </div>
-                      ) : (
-                        <p className="text-xs text-gray-400 dark:text-gray-500">No follow-up generated.</p>
-                      )}
+                      ))}
                     </div>
                   </div>
                 )}
