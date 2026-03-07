@@ -374,9 +374,9 @@ describe('CTA-06: appendSignatureBlock', () => {
       expect(result).toContain('HipHype Tech');
     });
 
-    test('signature contains "https://hiphype.tech"', () => {
+    test('signature does NOT contain website URL', () => {
       const result = appendSignatureBlock('Hello world');
-      expect(result).toContain('https://hiphype.tech');
+      expect(result).not.toContain('https://hiphype.tech');
     });
 
     test('signature contains "Business Development Manager"', () => {
@@ -440,7 +440,7 @@ describe('CTA-06: appendSignatureBlock', () => {
       const result = appendSignatureBlock(input);
       // Should have the full new signature, not a broken partial
       expect(result).toContain('HipHype Tech');
-      expect(result).toContain('https://hiphype.tech');
+      expect(result).not.toContain('https://hiphype.tech');
     });
 
     test('strips standalone "Ashish" at end (without "Best,")', () => {

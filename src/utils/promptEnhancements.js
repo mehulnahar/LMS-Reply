@@ -73,8 +73,7 @@ function detectPricingLanguage(emailText) {
 const SIGNATURE_BLOCK = `Best,
 Ashish
 Business Development Manager
-HipHype Tech
-https://hiphype.tech`;
+HipHype Tech`;
 
 /**
  * appendSignatureBlock(replyText) -- CTA-03, CTA-04
