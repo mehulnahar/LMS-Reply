@@ -490,6 +490,7 @@ IMPORTANT:
 - Include realistic sample data (real-sounding names, numbers)
 - Make it fully responsive
 - Keep it clean — concept, not finished product
+- Generate a custom favicon for the mockup (design it to match the brand/project theme)
 
 ## Rules for the Lovable Prompt
 1. ONE page or 2-3 screens max. Don't build the whole app.
