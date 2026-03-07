@@ -73,7 +73,7 @@ function detectPricingLanguage(emailText) {
 const SIGNATURE_BLOCK = `Best,
 Ashish
 Business Development Manager
-HipHype Tech (MindCrew Technologies)
+HipHype Tech
 https://hiphype.tech`;
 
 /**
