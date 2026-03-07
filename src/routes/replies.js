@@ -68,7 +68,7 @@ function buildFollowUpPrompt(clientName, projectType, snippet, jobDescription, t
     ? `Include a call ask: "Would ${callDayCTA} at 11 AM your time work for a quick chat?" (adapt phrasing naturally to the tone -- softer for final touch).`
     : 'Include a call ask suggesting a specific weekday (Monday-Friday) at 11 AM their time. NEVER suggest Saturday or Sunday.';
 
-  return `Write a short follow-up email (max 60 words) to ${clientName} about their project: "${projectType}".
+  return `Write a value-packed follow-up email (150-200 words) to ${clientName} about their project: "${projectType}".
 
 Tone: ${tone}
 
@@ -96,14 +96,14 @@ HipHype Tech`;
 const TONES = {
   professional: "You write in a professional, business-appropriate tone. Be courteous but direct.",
   friendly: "You write in a warm, friendly tone while remaining professional. Use a conversational style.",
-  concise: "You write extremely concise replies. Get to the point in as few words as possible. No fluff.",
+  concise: "You write clear, well-structured replies. Every sentence delivers value — no filler phrases, but never sacrifice substance for brevity.",
   detailed: "You write thorough, detailed replies that address every point raised. Be comprehensive.",
 };
 
 // Default fallback system prompt when no template is found in DB
 const DEFAULT_SYSTEM_PROMPT =
   "You are a professional freelancer responding to a client inquiry on Upwork. " +
-  "Write a concise, helpful, and professional reply. Use plain text only — no markdown formatting.";
+  "Write a thorough, value-packed, and professional reply that demonstrates deep understanding of the client's project. Use plain text only — no markdown formatting.";
 
 // Banned phrases cache — loaded once at startup, refreshed every 5 minutes
 // to pick up any changes from Settings UI without requiring server restart
@@ -615,7 +615,7 @@ router.post("/generate", requireAuth, async (req, res, next) => {
         },
         body: JSON.stringify({
           model: "claude-sonnet-4-6",
-          max_tokens: 1024,
+          max_tokens: 2048,
           system: systemPrompt,
           messages: [{ role: "user", content: userMessage }],
         }),
@@ -777,7 +777,7 @@ router.post("/generate", requireAuth, async (req, res, next) => {
             },
             body: JSON.stringify({
               model: "claude-sonnet-4-6",
-              max_tokens: 1024,
+              max_tokens: 2048,
               system: systemPrompt,
               messages: [{ role: "user", content: strongerMessage }],
             }),
@@ -1038,7 +1038,7 @@ router.post("/generate", requireAuth, async (req, res, next) => {
             const label = new Date(date + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' });
             const callDay = getNextCallDay(date);
             const msg = buildFollowUpPrompt(clientName, projectType, snippet, jobDescription, s.tone, callDay);
-            const text = await callClaudeHelper(null, msg, anthropicKey, 'claude-sonnet-4-6', 256);
+            const text = await callClaudeHelper(null, msg, anthropicKey, 'claude-sonnet-4-6', 1024);
             return { text: text.trim(), suggestedDate: date, label: `Send ${label}` };
           }));
           return results.map((r) => r.status === 'fulfilled' ? r.value : { text: '', error: r.reason?.message });
@@ -1292,8 +1292,8 @@ async function getPromptTemplate(promptType, userId, dbPool) {
  */
 function getWordLimitOverride(promptType, threadStage, objectionType, job) {
   if (promptType === 'EMAIL_REPLY_V2') {
-    // Single technical question — slightly tighter but still detailed
-    if (objectionType === 'TECHNICAL_Q') return 150;
+    // Technical questions — demonstrate expertise with a thorough answer
+    if (objectionType === 'TECHNICAL_Q') return 275;
     // All other first replies (NEUTRAL, POSITIVE) — room to show real value
     return 275;
   }
@@ -1315,7 +1315,7 @@ function getWordLimitOverride(promptType, threadStage, objectionType, job) {
     // FU1 (Day 3, follow_up_count=0) — more value, slightly longer
     // FU2 (Day 7, follow_up_count=1) — final ping, keep light
     const followUpCount = (job && job.follow_up_count) || 0;
-    return followUpCount === 0 ? 150 : 70;
+    return followUpCount === 0 ? 200 : 120;
   }
 
   return null; // No override for other types
@@ -1408,7 +1408,7 @@ CRITICAL RULES:
       prompt += `\n\n<counter_move>
 Objection type detected: ${objectionContext.objectionType}
 Counter-move strategy: ${cm.counter_move_template}
-CRITICAL: Keep your reply under ${cm.max_words} words. Follow the counter-move strategy above.
+Incorporate this strategy naturally within your full reply. The counter-move is ONE element of a value-packed response, not the entire reply. Still deliver project-specific insights and a clear CTA.
 </counter_move>`;
     }
 
@@ -1487,10 +1487,10 @@ RULES:
 The client is REPEATING a question they asked before. They are likely frustrated that it wasn't answered.
 MANDATORY RULES:
 1. Answer the repeated question DIRECTLY in your FIRST sentence. No preamble, no "great question", no value pitch before the answer.
-2. Keep additional content minimal — do not pad the reply with unrelated information.
-3. If the question has a simple answer (like a link or a yes/no), give it immediately.
-4. Do NOT apologize excessively — one brief acknowledgment at most ("Good point — here's that info:").
-5. Brevity and directness are MORE important than word limits. Keep it short.
+2. If the question has a simple answer (like a link or a yes/no), give it immediately.
+3. Do NOT apologize excessively — one brief acknowledgment at most ("Good point — here's that info:").
+4. After answering the repeated question, STILL deliver value — relevant experience, a project-specific insight, or a strategic observation. The answer comes first, but value follows.
+5. Include a clear CTA after the value.
 </repeated_request>`;
   }
 
@@ -1525,17 +1525,17 @@ Use the key finding above naturally in your reply when appropriate — don't for
     }
 
     const energyInstruction = energy === 'SHORT'
-      ? 'Client sent a SHORT message (< 30 words). Your reply MUST be under 60 words. Match their brevity.'
+      ? 'Client sent a SHORT message (< 30 words). Be respectful of their time but still deliver value. Aim for the lower end of your word limit range.'
       : energy === 'MEDIUM'
-      ? 'Client sent a MEDIUM message. Keep reply under 100 words.'
-      : 'Client sent a LONG message. Match their level of detail.';
+      ? 'Client sent a MEDIUM message. Match their engagement with a thorough, value-packed reply within your word limit range.'
+      : 'Client sent a LONG message. Match their level of detail with a comprehensive reply.';
 
     // THREAD-03: Post-call recap gate
     let postCallInstruction = '';
     if (stage === 'POST_CALL') {
       const clientRequestedProposal = job.client_requested_proposal === true;
       if (!clientRequestedProposal) {
-        postCallInstruction = '\nPOST-CALL FORMAT: Write a RECAP reply only (under 100 words, 3-4 bullet points summarising what was discussed, next step). Do NOT write a full proposal unless the <thread_context> says proposal requested.';
+        postCallInstruction = '\nPOST-CALL FORMAT: Write a thorough RECAP reply (200-250 words) — summarise key discussion points, confirm specific action items for both sides, outline clear next steps. Do NOT write a full proposal unless the <thread_context> says proposal requested.';
       } else {
         postCallInstruction = '\nPOST-CALL FORMAT: Client requested a full proposal. Write a complete proposal (normal length, structured).';
       }
@@ -1557,7 +1557,7 @@ Energy: ${energyInstruction}${postCallInstruction}
       PRICING_SILENCE: 'Day 3: Offer a Phase 1 scoped option only (smaller scope, lower price). Day 7: Graceful close. Never defend price directly.',
       CALL_SILENCE:    'Day 2: Recap the call highlights in 3 bullets. Day 5: Add a value insight. Day 10: Graceful close if still no response.',
       NO_COMMITMENT:   'Offer a tangible attachment — a mockup, an audit finding, or a relevant case study. No pressure close. Make it easy to say yes.',
-      UNKNOWN:         'Add project-specific value. No CTA pressure. Keep under 60 words.',
+      UNKNOWN:         'Add project-specific value. No CTA pressure.',
     };
 
     prompt += `\n\n<stall_recovery>
@@ -1628,6 +1628,21 @@ Use these as the primary color palette in the DESIGN section of the Lovable prom
     }
   }
 
+  // VALUE DELIVERY — mandatory reply structure for substantive replies (skip short tactical stages)
+  const shortStages = ['CALL_BOOKING', 'CLOSING', 'STALLED'];
+  const currentStage = threadContext.threadStage || (job && job.thread_stage);
+  if (!objectionContext.isDueDiligence && promptType !== 'LOVABLE_MOCKUP_V1' && !shortStages.includes(currentStage)) {
+    prompt += `\n\n<value_delivery>
+Your reply MUST include ALL of these elements (adapt order and phrasing naturally):
+1. DIRECT ANSWER — If they asked a question, answer it in the first 1-2 sentences. No preamble.
+2. PROJECT-SPECIFIC INSIGHT — A non-obvious observation about their project drawn from the job description. Show you actually read and understood what they need.
+3. RELEVANT EXPERIENCE — Briefly mention a similar project or domain knowledge that's directly relevant (1-2 sentences with a specific outcome if possible).
+4. STRATEGIC OBSERVATION — One thing they may not have considered — a risk, an opportunity, or an approach that adds real value.
+5. CLEAR CTA — A specific next step (call, questions, deliverable offer).
+Each element is mandatory. A reply missing any of these is too thin. Do NOT write a generic 3-sentence reply.
+</value_delivery>`;
+  }
+
   // WORD LIMIT OVERRIDE — supersedes baked-in template limits for richer replies
   // DUE_DILIGENCE handles its own limit inline (250–300). Skip for mockups + call-booking/closing/stalled.
   if (!objectionContext.isDueDiligence && promptType !== 'LOVABLE_MOCKUP_V1') {
@@ -1635,10 +1650,9 @@ Use these as the primary color palette in the DESIGN section of the Lovable prom
     if (wordLimit) {
       const wordFloor = Math.max(Math.round(wordLimit * 0.85), 20);
       prompt += `\n\n<word_limit_override>
-WORD COUNT TARGET: ${wordFloor}–${wordLimit} words. This supersedes any other word limit in these instructions.
-Your reply MUST be at least ${wordFloor} words. Aim for the middle of the range (${Math.round((wordFloor + wordLimit) / 2)} words).
-Use the space to deliver real value — project-specific insights, relevant experience, strategic observations.
-Do NOT write a thin 3-sentence reply. If your draft is under ${wordFloor} words, add more substance.
+WORD COUNT TARGET: ${wordFloor}–${wordLimit} words. This OVERRIDES and SUPERSEDES any other word limit anywhere in these instructions (including template limits, counter-move limits, and energy matching).
+Your reply MUST be at least ${wordFloor} words. Aim for ${Math.round((wordFloor + wordLimit) / 2)} words.
+If your draft is under ${wordFloor} words, you have NOT included enough substance — go back and add more project-specific value.
 </word_limit_override>`;
     }
   }

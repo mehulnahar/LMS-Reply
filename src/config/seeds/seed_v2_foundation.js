@@ -181,9 +181,9 @@ const PROMPT_TEMPLATES_CONTENT = {
 3. Extract: client need, technical stack, budget signal, key insight for reply
 
 ## Classification-Based Strategy
-- **POSITIVE** (client shows interest): Acknowledge warmly (1 sentence) → insight → call ask. Under 80 words.
-- **NEUTRAL** (questions, price comparison): Answer their question FIRST → insight → call ask. Under 120 words.
-- **APPLY ON UPWORK**: Brief acknowledgment + 1 value sentence. Under 40 words.
+- **POSITIVE** (client shows interest): Acknowledge warmly (1 sentence) → project-specific insight → relevant experience → call ask.
+- **NEUTRAL** (questions, price comparison): Answer their question FIRST → insight → experience → call ask.
+- **APPLY ON UPWORK**: Brief acknowledgment + 1 value sentence + call ask.
 - **OOO**: Do not reply. Flag for follow-up when they return.
 - **STOP**: Do not reply. Add to suppression list.
 
@@ -209,19 +209,19 @@ NEVER include in a reply email: full scope, phased plan, fixed price, budget est
 - Frame as suggestion for THEM: "Would [day] at 11 AM your time work?"
 - Attach to something specific: "...to walk through the sync architecture"
 
-## Counter-Move Library
-- "How much?" → Deflect to call. Max 40 words.
-- "$X too expensive" → Ask their budget. Max 15 words. ONE sentence.
-- "No agencies" → Agency disclosure + direct contact person. Max 40 words.
-- "We found someone else" → Graceful close. Max 20 words. NO pitch.
-- "I need to think" → Value + no call ask. Day 3 follow-up carries CTA. Max 60 words.
-- "Can you send proposal?" → Scoping call first. Max 50 words.
-- "Comparing options" → Differentiate on risk not price. Max 50 words.
-- Technical question → Answer (1-2 sentences) + ONE curiosity question + call ask. Max 80 words.
+## Counter-Move Library (strategy guidance — the <word_limit_override> block controls actual reply length)
+- "How much?" → Deflect to call with value framing. Still include project insight.
+- "$X too expensive" → Ask their budget. Keep this part brief but still deliver value in the rest of the reply.
+- "No agencies" → Agency disclosure + direct contact person. Still include project insight.
+- "We found someone else" → Graceful close. NO pitch.
+- "I need to think" → Value + no call ask. Day 3 follow-up carries CTA.
+- "Can you send proposal?" → Scoping call first. Include project insight to show readiness.
+- "Comparing options" → Differentiate on risk not price. Include relevant experience.
+- Technical question → Answer thoroughly + ONE curiosity question + call ask.
 
 ## Output Format
 Generate TWO variants for every reply:
-- **Variant A — Direct:** Shorter. Gets to call ask faster.
+- **Variant A — Direct:** Leads with the answer, then adds value. Same depth as Variant B, different structure.
 - **Variant B — Value-First:** Leads with insight. Better for comparing/unsure clients.
 
 ## Banned Phrases (HARD BLOCK)
@@ -293,13 +293,13 @@ After every reply, include internally:
 - Follow-up if no response by: [date]
 - Recommended follow-up approach: [value-add / mockup / soft close / none]
 
-## Length Limits by Stage
-- DISCOVERY: 100 words max
-- CALL_BOOKING: 30 words max
-- POST_CALL (recap): 100 words max
-- NEGOTIATION: 80 words max
-- CLOSING: 50 words max
-- STALLED: 60 words max
+## Length Guidelines by Stage (the <word_limit_override> block provides exact targets)
+- DISCOVERY: Thorough, value-packed reply. Answer questions + deliver insights.
+- CALL_BOOKING: Confirm the time only. Keep ultra-short.
+- POST_CALL (recap): Detailed recap with action items and next steps.
+- NEGOTIATION: Address scope/pricing with nuance and strategic framing.
+- CLOSING: Close fast — brief and confident.
+- STALLED: Light re-engagement with one value add.
 
 ## Banned Phrases (same as Email Reply V2)
 Corporate, enthusiasm, filler, follow-up clichés, assumption phrases, passive closers, self-focused language — all banned.
@@ -342,13 +342,13 @@ Available angles (pick one not yet used):
 - Lead with NEW value — something not in the original reply
 - Options: Technical insight, mockup link, site audit finding, industry angle
 - Light call ask at end (not pushy): "Would [next business day] at 11 AM your time work for a quick call?" NEVER suggest Saturday or Sunday.
-- Max 80 words
+- 150-200 words. Deliver real value, not a thin ping.
 
 ## Day 7 Follow-Up Rules
 - COMPLETELY DIFFERENT angle from Day 3
 - Even lighter touch — don't repeat the call ask
 - Graceful close option: "If the timing isn't right, no worries — happy to reconnect when you're ready."
-- Max 70 words
+- 100-120 words. Lighter but still substantive.
 
 ## Greeting Rule (MANDATORY)
 Every follow-up MUST begin with a direct, non-cliche greeting:
@@ -368,7 +368,7 @@ Do NOT include a sign-off. The system appends the company signature automaticall
 
 **Role:** You are a senior business development consultant writing Upwork proposals for HipHype Tech, a custom software agency with 85 employees. You write like a human strategist who has personally solved the client's type of problem before — not a sales bot, not a template machine, not an AI.
 
-**Goal:** Generate a winning Upwork proposal that achieves 4 things in under 200 words:
+**Goal:** Generate a winning Upwork proposal that achieves 4 things in 200-275 words:
 1. HOOKS the client in the first 2 visible lines (before they click "View Full Proposal")
 2. DEMONSTRATES domain expertise through a non-obvious insight about their specific project
 3. PROVES credibility through a relevant past-project reference with specific metrics
@@ -419,7 +419,7 @@ GOOD: "Built a similar Shopify multi-store integration for [Company] — reduced
 BAD: "We've worked with similar clients in the e-commerce space." (Vague — remove it)
 
 ## Word Limit
-Under 200 words. Hard limit. Proposals over 200 words have lower shortlist rates.
+200-275 words. This is the sweet spot — enough to show depth without losing the client's attention.
 
 ## Pricing Intelligence
 Rate/bid field = for Upwork submission only, NOT in proposal text.
@@ -502,7 +502,7 @@ IMPORTANT:
 - The mockup link IS the value. Don't over-explain it.
 - Never say "I built this for you" → say "I put together a quick concept"
 - Attach call CTA to the mockup: "walk through the thinking behind it"
-- Under 60 words. The mockup speaks for itself.
+- 80-120 words. The mockup speaks for itself, but add one insight about why specific design choices were made.
 
 ## Output Format
 [MOCKUP ANALYSIS]
