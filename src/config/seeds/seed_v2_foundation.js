@@ -96,7 +96,7 @@ const COUNTER_MOVES = [
     objection_type: "PRICING",
     objection_pattern: "How much? / What's the cost? / What are your rates?",
     counter_move_name: "Pricing — Deflect to Call",
-    counter_move_template: `Pricing depends on scope — would tomorrow at 11 AM your time work to map this out? I can give you a firm number right after.`,
+    counter_move_template: `Pricing depends on scope — would the next business day at 11 AM your time work to map this out? I can give you a firm number right after.`,
     max_words: 40,
   },
   {
@@ -117,7 +117,7 @@ const COUNTER_MOVES = [
     objection_type: "COMPARISON",
     objection_pattern: "We're comparing options / Found someone cheaper / Got other proposals",
     counter_move_name: "Comparison — Differentiate on Risk",
-    counter_move_template: `Makes sense. One thing worth checking: does the other option include [specific differentiator]? That's usually where the real cost difference shows up. Happy to walk through our approach — would tomorrow at 11 AM your time work?`,
+    counter_move_template: `Makes sense. One thing worth checking: does the other option include [specific differentiator]? That's usually where the real cost difference shows up. Happy to walk through our approach — would the next business day at 11 AM your time work?`,
     max_words: 50,
   },
   {
@@ -138,14 +138,14 @@ const COUNTER_MOVES = [
     objection_type: "NONE",
     objection_pattern: "Can you send a proposal? / What would this cost? / Send me a quote",
     counter_move_name: "Proposal Request — Scoping Call First",
-    counter_move_template: `Absolutely. To make sure it's tailored to your exact needs — would tomorrow at 11 AM your time work for a quick 20-minute scoping call? I'll have the proposal to you within 24 hours after.`,
+    counter_move_template: `Absolutely. To make sure it's tailored to your exact needs — would the next business day at 11 AM your time work for a quick 20-minute scoping call? I'll have the proposal to you within 24 hours after.`,
     max_words: 50,
   },
   {
     objection_type: "TECHNICAL_Q",
     objection_pattern: "Client asks a specific technical question about framework / API / architecture",
     counter_move_name: "Technical Question — Answer + Curiosity + Call",
-    counter_move_template: `[Answer in 1-2 sentences]. Quick question: [curiosity question about their specific use case]? That'll shape the approach. Would tomorrow at 11 AM your time work to dig into the specifics?`,
+    counter_move_template: `[Answer in 1-2 sentences]. Quick question: [curiosity question about their specific use case]? That'll shape the approach. Would the next business day at 11 AM your time work to dig into the specifics?`,
     max_words: 80,
   },
   {
@@ -204,9 +204,9 @@ Use the client's first name from the job context. Never use "Hope you're doing w
 NEVER include in a reply email: full scope, phased plan, fixed price, budget estimate, detailed timeline, or formal proposal. The reply's ONLY job is to book a call.
 
 ## Call Ask Rules
-- Always propose: "tomorrow at 11:00 AM your time"
+- Use the <timezone_cta> section for the exact day and time to propose. The system pre-computes the next business day (Monday-Friday) — NEVER suggest Saturday or Sunday.
 - Always say "your time" — never "I am available" or "I'm free"
-- Frame as suggestion for THEM: "Would tomorrow at 11 AM your time work?"
+- Frame as suggestion for THEM: "Would [day] at 11 AM your time work?"
 - Attach to something specific: "...to walk through the sync architecture"
 
 ## Counter-Move Library
@@ -341,7 +341,7 @@ Available angles (pick one not yet used):
 - Subject: Same thread (don't create new subject)
 - Lead with NEW value — something not in the original reply
 - Options: Technical insight, mockup link, site audit finding, industry angle
-- Light call ask at end (not pushy): "Would tomorrow at 11 AM your time work for a quick call?"
+- Light call ask at end (not pushy): "Would [next business day] at 11 AM your time work for a quick call?" NEVER suggest Saturday or Sunday.
 - Max 80 words
 
 ## Day 7 Follow-Up Rules
@@ -460,13 +460,13 @@ DO NOT build a mockup when:
 ## Stage-Appropriate Send Messages (≤60 words each)
 
 **With cold proposal:**
-"I put together a quick concept to show how I'd approach the [specific feature]. It's not a finished design — just a direction to react to. Take a look: [link]. Would tomorrow at 11 AM your time work for a call to walk through the thinking behind it?"
+"I put together a quick concept to show how I'd approach the [specific feature]. It's not a finished design — just a direction to react to. Take a look: [link]. Would [next business day] at 11 AM your time work for a call to walk through the thinking behind it?"
 
 **After a call:**
 "Thanks for the call. I put together a quick mockup based on what we discussed — specifically the [feature you talked about]. Take a look: [link]. Let me know what feels right and what you'd change."
 
 **Follow-Up Day 3:**
-"Quick thought on your [project] — I sketched out a concept for the [specific feature]. Easier to show than describe: [link]. Would tomorrow at 11 AM your time work for a quick walkthrough?"
+"Quick thought on your [project] — I sketched out a concept for the [specific feature]. Easier to show than describe: [link]. Would [next business day] at 11 AM your time work for a quick walkthrough?"
 
 ## Lovable Prompt Structure
 Build a [type of page/app] for [company name] — a [brief description].
@@ -550,7 +550,10 @@ async function seedCounterMoves(client) {
     const result = await client.query(
       `INSERT INTO counter_moves (objection_type, objection_pattern, counter_move_name, counter_move_template, max_words)
        VALUES ($1::objection_type_enum, $2, $3, $4, $5)
-       ON CONFLICT DO NOTHING`,
+       ON CONFLICT (counter_move_name) DO UPDATE
+         SET counter_move_template = EXCLUDED.counter_move_template,
+             objection_pattern = EXCLUDED.objection_pattern,
+             max_words = EXCLUDED.max_words`,
       [item.objection_type, item.objection_pattern, item.counter_move_name, item.counter_move_template, item.max_words]
     );
     inserted += result.rowCount;

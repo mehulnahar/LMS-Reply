@@ -31,6 +31,7 @@ const {
   detectPricingLanguage,
   appendSignatureBlock,
   formatTimezoneCTA,
+  getNextCallDay,
 } = require('../utils/promptEnhancements');
 
 const router = express.Router();
@@ -62,7 +63,11 @@ function getNextBusinessDay(daysAhead) {
   return date.toISOString().split('T')[0];
 }
 
-function buildFollowUpPrompt(clientName, projectType, snippet, jobDescription, tone) {
+function buildFollowUpPrompt(clientName, projectType, snippet, jobDescription, tone, callDayCTA) {
+  const callAsk = callDayCTA
+    ? `Include a call ask: "Would ${callDayCTA} at 11 AM your time work for a quick chat?" (adapt phrasing naturally to the tone -- softer for final touch).`
+    : 'Include a call ask suggesting a specific weekday (Monday-Friday) at 11 AM their time. NEVER suggest Saturday or Sunday.';
+
   return `Write a short follow-up email (max 60 words) to ${clientName} about their project: "${projectType}".
 
 Tone: ${tone}
@@ -75,7 +80,7 @@ ${jobDescription || 'Not available'}
 
 ## Rules (MANDATORY):
 1. VALUE: Read the job description above. Include ONE specific domain or technical point that shows you understand their project. Weave it naturally -- never say "value" or "insight" explicitly.
-2. CALL ASK: Include a call ask: "Would tomorrow at 11 AM your time work for a quick chat?" (adapt naturally to the tone -- softer for final touch).
+2. CALL ASK: ${callAsk}
 3. NO ASSUMPTIONS: Only reference what the client explicitly stated. Don't assume scope, timeline, or tech choices.
 4. CLIENT-FIRST: Frame from their perspective -- their problem, their goals. Not "we can do X" but "your [project] could benefit from..."
 5. HUMAN & POLITE: Write like a real person. Warm, courteous, professional. No corporate jargon, no sales language.
@@ -1006,7 +1011,8 @@ router.post("/generate", requireAuth, async (req, res, next) => {
           const results = await Promise.allSettled(schedules.map(async (s) => {
             const date = getNextBusinessDay(s.days);
             const label = new Date(date + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' });
-            const msg = buildFollowUpPrompt(clientName, projectType, snippet, jobDescription, s.tone);
+            const callDay = getNextCallDay(date);
+            const msg = buildFollowUpPrompt(clientName, projectType, snippet, jobDescription, s.tone, callDay);
             const text = await callClaudeHelper(null, msg, anthropicKey, 'claude-sonnet-4-6', 256);
             return { text: text.trim(), suggestedDate: date, label: `Send ${label}` };
           }));
@@ -1104,7 +1110,8 @@ router.post('/regenerate-followup', requireAuth, async (req, res, next) => {
     const results = await Promise.allSettled(schedules.map(async (s) => {
       const date = getNextBusinessDay(s.days);
       const label = new Date(date + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' });
-      const msg = buildFollowUpPrompt(clientName, projectType, snippet, jobDescription, s.tone);
+      const callDay = getNextCallDay(date);
+      const msg = buildFollowUpPrompt(clientName, projectType, snippet, jobDescription, s.tone, callDay);
       const text = await callClaudeHelper(null, msg, anthropicKey, 'claude-sonnet-4-6', 256);
       return { text: text.trim(), suggestedDate: date, label: `Send ${label}` };
     }));
@@ -1473,9 +1480,10 @@ Use these as the primary color palette in the DESIGN section of the Lovable prom
     }
   }
 
-  // CTA-01: Timezone-resolved call-to-action injection
+  // CTA-01: Timezone-resolved call-to-action injection (with smart day-of-week)
   prompt += `\n\n<timezone_cta>
-When suggesting a meeting time, use this exact format: "Would tomorrow at ${timezoneCTA} work for a quick call?"
+When suggesting a meeting time, use this exact format: "Would ${timezoneCTA} work for a quick call?"
+NEVER suggest Saturday or Sunday. The day above has been pre-computed as the next business day.
 Do NOT use raw timezone abbreviations like "EST" or "PST" without "your time". Always include "your time" in the CTA.
 </timezone_cta>`;
 

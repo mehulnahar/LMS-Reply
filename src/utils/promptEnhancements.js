@@ -119,35 +119,63 @@ function appendSignatureBlock(replyText) {
 // ============================================================
 
 /**
- * formatTimezoneCTA(ianaTimezone) -- CTA-01, CTA-02
+ * getNextCallDay(referenceDate) -- Compute the next business day name
  *
- * Formats a call-to-action time string using the client's timezone.
- * Takes an already-resolved IANA timezone string (no API calls).
+ * Given a reference date (when the email will be sent), returns the
+ * weekday name of the next business day (Mon-Fri) after that date.
+ * This is the day we propose for a call — never Saturday or Sunday.
  *
- * If timezone is valid: returns "11:00 AM NZDT (your time)" using
- * Intl.DateTimeFormat with timeZoneName: "short".
+ * @param {Date|string|null} referenceDate - When the email will be sent (default: today)
+ * @returns {string} - Weekday name, e.g., "Monday", "Tuesday"
+ */
+function getNextCallDay(referenceDate = null) {
+  let ref;
+  if (referenceDate instanceof Date) {
+    ref = new Date(referenceDate);
+  } else if (typeof referenceDate === 'string' && referenceDate.trim()) {
+    // Handle "YYYY-MM-DD" strings from getNextBusinessDay
+    ref = new Date(referenceDate.includes('T') ? referenceDate : referenceDate + 'T12:00:00');
+  } else {
+    ref = new Date();
+  }
+
+  // Move to the next day, then skip weekends
+  const callDate = new Date(ref);
+  callDate.setDate(callDate.getDate() + 1);
+  while (callDate.getDay() === 0 || callDate.getDay() === 6) {
+    callDate.setDate(callDate.getDate() + 1);
+  }
+
+  return callDate.toLocaleDateString('en-US', { weekday: 'long' });
+}
+
+/**
+ * formatTimezoneCTA(ianaTimezone, referenceDate) -- CTA-01, CTA-02
  *
- * If timezone is null/undefined/invalid: returns "11 AM your time"
- * (graceful degradation per CTA-01 edge case).
+ * Formats a call-to-action time string using the client's timezone,
+ * with intelligent day-of-week awareness.
+ *
+ * Computes the next business day (Mon-Fri) after the reference date
+ * (when the email will be sent) and includes the day name in the CTA.
+ *
+ * If timezone is valid: returns "Monday at 11:00 AM NZDT (your time)"
+ * If timezone is null/undefined/invalid: returns "Monday at 11 AM your time"
  *
  * @param {string|null|undefined} ianaTimezone - IANA timezone string (e.g., "Pacific/Auckland")
- * @returns {string} - Formatted time string for CTA
+ * @param {Date|string|null} referenceDate - When the email will be sent (default: today)
+ * @returns {string} - Formatted day + time string for CTA
  */
-function formatTimezoneCTA(ianaTimezone) {
-  const FALLBACK = '11 AM your time';
+function formatTimezoneCTA(ianaTimezone, referenceDate = null) {
+  const dayName = getNextCallDay(referenceDate);
+  const FALLBACK = `${dayName} at 11 AM your time`;
 
   if (!ianaTimezone || typeof ianaTimezone !== 'string' || ianaTimezone.trim() === '') {
     return FALLBACK;
   }
 
   try {
-    // Create a date for tomorrow at 11:00 AM in the target timezone
+    // We just need the timezone abbreviation — the time is always "11:00 AM"
     const now = new Date();
-    const tomorrow = new Date(now);
-    tomorrow.setDate(tomorrow.getDate() + 1);
-    tomorrow.setHours(11, 0, 0, 0);
-
-    // Format the time component using the client's timezone
     const timeFormatter = new Intl.DateTimeFormat('en-US', {
       hour: 'numeric',
       minute: '2-digit',
@@ -156,19 +184,11 @@ function formatTimezoneCTA(ianaTimezone) {
       timeZoneName: 'short',
     });
 
-    // Format tomorrow at 11 AM UTC, then extract the timezone-adjusted time
-    // We need to construct a UTC date that represents 11 AM in the target TZ
-    // Actually, the formatter will convert whatever date we give it to the target TZ.
-    // We want to DISPLAY 11:00 AM in their timezone, so we need to find the UTC
-    // instant that corresponds to 11 AM tomorrow in their timezone.
-
-    // Simpler approach: format 11 AM tomorrow (local) and let Intl handle display
-    // But we actually just need the timezone abbreviation -- the time is always "11:00 AM"
-    const parts = timeFormatter.formatToParts(tomorrow);
+    const parts = timeFormatter.formatToParts(now);
     const tzAbbr = parts.find(p => p.type === 'timeZoneName');
 
     if (tzAbbr && tzAbbr.value) {
-      return `11:00 AM ${tzAbbr.value} (your time)`;
+      return `${dayName} at 11:00 AM ${tzAbbr.value} (your time)`;
     }
 
     return FALLBACK;
@@ -182,4 +202,5 @@ module.exports = {
   detectPricingLanguage,
   appendSignatureBlock,
   formatTimezoneCTA,
+  getNextCallDay,
 };

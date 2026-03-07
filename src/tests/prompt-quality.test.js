@@ -15,6 +15,7 @@ const {
   detectPricingLanguage,
   appendSignatureBlock,
   formatTimezoneCTA,
+  getNextCallDay,
 } = require('../utils/promptEnhancements');
 
 const {
@@ -26,7 +27,9 @@ const {
 // CTA-01 + CTA-09: formatTimezoneCTA
 // ============================================================
 describe('CTA-01 + CTA-09: formatTimezoneCTA', () => {
-  describe('positive cases', () => {
+  const WEEKDAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'];
+
+  describe('positive cases — includes day name + timezone', () => {
     test('valid IANA timezone "Pacific/Auckland" returns string containing "your time"', () => {
       const result = formatTimezoneCTA('Pacific/Auckland');
       expect(result).toContain('your time');
@@ -37,15 +40,15 @@ describe('CTA-01 + CTA-09: formatTimezoneCTA', () => {
       expect(result).toContain('11:00 AM');
     });
 
-    test('valid IANA timezone "America/New_York" returns string containing "your time"', () => {
+    test('valid IANA timezone starts with a weekday name', () => {
       const result = formatTimezoneCTA('America/New_York');
-      expect(result).toContain('your time');
+      const startsWithWeekday = WEEKDAYS.some(d => result.startsWith(d));
+      expect(startsWithWeekday).toBe(true);
     });
 
-    test('valid IANA timezone "America/New_York" returns string containing a timezone abbreviation', () => {
+    test('valid IANA timezone "America/New_York" returns full format: "Day at 11:00 AM TZ (your time)"', () => {
       const result = formatTimezoneCTA('America/New_York');
-      // Should have format "11:00 AM XXX (your time)" where XXX is like EST or EDT
-      expect(result).toMatch(/11:00 AM \S+ \(your time\)/);
+      expect(result).toMatch(/^(Monday|Tuesday|Wednesday|Thursday|Friday) at 11:00 AM \S+ \(your time\)$/);
     });
 
     test('valid IANA timezone "Asia/Kolkata" returns string containing "your time"', () => {
@@ -53,34 +56,41 @@ describe('CTA-01 + CTA-09: formatTimezoneCTA', () => {
       expect(result).toContain('your time');
     });
 
-    test('valid IANA timezone "Europe/London" returns formatted CTA', () => {
+    test('valid IANA timezone "Europe/London" returns formatted CTA with day name', () => {
       const result = formatTimezoneCTA('Europe/London');
       expect(result).toContain('11:00 AM');
       expect(result).toContain('your time');
+      const startsWithWeekday = WEEKDAYS.some(d => result.startsWith(d));
+      expect(startsWithWeekday).toBe(true);
     });
   });
 
-  describe('negative/fallback cases', () => {
-    test('null input returns "11 AM your time"', () => {
-      expect(formatTimezoneCTA(null)).toBe('11 AM your time');
+  describe('negative/fallback cases — includes day name without timezone', () => {
+    test('null input returns "[Day] at 11 AM your time"', () => {
+      const result = formatTimezoneCTA(null);
+      expect(result).toMatch(/^(Monday|Tuesday|Wednesday|Thursday|Friday) at 11 AM your time$/);
     });
 
-    test('undefined input returns "11 AM your time"', () => {
-      expect(formatTimezoneCTA(undefined)).toBe('11 AM your time');
+    test('undefined input returns "[Day] at 11 AM your time"', () => {
+      const result = formatTimezoneCTA(undefined);
+      expect(result).toMatch(/^(Monday|Tuesday|Wednesday|Thursday|Friday) at 11 AM your time$/);
     });
 
-    test('empty string returns "11 AM your time"', () => {
-      expect(formatTimezoneCTA('')).toBe('11 AM your time');
+    test('empty string returns "[Day] at 11 AM your time"', () => {
+      const result = formatTimezoneCTA('');
+      expect(result).toMatch(/^(Monday|Tuesday|Wednesday|Thursday|Friday) at 11 AM your time$/);
     });
 
-    test('whitespace-only string returns "11 AM your time"', () => {
-      expect(formatTimezoneCTA('   ')).toBe('11 AM your time');
+    test('whitespace-only string returns "[Day] at 11 AM your time"', () => {
+      const result = formatTimezoneCTA('   ');
+      expect(result).toMatch(/^(Monday|Tuesday|Wednesday|Thursday|Friday) at 11 AM your time$/);
     });
   });
 
   describe('edge cases', () => {
-    test('invalid timezone string "Not/A/Timezone" returns "11 AM your time" (graceful fallback)', () => {
-      expect(formatTimezoneCTA('Not/A/Timezone')).toBe('11 AM your time');
+    test('invalid timezone string returns fallback with day name', () => {
+      const result = formatTimezoneCTA('Not/A/Timezone');
+      expect(result).toMatch(/^(Monday|Tuesday|Wednesday|Thursday|Friday) at 11 AM your time$/);
     });
 
     test('valid timezone returns string with "(your time)" parenthetical', () => {
@@ -88,9 +98,88 @@ describe('CTA-01 + CTA-09: formatTimezoneCTA', () => {
       expect(result).toContain('(your time)');
     });
 
-    test('non-string input (number) returns fallback', () => {
-      expect(formatTimezoneCTA(12345)).toBe('11 AM your time');
+    test('non-string input (number) returns fallback with day name', () => {
+      const result = formatTimezoneCTA(12345);
+      expect(result).toMatch(/^(Monday|Tuesday|Wednesday|Thursday|Friday) at 11 AM your time$/);
     });
+  });
+
+  describe('referenceDate parameter — smart day-of-week computation', () => {
+    test('reference on a Monday → proposes Tuesday', () => {
+      // 2026-03-09 is a Monday
+      const result = formatTimezoneCTA('America/New_York', '2026-03-09');
+      expect(result).toMatch(/^Tuesday at 11:00 AM/);
+    });
+
+    test('reference on a Thursday → proposes Friday', () => {
+      // 2026-03-12 is a Thursday
+      const result = formatTimezoneCTA('America/New_York', '2026-03-12');
+      expect(result).toMatch(/^Friday at 11:00 AM/);
+    });
+
+    test('reference on a Friday → proposes Monday (skips weekend)', () => {
+      // 2026-03-13 is a Friday
+      const result = formatTimezoneCTA('America/New_York', '2026-03-13');
+      expect(result).toMatch(/^Monday at 11:00 AM/);
+    });
+
+    test('reference on a Saturday → proposes Monday (skips Sunday)', () => {
+      // 2026-03-14 is a Saturday
+      const result = formatTimezoneCTA('America/New_York', '2026-03-14');
+      expect(result).toMatch(/^Monday at 11:00 AM/);
+    });
+
+    test('reference on a Sunday → proposes Monday', () => {
+      // 2026-03-15 is a Sunday
+      const result = formatTimezoneCTA('America/New_York', '2026-03-15');
+      expect(result).toMatch(/^Monday at 11:00 AM/);
+    });
+
+    test('reference on a Wednesday → proposes Thursday', () => {
+      // 2026-03-11 is a Wednesday
+      const result = formatTimezoneCTA('America/New_York', '2026-03-11');
+      expect(result).toMatch(/^Thursday at 11:00 AM/);
+    });
+
+    test('null timezone with reference date still returns day name', () => {
+      const result = formatTimezoneCTA(null, '2026-03-13'); // Friday
+      expect(result).toBe('Monday at 11 AM your time');
+    });
+  });
+});
+
+// ============================================================
+// getNextCallDay — next business day name computation
+// ============================================================
+describe('getNextCallDay', () => {
+  test('Monday reference → Tuesday', () => {
+    expect(getNextCallDay('2026-03-09')).toBe('Tuesday');
+  });
+
+  test('Thursday reference → Friday', () => {
+    expect(getNextCallDay('2026-03-12')).toBe('Friday');
+  });
+
+  test('Friday reference → Monday (skips weekend)', () => {
+    expect(getNextCallDay('2026-03-13')).toBe('Monday');
+  });
+
+  test('Saturday reference → Monday', () => {
+    expect(getNextCallDay('2026-03-14')).toBe('Monday');
+  });
+
+  test('Sunday reference → Monday', () => {
+    expect(getNextCallDay('2026-03-15')).toBe('Monday');
+  });
+
+  test('null reference returns a weekday name (from today)', () => {
+    const result = getNextCallDay(null);
+    expect(['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday']).toContain(result);
+  });
+
+  test('Date object input works', () => {
+    const friday = new Date('2026-03-13T12:00:00');
+    expect(getNextCallDay(friday)).toBe('Monday');
   });
 });
 
