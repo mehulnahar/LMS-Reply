@@ -33,9 +33,10 @@ const PROMPT_TYPE_LABELS = {
  * 2. options.source === 'proposal' → PROPOSAL_V4
  * 3. options.source === 'mockup'   → LOVABLE_MOCKUP_V1
  * 4. email.is_ooo / email.intent === 'ooo' → null (STOP — no AI call)
- * 5. thread_client_messages >= 2 OR thread_depth >= 2 → THREAD_CONTINUATION_V1
- * 6. days since received_at >= 3 AND thread_depth >= 1 → FOLLOW_UP_V2
- * 7. Default → EMAIL_REPLY_V2
+ * 5. thread_client_messages >= 2 OR thread_depth >= 2 (prior exchange exists):
+ *    5a. client silent >= 3 days → FOLLOW_UP_V2
+ *    5b. otherwise → THREAD_CONTINUATION_V1
+ * 6. Default → EMAIL_REPLY_V2 (first reply — single-message thread)
  *
  * @param {Object} email   - email row from DB (received_at, intent, is_ooo)
  * @param {Object} job     - job row from DB (thread_depth, thread_client_messages)
@@ -61,18 +62,19 @@ function determinePromptType(email, job, options) {
   // 4. STOP — suppress generation (OOO / stop intent)
   if (email.is_ooo === true || email.intent === 'ooo') return null;
 
-  // 5. Ongoing thread (2+ client exchanges)
+  // 5. Ongoing thread (2+ client messages OR 2+ depth = prior exchange exists)
   const threadClientMsgs = (job.thread_client_messages) ? job.thread_client_messages : 0;
   const threadDepth = (job.thread_depth) ? job.thread_depth : 0;
-  if (threadClientMsgs >= 2 || threadDepth >= 2) return 'THREAD_CONTINUATION_V1';
-
-  // 6. Follow-up: client silent >= 3 days and thread has started
-  if (email.received_at && threadDepth >= 1) {
-    const daysSince = (Date.now() - new Date(email.received_at).getTime()) / (1000 * 60 * 60 * 24);
-    if (daysSince >= 3) return 'FOLLOW_UP_V2';
+  if (threadClientMsgs >= 2 || threadDepth >= 2) {
+    // Sub-check: if client went silent for 3+ days, use follow-up tone
+    if (email.received_at) {
+      const daysSince = (Date.now() - new Date(email.received_at).getTime()) / (1000 * 60 * 60 * 24);
+      if (daysSince >= 3) return 'FOLLOW_UP_V2';
+    }
+    return 'THREAD_CONTINUATION_V1';
   }
 
-  // 7. Default: first reply
+  // 6. Default: first reply (single-message thread or no prior exchange)
   return 'EMAIL_REPLY_V2';
 }
 

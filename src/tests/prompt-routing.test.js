@@ -63,19 +63,19 @@ describe('PROMPT-02: determinePromptType — routing logic', () => {
   });
 
   describe('Follow-up routing', () => {
-    it('returns FOLLOW_UP_V2 when client silent 3+ days and thread started', () => {
+    it('returns FOLLOW_UP_V2 when thread_depth >= 2 and client silent 3+ days', () => {
       expect(determinePromptType(
         { received_at: daysAgo(4) },
-        { thread_depth: 1 },
+        { thread_depth: 2 },
         {}
       )).toBe('FOLLOW_UP_V2');
     });
-    it('does NOT return follow-up when email is recent (< 3 days)', () => {
+    it('returns THREAD_CONTINUATION when thread_depth >= 2 but email recent (< 3 days)', () => {
       expect(determinePromptType(
         { received_at: daysAgo(1) },
-        { thread_depth: 1 },
+        { thread_depth: 2 },
         {}
-      )).toBe('EMAIL_REPLY_V2');
+      )).toBe('THREAD_CONTINUATION_V1');
     });
     it('does NOT return follow-up when thread_depth is 0 (no prior messages)', () => {
       expect(determinePromptType(
@@ -83,6 +83,21 @@ describe('PROMPT-02: determinePromptType — routing logic', () => {
         { thread_depth: 0 },
         {}
       )).toBe('EMAIL_REPLY_V2');
+    });
+    it('does NOT return follow-up when thread_depth is 1 (single email, no prior exchange)', () => {
+      // This was the root cause bug — thread_depth=1 + old email was incorrectly routing to FOLLOW_UP
+      expect(determinePromptType(
+        { received_at: daysAgo(10) },
+        { thread_depth: 1 },
+        {}
+      )).toBe('EMAIL_REPLY_V2');
+    });
+    it('returns FOLLOW_UP_V2 when thread_client_messages >= 2 and client silent 5+ days', () => {
+      expect(determinePromptType(
+        { received_at: daysAgo(5) },
+        { thread_client_messages: 2 },
+        {}
+      )).toBe('FOLLOW_UP_V2');
     });
   });
 

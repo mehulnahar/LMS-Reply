@@ -131,6 +131,53 @@ describe('bannedPhraseScanner', () => {
     const { violations } = bannedPhraseScanner(text, [activePhraseWithReplacement, activePhraseNoReplacement]);
     expect(violations).toHaveLength(2);
   });
+
+  test('does NOT auto-replace when replacement_suggestion has [placeholder] brackets', () => {
+    const phraseWithPlaceholder = {
+      phrase: 'Let me know what you think',
+      category: 'PASSIVE',
+      replacement_suggestion: 'Would [specific question] work?',
+      active: true,
+    };
+    const text = 'Here is my proposal. Let me know what you think.';
+    const { violations, rewrittenText } = bannedPhraseScanner(text, [phraseWithPlaceholder]);
+    // Violation is still flagged
+    expect(violations).toHaveLength(1);
+    expect(violations[0].replacement).toBe('Would [specific question] work?');
+    // But text is NOT rewritten — placeholder would appear literally
+    expect(rewrittenText).toBe(text);
+    expect(rewrittenText).not.toContain('[specific question]');
+  });
+
+  test('does NOT auto-replace "Would [time] work for you?" placeholder', () => {
+    const phraseWithTimePlaceholder = {
+      phrase: 'I am available',
+      category: 'SELF_FOCUSED',
+      replacement_suggestion: 'Would [time] work for you?',
+      active: true,
+    };
+    const text = 'I am available for a quick call.';
+    const { violations, rewrittenText } = bannedPhraseScanner(text, [phraseWithTimePlaceholder]);
+    expect(violations).toHaveLength(1);
+    // Text should keep original — don't inject "[time]" literally
+    expect(rewrittenText).toContain('I am available');
+    expect(rewrittenText).not.toContain('[time]');
+  });
+
+  test('DOES auto-replace when replacement has no brackets', () => {
+    const phraseWithCleanReplacement = {
+      phrase: 'At your earliest convenience',
+      category: 'PASSIVE',
+      replacement_suggestion: 'when you get a chance',
+      active: true,
+    };
+    const text = 'Please reply at your earliest convenience.';
+    const { violations, rewrittenText } = bannedPhraseScanner(text, [phraseWithCleanReplacement]);
+    expect(violations).toHaveLength(1);
+    // Clean replacement IS applied
+    expect(rewrittenText).toContain('when you get a chance');
+    expect(rewrittenText).not.toContain('at your earliest convenience');
+  });
 });
 
 // ============================================================

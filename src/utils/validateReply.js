@@ -151,8 +151,10 @@ function bannedPhraseScanner(text, bannedPhrases) {
         replacement: bp.replacement_suggestion || null,
       });
 
-      // Auto-rewrite when a replacement suggestion exists
-      if (bp.replacement_suggestion) {
+      // Auto-rewrite when a replacement suggestion exists AND is concrete
+      // (skip if replacement contains [placeholder] brackets — those are hints
+      // for the user/AI, not literal text to inject into the reply)
+      if (bp.replacement_suggestion && !/\[.+?\]/.test(bp.replacement_suggestion)) {
         // Case-insensitive global replace using escaped phrase
         const escapedPhrase = bp.phrase.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
         rewrittenText = rewrittenText.replace(

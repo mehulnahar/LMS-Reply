@@ -442,6 +442,30 @@ describe('CTA-06: appendSignatureBlock', () => {
       expect(result).toContain('HipHype Tech');
       expect(result).toContain('https://hiphype.tech');
     });
+
+    test('strips standalone "Ashish" at end (without "Best,")', () => {
+      const input = 'Would Monday at 11:00 AM GMT+2 (your time) work to dig into the specifics?\nAshish';
+      const result = appendSignatureBlock(input);
+      // Should NOT have double "Ashish" — standalone one should be stripped
+      const ashishCount = (result.match(/Ashish/g) || []).length;
+      expect(ashishCount).toBe(1); // Only the one in the signature block
+      expect(result).toContain('Best,\nAshish\nBusiness Development Manager');
+    });
+
+    test('strips standalone "Ashish" with extra whitespace at end', () => {
+      const input = 'Looking forward to connecting.\n\n  Ashish  ';
+      const result = appendSignatureBlock(input);
+      const ashishCount = (result.match(/Ashish/g) || []).length;
+      expect(ashishCount).toBe(1);
+    });
+
+    test('does NOT strip "Ashish" from middle of text', () => {
+      const input = 'As Ashish mentioned earlier, this approach works.\n\nLet me know.';
+      const result = appendSignatureBlock(input);
+      // "Ashish" in the middle should remain, plus one in signature
+      const ashishCount = (result.match(/Ashish/g) || []).length;
+      expect(ashishCount).toBe(2); // one in body, one in signature
+    });
   });
 });
 

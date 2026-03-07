@@ -107,6 +107,9 @@ function appendSignatureBlock(replyText) {
   // Also strip inline "Best, Ashish" at end (no newline before Ashish)
   cleaned = cleaned.replace(/\n*\s*Best[,.]?\s+Ashish\s*$/i, '');
 
+  // Strip standalone "Ashish" at end (Claude sometimes writes just the name)
+  cleaned = cleaned.replace(/\n+\s*Ashish\s*$/i, '');
+
   // Trim trailing whitespace/newlines
   cleaned = cleaned.trimEnd();
 
