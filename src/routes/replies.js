@@ -693,6 +693,12 @@ router.post("/generate", requireAuth, async (req, res, next) => {
       }
     }
 
+    // Step 6a.1: Sanitize formatting — strip em dashes, en dashes → regular dashes
+    const sanitize = (t) => t ? t.replace(/\u2014/g, ' - ').replace(/\u2013/g, '-') : t;
+    cleanText = sanitize(cleanText);
+    if (variantA) variantA = sanitize(variantA);
+    if (variantB) variantB = sanitize(variantB);
+
     // Detect intent from email
     const intent = detectIntent(email.body_text || email.snippet);
 
@@ -782,7 +788,8 @@ router.post("/generate", requireAuth, async (req, res, next) => {
           if (regenRes.ok) {
             const regenData = await regenRes.json();
             const regenRaw = regenData.content?.[0]?.text || validatedText;
-            const { cleanText: regenClean } = extractInternalBlocks(regenRaw);
+            const { cleanText: regenCleanRaw } = extractInternalBlocks(regenRaw);
+            const regenClean = sanitize(regenCleanRaw);
             // Re-run proposal gate and banned phrase scan on regenerated text
             const regenGated = proposalGate(regenClean, promptType, clientRequestedPricing);
             const { rewrittenText: regenRewritten } = bannedPhraseScanner(
