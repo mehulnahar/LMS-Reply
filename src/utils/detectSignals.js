@@ -313,6 +313,196 @@ function detectDueDiligence(emailText) {
 }
 
 // ---------------------------------------------------------------------------
+// detectProfileRequest(emailText) — PROFILE_REQUEST detection
+// ---------------------------------------------------------------------------
+
+const PROFILE_REQUEST_PATTERNS = [
+  /\bupwork profile\b/i,
+  /\byour profile\b/i,
+  /\bprofile link\b/i,
+  /\bportfolio\b/i,
+  /\bsend me your upwork\b/i,
+  /\byour team'?s? upwork\b/i,
+  /\bprovide (?:me )?(?:your |the )?upwork\b/i,
+  /\bupwork page\b/i,
+  /\bshare (?:your |the )?(?:upwork|profile|portfolio)\b/i,
+  /\blink to your (?:upwork|profile|work)\b/i,
+];
+
+/**
+ * detectProfileRequest(emailText) — boolean
+ *
+ * Returns true when the client is asking for an Upwork profile or portfolio link.
+ * Used to inject a graceful redirect (we reached out externally, not via Upwork proposal).
+ *
+ * @param {string} emailText - The client's email body text
+ * @returns {boolean}
+ */
+function detectProfileRequest(emailText) {
+  if (!emailText) return false;
+  return PROFILE_REQUEST_PATTERNS.some((p) => p.test(emailText));
+}
+
+// ---------------------------------------------------------------------------
+// detectCallDeferral(emailText) — CALL_DEFERRAL detection
+// ---------------------------------------------------------------------------
+
+const CALL_DEFERRAL_PATTERNS = [
+  /\bi'?ll get back to you (?:on|about) (?:the |a )?(?:meeting|call|chat)\b/i,
+  /\bi'?ll let you know (?:about|on|when|if)\b/i,
+  /\bget back to you on that\b/i,
+  /\bwill confirm (?:the |a )?(?:meeting|call|time)\b/i,
+  /\bnot ready for a call\b/i,
+  /\bi'?ll schedule when (?:i'?m )?ready\b/i,
+  /\bwill revert (?:on |about )?(?:the )?(?:meeting|call)\b/i,
+  /\bnot (?:a )?good time (?:for|to)\b/i,
+  /\blet me (?:get back|check|figure).*(?:call|meeting|schedule)\b/i,
+  /\bwill reach out when\b/i,
+  /\bneed (?:some )?time before (?:a |the )?call\b/i,
+  /\bi'?ll get back to you on the meeting\b/i,
+];
+
+/**
+ * detectCallDeferral(emailText) — boolean
+ *
+ * Returns true when the client has deferred scheduling a call.
+ * When detected, the reply should NOT suggest a specific call time.
+ *
+ * @param {string} emailText - The client's email body text
+ * @returns {boolean}
+ */
+function detectCallDeferral(emailText) {
+  if (!emailText) return false;
+  return CALL_DEFERRAL_PATTERNS.some((p) => p.test(emailText));
+}
+
+// ---------------------------------------------------------------------------
+// detectRepeatedRequest(emailText, threadEmails) — REPEATED_REQUEST detection
+// ---------------------------------------------------------------------------
+
+const FIRMNESS_MARKER_PATTERNS = [
+  /\bas i (?:mentioned|asked|said|noted|stated)\b/i,
+  /\bi asked (?:earlier|before|previously|already)\b/i,
+  /\bcould you please\b/i,
+  /\bonce again\b/i,
+  /\bagain,?\s/i,
+  /\bstill waiting\b/i,
+  /\bstill (?:need|haven'?t|no)\b/i,
+  /\byou (?:didn'?t|haven'?t|never) (?:answer|respond|address|provide|send|share)\b/i,
+  /\bmy (?:previous |earlier |last )?(?:question|request|ask)\b/i,
+  /\bfollowing up on (?:my|the) (?:question|request)\b/i,
+  /\bi'?ve asked (?:this )?(?:before|already|twice|multiple)\b/i,
+];
+
+const STOP_WORDS = new Set([
+  'a', 'an', 'the', 'is', 'are', 'was', 'were', 'do', 'does', 'did',
+  'can', 'could', 'would', 'you', 'your', 'me', 'my', 'i', 'we', 'our',
+  'please', 'just', 'also', 'to', 'of', 'in', 'for', 'on', 'with', 'that',
+  'this', 'it', 'be', 'have', 'has', 'had',
+]);
+
+/**
+ * normalizePhrase(phrase) — strips punctuation, lowercases, removes stop words.
+ * @param {string} phrase
+ * @returns {string}
+ */
+function normalizePhrase(phrase) {
+  return phrase
+    .toLowerCase()
+    .replace(/[^a-z0-9\s]/g, '')
+    .split(/\s+/)
+    .filter((w) => !STOP_WORDS.has(w) && w.length > 1)
+    .join(' ')
+    .trim();
+}
+
+/**
+ * extractQuestionPhrases(text) — extracts sentences ending with "?".
+ * Returns normalized phrases for similarity comparison.
+ * @param {string} text
+ * @returns {string[]}
+ */
+function extractQuestionPhrases(text) {
+  if (!text) return [];
+  // Split on "?" and take the part before each "?"
+  const parts = text.split('?');
+  const questions = [];
+  for (let i = 0; i < parts.length - 1; i++) {
+    // Take the last sentence fragment before the "?"
+    const lines = parts[i].split(/[.!\n]+/);
+    const lastLine = lines[lines.length - 1];
+    if (lastLine && lastLine.trim().length > 0) {
+      const normalized = normalizePhrase(lastLine);
+      if (normalized.length > 0) {
+        questions.push(normalized);
+      }
+    }
+  }
+  return questions;
+}
+
+/**
+ * phraseSimilarity(a, b) — Jaccard similarity of word sets.
+ * Returns 0.0-1.0.
+ * @param {string} a
+ * @param {string} b
+ * @returns {number}
+ */
+function phraseSimilarity(a, b) {
+  if (!a || !b) return 0;
+  const setA = new Set(a.split(/\s+/));
+  const setB = new Set(b.split(/\s+/));
+  if (setA.size === 0 || setB.size === 0) return 0;
+  let intersection = 0;
+  for (const w of setA) {
+    if (setB.has(w)) intersection++;
+  }
+  return intersection / (setA.size + setB.size - intersection);
+}
+
+/**
+ * detectRepeatedRequest(emailText, threadEmails) — boolean
+ *
+ * Returns true when the client is repeating a question they asked before.
+ * Two-prong detection:
+ *   1. Firmness markers in the current email (explicit frustration signals)
+ *   2. Content overlap — same question phrase in current + previous thread messages
+ *
+ * @param {string} emailText - The client's current email body text
+ * @param {Array<{body_text?: string, snippet?: string}>} threadEmails - Previous emails in thread
+ * @returns {boolean}
+ */
+function detectRepeatedRequest(emailText, threadEmails) {
+  if (!emailText) return false;
+
+  // Prong 1: Firmness markers (strong signal alone, no thread needed)
+  if (FIRMNESS_MARKER_PATTERNS.some((p) => p.test(emailText))) {
+    return true;
+  }
+
+  // Prong 2: Content overlap — check if a question from a previous message reappears
+  if (!Array.isArray(threadEmails) || threadEmails.length === 0) return false;
+
+  const currentQuestions = extractQuestionPhrases(emailText);
+  if (currentQuestions.length === 0) return false;
+
+  for (const prevEmail of threadEmails) {
+    const prevText = prevEmail.body_text || prevEmail.snippet || '';
+    if (!prevText) continue;
+    const prevQuestions = extractQuestionPhrases(prevText);
+    for (const cq of currentQuestions) {
+      for (const pq of prevQuestions) {
+        if (phraseSimilarity(cq, pq) >= 0.6) {
+          return true;
+        }
+      }
+    }
+  }
+
+  return false;
+}
+
+// ---------------------------------------------------------------------------
 // Exports
 // ---------------------------------------------------------------------------
 
@@ -322,4 +512,7 @@ module.exports = {
   detectScopeFraming,
   detectDueDiligence,
   detectProofOfWorkRequest,
+  detectProfileRequest,
+  detectCallDeferral,
+  detectRepeatedRequest,
 };

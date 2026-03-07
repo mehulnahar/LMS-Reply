@@ -14,6 +14,9 @@ const {
   detectObjection,
   detectAgencySensitivity,
   detectScopeFraming,
+  detectProfileRequest,
+  detectCallDeferral,
+  detectRepeatedRequest,
 } = require('../utils/detectSignals');
 
 // ============================================================
@@ -194,6 +197,229 @@ describe('detectScopeFraming', () => {
 
     it('returns UNKNOWN for undefined', () => {
       expect(detectScopeFraming(undefined)).toBe('UNKNOWN');
+    });
+  });
+});
+
+// ============================================================
+// detectProfileRequest — PROFILE_REQUEST detection
+// ============================================================
+describe('detectProfileRequest', () => {
+  describe('positive matches (returns true)', () => {
+    it('detects "Can you share your Upwork profile?"', () => {
+      expect(detectProfileRequest('Can you share your Upwork profile?')).toBe(true);
+    });
+
+    it('detects "Send me your portfolio"', () => {
+      expect(detectProfileRequest('Send me your portfolio')).toBe(true);
+    });
+
+    it('detects "Could you provide your Upwork profile link?"', () => {
+      expect(detectProfileRequest('Could you provide your Upwork profile link?')).toBe(true);
+    });
+
+    it('detects "I would like to see your profile link"', () => {
+      expect(detectProfileRequest('I would like to see your profile link')).toBe(true);
+    });
+
+    it('detects "Can you send me your upwork page?"', () => {
+      expect(detectProfileRequest('Can you send me your upwork page?')).toBe(true);
+    });
+
+    it('detects "provide your upwork so we can check"', () => {
+      expect(detectProfileRequest('provide your upwork so we can check')).toBe(true);
+    });
+
+    it('detects "share your teams upwork profile with us"', () => {
+      expect(detectProfileRequest("share your teams upwork profile with us")).toBe(true);
+    });
+
+    it('detects "link to your work samples"', () => {
+      expect(detectProfileRequest('Can you share a link to your work?')).toBe(true);
+    });
+  });
+
+  describe('negative matches (returns false)', () => {
+    it('returns false for generic question about experience', () => {
+      expect(detectProfileRequest('What is your experience with React?')).toBe(false);
+    });
+
+    it('returns false for "how much do you charge"', () => {
+      expect(detectProfileRequest('how much do you charge')).toBe(false);
+    });
+
+    it('returns false for "sounds great, let us proceed"', () => {
+      expect(detectProfileRequest('sounds great, let us proceed')).toBe(false);
+    });
+  });
+
+  describe('edge cases', () => {
+    it('returns false for empty string', () => {
+      expect(detectProfileRequest('')).toBe(false);
+    });
+
+    it('returns false for null', () => {
+      expect(detectProfileRequest(null)).toBe(false);
+    });
+
+    it('returns false for undefined', () => {
+      expect(detectProfileRequest(undefined)).toBe(false);
+    });
+  });
+});
+
+// ============================================================
+// detectCallDeferral — CALL_DEFERRAL detection
+// ============================================================
+describe('detectCallDeferral', () => {
+  describe('positive matches (returns true)', () => {
+    it('detects "I\'ll get back to you on the meeting"', () => {
+      expect(detectCallDeferral("I'll get back to you on the meeting")).toBe(true);
+    });
+
+    it('detects "I\'ll let you know about the call"', () => {
+      expect(detectCallDeferral("I'll let you know about the call")).toBe(true);
+    });
+
+    it('detects "will confirm the meeting time later"', () => {
+      expect(detectCallDeferral('will confirm the meeting time later')).toBe(true);
+    });
+
+    it('detects "not ready for a call right now"', () => {
+      expect(detectCallDeferral('not ready for a call right now')).toBe(true);
+    });
+
+    it('detects "will revert on the meeting"', () => {
+      expect(detectCallDeferral('will revert on the meeting')).toBe(true);
+    });
+
+    it('detects "I will get back to you on that"', () => {
+      expect(detectCallDeferral('I will get back to you on that')).toBe(true);
+    });
+
+    it('detects "Ill let you know when we can schedule"', () => {
+      expect(detectCallDeferral("Ill let you know when we can schedule")).toBe(true);
+    });
+
+    it('detects "let me check my calendar and get back about the call"', () => {
+      expect(detectCallDeferral('let me check my calendar and get back about the call')).toBe(true);
+    });
+  });
+
+  describe('negative matches (returns false)', () => {
+    it('returns false for "yes, Monday works for a call"', () => {
+      expect(detectCallDeferral('yes, Monday works for a call')).toBe(false);
+    });
+
+    it('returns false for "let\'s schedule the call for Tuesday"', () => {
+      expect(detectCallDeferral("let's schedule the call for Tuesday")).toBe(false);
+    });
+
+    it('returns false for "thanks, sounds good"', () => {
+      expect(detectCallDeferral('thanks, sounds good')).toBe(false);
+    });
+  });
+
+  describe('edge cases', () => {
+    it('returns false for empty string', () => {
+      expect(detectCallDeferral('')).toBe(false);
+    });
+
+    it('returns false for null', () => {
+      expect(detectCallDeferral(null)).toBe(false);
+    });
+
+    it('returns false for undefined', () => {
+      expect(detectCallDeferral(undefined)).toBe(false);
+    });
+  });
+});
+
+// ============================================================
+// detectRepeatedRequest — REPEATED_REQUEST detection
+// ============================================================
+describe('detectRepeatedRequest', () => {
+  describe('firmness markers (prong 1 — no thread needed)', () => {
+    it('detects "as I mentioned earlier" as repeated request', () => {
+      expect(detectRepeatedRequest('as I mentioned earlier, what is your rate?')).toBe(true);
+    });
+
+    it('detects "I asked earlier" as repeated request', () => {
+      expect(detectRepeatedRequest('I asked earlier about the timeline')).toBe(true);
+    });
+
+    it('detects "still waiting for your response"', () => {
+      expect(detectRepeatedRequest('still waiting for your response on the quote')).toBe(true);
+    });
+
+    it('detects "could you please provide your profile"', () => {
+      expect(detectRepeatedRequest('could you please provide your Upwork profile?')).toBe(true);
+    });
+
+    it('detects "you didn\'t answer my question"', () => {
+      expect(detectRepeatedRequest("you didn't answer my question about pricing")).toBe(true);
+    });
+
+    it('detects "once again, what is your availability?"', () => {
+      expect(detectRepeatedRequest('once again, what is your availability?')).toBe(true);
+    });
+
+    it('detects "I\'ve asked this before"', () => {
+      expect(detectRepeatedRequest("I've asked this before — can you provide references?")).toBe(true);
+    });
+  });
+
+  describe('content overlap (prong 2 — needs thread history)', () => {
+    it('detects repeated question across thread messages', () => {
+      const currentEmail = 'Can you provide your Upwork profile link?';
+      const threadEmails = [
+        { body_text: 'Thanks for reaching out. Can you provide your Upwork profile link?' },
+      ];
+      expect(detectRepeatedRequest(currentEmail, threadEmails)).toBe(true);
+    });
+
+    it('detects paraphrased repeat via snippet fallback', () => {
+      const currentEmail = 'What is your Upwork profile?';
+      const threadEmails = [
+        { snippet: 'What is your Upwork profile?' },
+      ];
+      expect(detectRepeatedRequest(currentEmail, threadEmails)).toBe(true);
+    });
+
+    it('returns false when questions are different', () => {
+      const currentEmail = 'What is your hourly rate?';
+      const threadEmails = [
+        { body_text: 'Can you provide your Upwork profile link?' },
+      ];
+      expect(detectRepeatedRequest(currentEmail, threadEmails)).toBe(false);
+    });
+
+    it('returns false when no prior thread emails exist', () => {
+      expect(detectRepeatedRequest('What is your rate?', [])).toBe(false);
+    });
+  });
+
+  describe('negative matches (returns false)', () => {
+    it('returns false for first-time question with no markers', () => {
+      expect(detectRepeatedRequest('What stack do you use?')).toBe(false);
+    });
+
+    it('returns false for "sounds great, let us proceed"', () => {
+      expect(detectRepeatedRequest('sounds great, let us proceed')).toBe(false);
+    });
+  });
+
+  describe('edge cases', () => {
+    it('returns false for empty string', () => {
+      expect(detectRepeatedRequest('')).toBe(false);
+    });
+
+    it('returns false for null', () => {
+      expect(detectRepeatedRequest(null)).toBe(false);
+    });
+
+    it('returns false for undefined', () => {
+      expect(detectRepeatedRequest(undefined)).toBe(false);
     });
   });
 });

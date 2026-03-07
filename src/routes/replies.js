@@ -17,7 +17,7 @@ const {
   analyzeAllUrls,
 } = require("../utils/prefetch");
 const { proposalGate, bannedPhraseScanner, nextStepScanner } = require("../utils/validateReply");
-const { detectObjection, detectAgencySensitivity, detectScopeFraming, detectDueDiligence, detectProofOfWorkRequest } = require("../utils/detectSignals");
+const { detectObjection, detectAgencySensitivity, detectScopeFraming, detectDueDiligence, detectProofOfWorkRequest, detectProfileRequest, detectCallDeferral, detectRepeatedRequest } = require("../utils/detectSignals");
 const {
   classifyThreadStage,
   measureClientMessageLength,
@@ -234,6 +234,27 @@ router.post("/generate", requireAuth, async (req, res, next) => {
     const isDueDiligence = detectDueDiligence(emailText);
     const hasProofOfWorkRequest = isDueDiligence ? detectProofOfWorkRequest(emailText) : false;
 
+    // PROFILE_REQUEST, CALL_DEFERRAL detection — runs on email text
+    const hasProfileRequest = detectProfileRequest(emailText);
+    const hasCallDeferral = detectCallDeferral(emailText);
+
+    // REPEATED_REQUEST detection — needs thread history for content overlap
+    let threadEmailsForRepeat = [];
+    if (email.thread_id) {
+      try {
+        const { rows: prevRows } = await pool.query(
+          `SELECT body_text, snippet FROM emails
+           WHERE thread_id = $1 AND user_id = $2 AND id != $3
+           ORDER BY received_at ASC`,
+          [email.thread_id, req.user.id, email.id]
+        );
+        threadEmailsForRepeat = prevRows;
+      } catch (err) {
+        console.error('replies: thread emails fetch for repeat detection failed:', err.message);
+      }
+    }
+    const hasRepeatedRequest = detectRepeatedRequest(emailText, threadEmailsForRepeat);
+
     // Fire-and-forget DB update — never blocks response
     if (job) {
       pool.query(
@@ -264,7 +285,7 @@ router.post("/generate", requireAuth, async (req, res, next) => {
       }
     }
 
-    const objectionContext = { objectionType, agencySensitive, scopeFraming, counterMove, isDueDiligence, hasProofOfWorkRequest };
+    const objectionContext = { objectionType, agencySensitive, scopeFraming, counterMove, isDueDiligence, hasProofOfWorkRequest, hasProfileRequest, hasCallDeferral, hasRepeatedRequest };
 
     // ──────────────────────────────────────────────────────────
     // Step 2: Prompt routing
@@ -1425,6 +1446,47 @@ Mirror the client's structure exactly. Never impose a different framing.
 </scope_framing>`;
   }
 
+  // PROFILE REQUEST: Client asking for Upwork profile / portfolio link
+  if (objectionContext.hasProfileRequest) {
+    prompt += `\n\n<profile_redirect>
+The client has asked for your Upwork profile or portfolio link.
+You did NOT come through Upwork's proposal system — you found their project through independent research.
+Do NOT use a placeholder like "[Insert Upwork Profile Link]" or "[Your Upwork Profile]".
+
+MANDATORY RESPONSE:
+1. Acknowledge their request directly (one sentence).
+2. Explain briefly and confidently: "We actually found your project through our own research rather than Upwork's proposal system, so there isn't a formal proposal link to share."
+3. Redirect to the company website: "Here's our site with recent work and the team: https://hiphype.tech"
+4. Keep it brief, honest, and confident — NOT apologetic. Proactive outreach is a strength, not a limitation.
+</profile_redirect>`;
+  }
+
+  // CALL DEFERRAL: Client said they'll get back to us about the call
+  if (objectionContext.hasCallDeferral) {
+    prompt += `\n\n<call_deferral>
+The client has DEFERRED the call — they said they'll get back to you about scheduling.
+CRITICAL RULES:
+1. Do NOT suggest a call time. Do NOT propose a specific day or time.
+2. Do NOT push for a call. Respect their pace completely.
+3. Focus your reply on answering their questions or providing value.
+4. End with a SOFT close only: "Whenever you're ready, happy to jump on a call" or similar.
+5. If they asked a question, answer it thoroughly — the call deferral means they want answers in writing first.
+</call_deferral>`;
+  }
+
+  // REPEATED REQUEST: Client asked the same thing before — they're frustrated
+  if (objectionContext.hasRepeatedRequest) {
+    prompt += `\n\n<repeated_request>
+The client is REPEATING a question they asked before. They are likely frustrated that it wasn't answered.
+MANDATORY RULES:
+1. Answer the repeated question DIRECTLY in your FIRST sentence. No preamble, no "great question", no value pitch before the answer.
+2. Keep additional content minimal — do not pad the reply with unrelated information.
+3. If the question has a simple answer (like a link or a yes/no), give it immediately.
+4. Do NOT apologize excessively — one brief acknowledgment at most ("Good point — here's that info:").
+5. Brevity and directness are MORE important than word limits. Keep it short.
+</repeated_request>`;
+  }
+
   // Append link analysis block if a finding exists
   if (Array.isArray(linkAnalysis) && linkAnalysis.length > 0) {
     const best = linkAnalysis.find((r) => r.bestFindingForReply);
@@ -1572,11 +1634,19 @@ Do NOT pad to hit the limit — be concise and human. The limit is a ceiling, no
   }
 
   // CTA-01: Timezone-resolved call-to-action injection (with smart day-of-week)
-  prompt += `\n\n<timezone_cta>
+  if (objectionContext.hasCallDeferral) {
+    prompt += `\n\n<timezone_cta>
+The client has DEFERRED scheduling a call. Do NOT suggest a specific meeting time.
+Instead, if appropriate, end with a soft availability statement like "Whenever you're ready, I'm happy to jump on a quick call."
+NEVER propose a day, time, or timezone. Let them come back to you.
+</timezone_cta>`;
+  } else {
+    prompt += `\n\n<timezone_cta>
 When suggesting a meeting time, use this exact format: "Would ${timezoneCTA} work for a quick call?"
 NEVER suggest Saturday or Sunday. The day above has been pre-computed as the next business day.
 Do NOT use raw timezone abbreviations like "EST" or "PST" without "your time". Always include "your time" in the CTA.
 </timezone_cta>`;
+  }
 
   // CTA-05: Cost suggestion injection (only when client mentions pricing)
   if (pricingDetection && pricingDetection.hasPricing) {
