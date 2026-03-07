@@ -80,6 +80,21 @@ export const api = {
         source: options.source || null,
       }),
     }),
+  generateAll: (emailId, options = {}) =>
+    request('/api/replies/generate', {
+      method: 'POST',
+      body: JSON.stringify({
+        emailId,
+        tone: options.tone || 'professional',
+        promptOverride: options.promptOverride || null,
+        source: options.source || null,
+        generateAll: true,
+      }),
+    }),
+  regenerateLovable: (emailId) =>
+    request('/api/replies/regenerate-lovable', { method: 'POST', body: JSON.stringify({ emailId }) }),
+  regenerateFollowUp: (emailId) =>
+    request('/api/replies/regenerate-followup', { method: 'POST', body: JSON.stringify({ emailId }) }),
   markReplyCopied: (id) => request(`/api/replies/${id}/copied`, { method: "PUT" }),
   recordVariantSelected: (replyId, variant) =>
     request(`/api/replies/${replyId}/variant`, { method: "PUT", body: JSON.stringify({ variant }) }),

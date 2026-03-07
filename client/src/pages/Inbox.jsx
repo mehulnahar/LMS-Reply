@@ -202,11 +202,18 @@ export default function Inbox() {
   const [hotSignalFlagged, setHotSignalFlagged] = useState(false);
   const [clientRequestedProposal, setClientRequestedProposal] = useState(false);
   const [nextSteps, setNextSteps] = useState([]);
-  // MOCKUP-04: Mockup generator state
-  const [mockupData, setMockupData] = useState(null);       // Holds lovablePrompt, sendMessage, mockupAnalysis
-  const [mockupDeclined, setMockupDeclined] = useState(null); // Holds { reason, alternativeSuggestion } or null
-  const [promptCopied, setPromptCopied] = useState(false);    // Track Lovable prompt copy
-  const [messageCopied, setMessageCopied] = useState(false);  // Track send message copy
+  // MOCKUP-04: Mockup generator state (legacy — kept for LOVABLE_MOCKUP_V1 prompt type)
+  const [mockupData, setMockupData] = useState(null);
+  const [mockupDeclined, setMockupDeclined] = useState(null);
+  const [promptCopied, setPromptCopied] = useState(false);
+  const [messageCopied, setMessageCopied] = useState(false);
+  // 3-block state (Generate All)
+  const [lovableBlock, setLovableBlock] = useState(null);   // { applicable, alreadySent, prompt, analysis, loading, error }
+  const [followUpBlock, setFollowUpBlock] = useState(null); // { text, suggestedDate, label, loading, error }
+  const [generatingLovable, setGeneratingLovable] = useState(false);
+  const [generatingFollowUp, setGeneratingFollowUp] = useState(false);
+  const [lovablePromptCopied, setLovablePromptCopied] = useState(false);
+  const [followUpCopied, setFollowUpCopied] = useState(false);
   // UIUP-01/05: Analysis panel + variant A/B selector state
   const [jobAnalysisBlock, setJobAnalysisBlock] = useState(null);
   const [linkAnalysisBlock, setLinkAnalysisBlock] = useState(null);
@@ -285,6 +292,8 @@ export default function Inbox() {
     setMockupDeclined(null);
     setPromptCopied(false);
     setMessageCopied(false);
+    setLovableBlock(null);
+    setFollowUpBlock(null);
     setReactivating(false);
     // UIUP-01/05: Clear analysis/variant state on email switch
     setJobAnalysisBlock(null);
@@ -461,6 +470,94 @@ export default function Inbox() {
       // silent
     } finally {
       setGenerating(false);
+    }
+  };
+
+  // Generate All — single button fires reply + lovable + follow-up in parallel
+  const handleGenerateAll = async () => {
+    if (!detail?.email || generating) return;
+    setGenerating(true);
+    setReplyText('');
+    setActiveReplyId(null);
+    setLovableBlock({ loading: true });
+    setFollowUpBlock({ loading: true });
+    setMockupData(null);
+    setMockupDeclined(null);
+    setKillSwitch(false);
+    setSuppressed(false);
+    setBannedPhraseViolations([]);
+    try {
+      if (!detail.job || detail.job.matchStatus === 'error') {
+        try { const j = await api.matchJob(detail.email.id); setDetail(p => ({ ...p, job: j.job })); } catch { /* ok */ }
+      }
+      const data = await api.generateAll(detail.email.id, { tone, promptOverride: promptOverride || null, source });
+
+      if (data.killSwitch) {
+        setKillSwitch(true); setKillSwitchReason(data.reason || 'Follow-up limit reached.');
+        setLovableBlock(null); setFollowUpBlock(null); return;
+      }
+      if (data.suppressed) {
+        setSuppressed(true); setSuppressedReason(data.reason || 'Generation suppressed.');
+        setLovableBlock(null); setFollowUpBlock(null); return;
+      }
+
+      // Block 1 — Reply
+      if (data.reply.variantA && data.reply.variantB) {
+        setVariantA(data.reply.variantA); setVariantB(data.reply.variantB); setSelectedVariant(null); setReplyText('');
+      } else {
+        setVariantA(null); setVariantB(null); setSelectedVariant(null);
+        setReplyText(data.reply.generatedText);
+      }
+      setActiveReplyId(data.reply.id);
+      setActivePromptType(data.reply.promptTypeUsed || null);
+      setBannedPhraseViolations(data.reply.bannedPhraseViolations || []);
+      setHasNextStep(data.reply.hasNextStep !== false);
+      setSpecificityFlag(data.reply.specificityFlag || false);
+      setFollowUpSequence(data.reply.followUpSequence || null);
+      setReplyIntent(data.reply.intent || null);
+      setJobAnalysisBlock(data.reply.jobAnalysisBlock || null);
+      setLinkAnalysisBlock(data.reply.linkAnalysisBlock || null);
+      setDetail(p => ({ ...p, replies: [data.reply, ...(p.replies || [])] }));
+
+      // Block 2 — Lovable
+      setLovableBlock(data.lovable ? { ...data.lovable, loading: false } : { loading: false, applicable: false });
+
+      // Block 3 — Follow-up
+      setFollowUpBlock(data.followUp ? { ...data.followUp, loading: false } : { loading: false, text: '', error: 'Follow-up generation failed' });
+
+    } catch (err) {
+      setLovableBlock({ loading: false, applicable: false, error: err.message });
+      setFollowUpBlock({ loading: false, text: '', error: err.message });
+    } finally {
+      setGenerating(false);
+    }
+  };
+
+  const handleRegenerateLovable = async () => {
+    if (!detail?.email || generatingLovable) return;
+    setGeneratingLovable(true);
+    setLovableBlock(prev => ({ ...prev, loading: true }));
+    try {
+      const data = await api.regenerateLovable(detail.email.id);
+      setLovableBlock({ ...data, loading: false });
+    } catch (err) {
+      setLovableBlock(prev => ({ ...prev, loading: false, error: err.message }));
+    } finally {
+      setGeneratingLovable(false);
+    }
+  };
+
+  const handleRegenerateFollowUp = async () => {
+    if (!detail?.email || generatingFollowUp) return;
+    setGeneratingFollowUp(true);
+    setFollowUpBlock(prev => ({ ...prev, loading: true }));
+    try {
+      const data = await api.regenerateFollowUp(detail.email.id);
+      setFollowUpBlock({ ...data, loading: false });
+    } catch (err) {
+      setFollowUpBlock(prev => ({ ...prev, loading: false, error: err.message }));
+    } finally {
+      setGeneratingFollowUp(false);
     }
   };
 
@@ -1388,46 +1485,20 @@ export default function Inbox() {
                         ))}
                       </select>
                       <button
-                        onClick={() => handleGenerate(null)}
+                        onClick={handleGenerateAll}
                         disabled={generating}
                         className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md bg-brand-600 text-white hover:bg-brand-700 disabled:opacity-50 transition-colors"
                       >
                         {generating ? (
-                          <>
-                            <Spinner /> Generating...
-                          </>
+                          <><Spinner /> Generating...</>
                         ) : (
                           <>
                             <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
                               <path strokeLinecap="round" strokeLinejoin="round" d="M9.813 15.904L9 18.75l-.813-2.846a4.5 4.5 0 00-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 003.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 003.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 00-3.09 3.09zM18.259 8.715L18 9.75l-.259-1.035a3.375 3.375 0 00-2.455-2.456L14.25 6l1.036-.259a3.375 3.375 0 002.455-2.456L18 2.25l.259 1.035a3.375 3.375 0 002.455 2.456L21.75 6l-1.036.259a3.375 3.375 0 00-2.455 2.456z" />
                             </svg>
-                            Generate Reply
+                            Generate
                           </>
                         )}
-                      </button>
-                      {/* Generate Mockup button (MOCKUP-04) */}
-                      <button
-                        onClick={() => handleGenerate('mockup')}
-                        disabled={generating || (detail?.job?.follow_up_count >= 2)}
-                        title={
-                          detail?.job?.follow_up_count >= 2
-                            ? 'Mockups should be sent at Day 3 or earlier -- use a different value angle for Day 7'
-                            : 'Generate Lovable mockup prompt'
-                        }
-                        className={`inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md transition-colors ${
-                          detail?.job?.follow_up_count >= 2
-                            ? 'bg-gray-200 text-gray-400 dark:bg-gray-700 dark:text-gray-500 cursor-not-allowed'
-                            : 'bg-violet-600 text-white hover:bg-violet-700 disabled:opacity-50'
-                        }`}
-                      >
-                        {generating ? (
-                          <Spinner />
-                        ) : (
-                          <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" d="M9.53 16.122a3 3 0 00-5.78 1.128 2.25 2.25 0 01-2.4 2.245 4.5 4.5 0 008.4-2.245c0-.399-.078-.78-.22-1.128zm0 0a15.998 15.998 0 003.388-1.62m-5.043-.025a15.994 15.994 0 011.622-3.395m3.42 3.42a15.995 15.995 0 004.764-4.648l3.876-5.814a1.151 1.151 0 00-1.597-1.597L14.146 6.32a15.996 15.996 0 00-4.649 4.763m3.42 3.42a6.776 6.776 0 00-3.42-3.42" />
-                          </svg>
-                        )}
-                        Generate Mockup
                       </button>
                     </div>
                   </div>
@@ -1555,6 +1626,17 @@ export default function Inbox() {
                               <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z" />
                             </svg>
                             <p className="text-xs text-yellow-700 dark:text-yellow-400">{generationWarning}</p>
+                          </div>
+                        )}
+                        {/* [link] placeholder warning — shown when mockup URL placeholder is present */}
+                        {replyText && replyText.includes('[link]') && (
+                          <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-orange-50 dark:bg-orange-900/20 border border-orange-200 dark:border-orange-800">
+                            <svg className="w-3.5 h-3.5 text-orange-500 flex-shrink-0" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
+                              <path strokeLinecap="round" strokeLinejoin="round" d="M13.19 8.688a4.5 4.5 0 011.242 7.244l-4.5 4.5a4.5 4.5 0 01-6.364-6.364l1.757-1.757m13.35-.622l1.757-1.757a4.5 4.5 0 00-6.364-6.364l-4.5 4.5a4.5 4.5 0 001.242 7.244" />
+                            </svg>
+                            <p className="text-xs text-orange-700 dark:text-orange-400">
+                              Replace <code className="font-mono bg-orange-100 dark:bg-orange-900/40 px-1 rounded">[link]</code> with your actual mockup URL before sending
+                            </p>
                           </div>
                         )}
                         {/* UIUP-01: Collapsible AI Analysis Panel */}
@@ -1736,11 +1818,159 @@ export default function Inbox() {
                       </div>
                     ) : (
                       <p className="text-xs text-gray-400 dark:text-gray-500">
-                        Click "Generate Reply" to create an AI-powered response using Claude.
+                        Click <strong>Generate</strong> to create a reply, Lovable prompt (if applicable), and follow-up in one shot.
                       </p>
                     )}
                   </div>
                 </div>
+
+                {/* Block 2 — Lovable Prompt */}
+                {lovableBlock !== null && (
+                  <div className="card">
+                    <div className="px-5 py-3 border-b border-gray-200 dark:border-gray-800 flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs font-semibold uppercase tracking-wider text-violet-500 dark:text-violet-400">Lovable Prompt</span>
+                        {lovableBlock?.alreadySent && (
+                          <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400 border border-amber-200 dark:border-amber-800">
+                            Previously sent
+                          </span>
+                        )}
+                      </div>
+                      {lovableBlock?.applicable !== false && !lovableBlock?.loading && (
+                        <button
+                          onClick={handleRegenerateLovable}
+                          disabled={generatingLovable}
+                          className="text-xs text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300 disabled:opacity-50"
+                        >
+                          {generatingLovable ? <Spinner /> : 'Regenerate'}
+                        </button>
+                      )}
+                    </div>
+                    <div className="p-5">
+                      {lovableBlock?.loading ? (
+                        <div className="flex items-center gap-2 text-xs text-gray-400">
+                          <Spinner /> Generating Lovable prompt…
+                        </div>
+                      ) : lovableBlock?.applicable === false ? (
+                        <div className="space-y-1">
+                          <p className="text-xs text-gray-400 dark:text-gray-500">Not applicable for this project type.</p>
+                          {lovableBlock?.reason && <p className="text-xs text-gray-400 dark:text-gray-500">{lovableBlock.reason}</p>}
+                          {lovableBlock?.error && <p className="text-xs text-red-500">{lovableBlock.error}</p>}
+                        </div>
+                      ) : lovableBlock?.alreadySent ? (
+                        <div className="space-y-3">
+                          <div className="flex items-start gap-2 p-3 bg-amber-50 dark:bg-amber-900/20 rounded-lg border border-amber-200 dark:border-amber-800">
+                            <svg className="w-4 h-4 text-amber-500 flex-shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
+                              <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z" />
+                            </svg>
+                            <p className="text-xs text-amber-700 dark:text-amber-400">A Lovable prompt was already sent for this job. Shown below for reference.</p>
+                          </div>
+                          {lovableBlock?.prompt && (
+                            <pre className="text-xs whitespace-pre-wrap text-gray-500 dark:text-gray-400 bg-gray-50 dark:bg-gray-800 rounded-lg p-3 max-h-48 overflow-y-auto">{lovableBlock.prompt}</pre>
+                          )}
+                        </div>
+                      ) : lovableBlock?.prompt ? (
+                        <div className="space-y-3">
+                          {lovableBlock.analysis && (
+                            <details className="text-xs text-gray-500 dark:text-gray-400">
+                              <summary className="cursor-pointer font-medium hover:text-gray-700 dark:hover:text-gray-300">Mockup Analysis</summary>
+                              <pre className="mt-2 whitespace-pre-wrap bg-gray-50 dark:bg-gray-800 rounded-lg p-3 text-xs">{lovableBlock.analysis}</pre>
+                            </details>
+                          )}
+                          <pre className="text-xs whitespace-pre-wrap text-gray-700 dark:text-gray-300 bg-gray-50 dark:bg-gray-800 rounded-lg p-3 max-h-64 overflow-y-auto border border-gray-200 dark:border-gray-700">{lovableBlock.prompt}</pre>
+                          <button
+                            onClick={async () => {
+                              try {
+                                await navigator.clipboard.writeText(lovableBlock.prompt);
+                                setLovablePromptCopied(true);
+                                setTimeout(() => setLovablePromptCopied(false), 2000);
+                              } catch { /* silent */ }
+                            }}
+                            className={`inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md transition-all ${
+                              lovablePromptCopied
+                                ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400'
+                                : 'bg-violet-600 text-white hover:bg-violet-700'
+                            }`}
+                          >
+                            {lovablePromptCopied ? 'Copied!' : 'Copy Prompt'}
+                          </button>
+                        </div>
+                      ) : null}
+                    </div>
+                  </div>
+                )}
+
+                {/* Block 3 — Follow-Up */}
+                {followUpBlock !== null && (
+                  <div className="card">
+                    <div className="px-5 py-3 border-b border-gray-200 dark:border-gray-800 flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400">Follow-Up</span>
+                        {followUpBlock?.label && !followUpBlock?.loading && (
+                          <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400 border border-blue-200 dark:border-blue-800">
+                            {followUpBlock.label}
+                          </span>
+                        )}
+                      </div>
+                      {!followUpBlock?.loading && (
+                        <button
+                          onClick={handleRegenerateFollowUp}
+                          disabled={generatingFollowUp}
+                          className="text-xs text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300 disabled:opacity-50"
+                        >
+                          {generatingFollowUp ? <Spinner /> : 'Regenerate'}
+                        </button>
+                      )}
+                    </div>
+                    <div className="p-5">
+                      {followUpBlock?.loading ? (
+                        <div className="flex items-center gap-2 text-xs text-gray-400">
+                          <Spinner /> Generating follow-up…
+                        </div>
+                      ) : followUpBlock?.error ? (
+                        <p className="text-xs text-red-500">{followUpBlock.error}</p>
+                      ) : followUpBlock?.text ? (
+                        <div className="space-y-3">
+                          <textarea
+                            value={followUpBlock.text}
+                            onChange={(e) => setFollowUpBlock(prev => ({ ...prev, text: e.target.value }))}
+                            rows={5}
+                            className="w-full px-4 py-3 text-sm rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 focus:outline-none focus:ring-2 focus:ring-brand-500 resize-y font-sans leading-relaxed"
+                          />
+                          <div className="flex items-center justify-between gap-2">
+                            <button
+                              onClick={async () => {
+                                try {
+                                  await navigator.clipboard.writeText(followUpBlock.text);
+                                  setFollowUpCopied(true);
+                                  setTimeout(() => setFollowUpCopied(false), 2000);
+                                } catch { /* silent */ }
+                              }}
+                              className={`inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md transition-all ${
+                                followUpCopied
+                                  ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400'
+                                  : 'bg-gray-900 text-white dark:bg-gray-100 dark:text-gray-900 hover:bg-gray-800 dark:hover:bg-gray-200'
+                              }`}
+                            >
+                              {followUpCopied ? 'Copied!' : 'Copy Follow-Up'}
+                            </button>
+                            {followUpBlock.suggestedDate && (
+                              <p className="text-xs text-gray-400 dark:text-gray-500">
+                                Suggested: send on{' '}
+                                <span className="font-medium text-gray-600 dark:text-gray-300">
+                                  {new Date(followUpBlock.suggestedDate + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' })}
+                                </span>
+                              </p>
+                            )}
+                          </div>
+                        </div>
+                      ) : (
+                        <p className="text-xs text-gray-400 dark:text-gray-500">No follow-up generated.</p>
+                      )}
+                    </div>
+                  </div>
+                )}
+
               </div>
             </div>
           </div>

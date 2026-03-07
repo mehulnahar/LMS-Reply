@@ -34,6 +34,33 @@ const {
 
 const router = express.Router();
 
+// ────────────────────────────────────────────────────────────
+// Shared helpers
+// ────────────────────────────────────────────────────────────
+async function callClaudeHelper(systemPrompt, userMessage, apiKey, model = 'claude-sonnet-4-6', maxTokens = 1024) {
+  const body = { model, max_tokens: maxTokens, messages: [{ role: 'user', content: userMessage }] };
+  if (systemPrompt) body.system = systemPrompt;
+  const res = await fetch('https://api.anthropic.com/v1/messages', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'x-api-key': apiKey, 'anthropic-version': '2023-06-01' },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) throw new Error(`Claude API error: ${res.status}`);
+  const data = await res.json();
+  return data.content?.[0]?.text || '';
+}
+
+function getNextBusinessDay(daysAhead) {
+  const date = new Date();
+  let added = 0;
+  while (added < daysAhead) {
+    date.setDate(date.getDate() + 1);
+    const day = date.getDay();
+    if (day !== 0 && day !== 6) added++;
+  }
+  return date.toISOString().split('T')[0];
+}
+
 const TONES = {
   professional: "You write in a professional, business-appropriate tone. Be courteous but direct.",
   friendly: "You write in a warm, friendly tone while remaining professional. Use a conversational style.",
@@ -75,7 +102,7 @@ async function getBannedPhrases(dbPool) {
 // ============================================================
 router.post("/generate", requireAuth, async (req, res, next) => {
   try {
-    const { emailId, tone = "professional", promptOverride, source } = req.body;
+    const { emailId, tone = "professional", promptOverride, source, generateAll = false } = req.body;
 
     // ──────────────────────────────────────────────────────────
     // Step 0: Validate + load auth data
@@ -316,7 +343,10 @@ router.post("/generate", requireAuth, async (req, res, next) => {
 
     // ──────────────────────────────────────────────────────────
     // Step 2.5b: Mockup Decision Gate (MOCKUP-01, MOCKUP-05)
+    // Always compute — used by both LOVABLE_MOCKUP_V1 gating and generateAll [link] hint
     // ──────────────────────────────────────────────────────────
+    const mockupDecisionGlobal = evaluateMockupDecision(job, email);
+
     if (promptType === 'LOVABLE_MOCKUP_V1') {
       // MOCKUP-05: Follow-Up Day 7 gate — block mockup generation after 2 follow-ups
       if (job && job.follow_up_count >= 2) {
@@ -327,13 +357,11 @@ router.post("/generate", requireAuth, async (req, res, next) => {
         });
       }
 
-      // MOCKUP-01: Decision matrix — check if job type is appropriate for mockup
-      const decision = evaluateMockupDecision(job, email);
-      if (!decision.shouldBuild) {
+      if (!mockupDecisionGlobal.shouldBuild) {
         return res.json({
           mockupDeclined: true,
-          reason: `Not a visual project type (${decision.projectType})`,
-          alternativeSuggestion: decision.alternativeSuggestion,
+          reason: `Not a visual project type (${mockupDecisionGlobal.projectType})`,
+          alternativeSuggestion: mockupDecisionGlobal.alternativeSuggestion,
         });
       }
     }
@@ -514,7 +542,11 @@ router.post("/generate", requireAuth, async (req, res, next) => {
     const isJanetPersona = outreachAlias && /\bjanet\b/i.test(outreachAlias.split('@')[0]);
 
     const threadContext = { threadStage, clientMessageLength, stallType, ccContacts: filteredCcContacts, isJanetPersona, outreachAlias };
-    const systemPrompt = buildPromptWithContext(templateContent, email, job, linkAnalysis, tone, promptType, objectionContext, threadContext, timezoneCTA, pricingDetection);
+    let systemPrompt = buildPromptWithContext(templateContent, email, job, linkAnalysis, tone, promptType, objectionContext, threadContext, timezoneCTA, pricingDetection);
+    // generateAll: if mockup is appropriate for this project, add [link] placeholder hint to reply
+    if (generateAll && mockupDecisionGlobal.shouldBuild && !(job && job.follow_up_count >= 2)) {
+      systemPrompt += '\n\n**Mockup Note (generateAll mode):** A visual concept is appropriate for this project. Naturally include ONE short sentence in your reply referencing a quick visual concept you prepared, using exactly `[link]` as the placeholder URL. Keep it casual and human. Example: "I also put together a quick visual — [link] — let me know what you think."';
+    }
     const userMessage = buildUserMessage(email, job);
 
     const claudeController = new AbortController();
@@ -910,10 +942,133 @@ router.post("/generate", requireAuth, async (req, res, next) => {
       responseBody.warning = prefetchWarnings.join("; ");
     }
 
+    // ──────────────────────────────────────────────────────────
+    // generateAll: run lovable + follow-up in parallel
+    // ──────────────────────────────────────────────────────────
+    if (generateAll) {
+      const mockupApplicable = mockupDecisionGlobal.shouldBuild && !(job && job.follow_up_count >= 2);
+      const mockupAlreadySent = !!(job && job.mockup_lovable_prompt);
+
+      const [lovableResult, followUpResult] = await Promise.allSettled([
+        // ── Lovable block ────────────────────────────────────
+        (async () => {
+          if (!mockupApplicable) {
+            return { applicable: false, reason: mockupDecisionGlobal.alternativeSuggestion };
+          }
+          if (mockupAlreadySent) {
+            return { applicable: true, alreadySent: true, prompt: job.mockup_lovable_prompt };
+          }
+          const lovableTemplate = await getPromptTemplate('LOVABLE_MOCKUP_V1', req.user.id, pool);
+          const lovableSystem = buildPromptWithContext(lovableTemplate, email, job, linkAnalysis, 'professional', 'LOVABLE_MOCKUP_V1', objectionContext, threadContext, timezoneCTA, pricingDetection);
+          const lovableRaw = await callClaudeHelper(lovableSystem, buildUserMessage(email, job), anthropicKey, 'claude-sonnet-4-6', 2048);
+          const parsed = parseMockupOutput(lovableRaw);
+          if (job && job.id && parsed.lovablePrompt) {
+            pool.query('UPDATE jobs SET mockup_lovable_prompt = $1 WHERE id = $2', [parsed.lovablePrompt, job.id]).catch(() => {});
+          }
+          return { applicable: true, alreadySent: false, prompt: parsed.lovablePrompt, analysis: parsed.mockupAnalysis };
+        })(),
+
+        // ── Follow-up block ──────────────────────────────────
+        (async () => {
+          const clientName = job
+            ? ([job.client_first_name, job.client_last_name].filter(Boolean).join(' ') || 'them')
+            : 'them';
+          const projectType = job?.job_heading || 'their project';
+          const suggestedDate = getNextBusinessDay(3);
+          const dateLabel = new Date(suggestedDate + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' });
+          const snippet = (email.body_text || email.snippet || '').slice(0, 300);
+          const fuMsg = `Write a short follow-up email (max 60 words) to ${clientName} about their project: "${projectType}". Context from their email: "${snippet}". Rules: natural, human, no buzzwords, no "I hope this finds you", no subject line. Sign off as:\nBest,\nAshish\nHipHype Tech`;
+          const fuText = await callClaudeHelper(null, fuMsg, anthropicKey, 'claude-3-5-haiku-20241022', 256);
+          return { text: fuText.trim(), suggestedDate, label: `Send ${dateLabel}` };
+        })(),
+      ]);
+
+      responseBody.lovable = lovableResult.status === 'fulfilled'
+        ? lovableResult.value
+        : { applicable: false, error: lovableResult.reason?.message };
+      responseBody.followUp = followUpResult.status === 'fulfilled'
+        ? followUpResult.value
+        : { text: '', error: followUpResult.reason?.message };
+    }
+
     res.json(responseBody);
   } catch (err) {
     next(err);
   }
+});
+
+// ============================================================
+// POST /api/replies/regenerate-lovable — regen lovable block only
+// POST /api/replies/regenerate-followup — regen follow-up block only
+// ============================================================
+async function loadEmailAndJob(emailId, userId, dbPool) {
+  const { rows: emailRows } = await dbPool.query(
+    `SELECT e.*, a.email AS account_email FROM emails e
+     JOIN email_accounts a ON e.account_id = a.id
+     WHERE e.id = $1 AND e.user_id = $2`,
+    [emailId, userId]
+  );
+  if (emailRows.length === 0) return { email: null, job: null };
+  const email = emailRows[0];
+  const { rows: jobRows } = await dbPool.query(
+    "SELECT * FROM jobs WHERE email_id = $1 AND match_status = 'matched'",
+    [email.id]
+  );
+  return { email, job: jobRows[0] || null };
+}
+
+router.post('/regenerate-lovable', requireAuth, async (req, res, next) => {
+  try {
+    const { emailId } = req.body;
+    if (!emailId) return res.status(400).json({ error: 'emailId required' });
+    const { rows: keyRows } = await pool.query(
+      "SELECT encrypted_key, iv, auth_tag FROM api_keys WHERE user_id = $1 AND service = 'anthropic'",
+      [req.user.id]
+    );
+    if (keyRows.length === 0) return res.status(400).json({ error: 'Anthropic API key not configured' });
+    const anthropicKey = decrypt(keyRows[0].encrypted_key, keyRows[0].iv, keyRows[0].auth_tag);
+    const { email, job } = await loadEmailAndJob(emailId, req.user.id, pool);
+    if (!email) return res.status(404).json({ error: 'Email not found' });
+
+    const decision = evaluateMockupDecision(job, email);
+    if (!decision.shouldBuild) {
+      return res.json({ applicable: false, reason: decision.alternativeSuggestion });
+    }
+    const lovableTemplate = await getPromptTemplate('LOVABLE_MOCKUP_V1', req.user.id, pool);
+    const lovableSystem = buildPromptWithContext(lovableTemplate, email, job, null, 'professional', 'LOVABLE_MOCKUP_V1', {}, {}, '11 AM your time', null);
+    const lovableRaw = await callClaudeHelper(lovableSystem, buildUserMessage(email, job), anthropicKey, 'claude-sonnet-4-6', 2048);
+    const parsed = parseMockupOutput(lovableRaw);
+    if (job && job.id && parsed.lovablePrompt) {
+      pool.query('UPDATE jobs SET mockup_lovable_prompt = $1 WHERE id = $2', [parsed.lovablePrompt, job.id]).catch(() => {});
+    }
+    res.json({ applicable: true, alreadySent: false, prompt: parsed.lovablePrompt, analysis: parsed.mockupAnalysis });
+  } catch (err) { next(err); }
+});
+
+router.post('/regenerate-followup', requireAuth, async (req, res, next) => {
+  try {
+    const { emailId } = req.body;
+    if (!emailId) return res.status(400).json({ error: 'emailId required' });
+    const { rows: keyRows } = await pool.query(
+      "SELECT encrypted_key, iv, auth_tag FROM api_keys WHERE user_id = $1 AND service = 'anthropic'",
+      [req.user.id]
+    );
+    if (keyRows.length === 0) return res.status(400).json({ error: 'Anthropic API key not configured' });
+    const anthropicKey = decrypt(keyRows[0].encrypted_key, keyRows[0].iv, keyRows[0].auth_tag);
+    const { email, job } = await loadEmailAndJob(emailId, req.user.id, pool);
+    if (!email) return res.status(404).json({ error: 'Email not found' });
+
+    const clientName = job
+      ? ([job.client_first_name, job.client_last_name].filter(Boolean).join(' ') || 'them')
+      : 'them';
+    const projectType = job?.job_heading || 'their project';
+    const suggestedDate = getNextBusinessDay(3);
+    const dateLabel = new Date(suggestedDate + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' });
+    const snippet = (email.body_text || email.snippet || '').slice(0, 300);
+    const fuMsg = `Write a short follow-up email (max 60 words) to ${clientName} about their project: "${projectType}". Context from their email: "${snippet}". Rules: natural, human, no buzzwords, no "I hope this finds you", no subject line. Sign off as:\nBest,\nAshish\nHipHype Tech`;
+    const fuText = await callClaudeHelper(null, fuMsg, anthropicKey, 'claude-3-5-haiku-20241022', 256);
+    res.json({ text: fuText.trim(), suggestedDate, label: `Send ${dateLabel}` });
+  } catch (err) { next(err); }
 });
 
 // ============================================================
