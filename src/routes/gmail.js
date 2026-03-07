@@ -321,16 +321,18 @@ router.post("/accounts/:id/sync", requireAuth, async (req, res, next) => {
         }
       }
       // 2. From CC: of SENT emails — monitoring addresses (e.g. hiphype60@gmail.com)
+      // Only keep addresses whose local part contains "ashish", "janet", or "hiphype".
       if (metaFrom === primaryEmail && metaCcRaw) {
         for (const ccAddr of parseEmails(metaCcRaw)) {
-          if (ccAddr && ccAddr !== primaryEmail) {
-            pool.query(
-              `INSERT INTO user_email_aliases (user_id, alias_email, label)
-               VALUES ($1, $2, 'monitoring')
-               ON CONFLICT (user_id, alias_email) DO NOTHING`,
-              [req.user.id, ccAddr]
-            ).catch((e) => console.error("alias auto-detect (sent CC) failed:", e.message));
-          }
+          if (!ccAddr || ccAddr === primaryEmail) continue;
+          const local = ccAddr.split("@")[0].toLowerCase();
+          if (!local.includes("ashish") && !local.includes("janet") && !local.includes("hiphype")) continue;
+          pool.query(
+            `INSERT INTO user_email_aliases (user_id, alias_email, label)
+             VALUES ($1, $2, 'monitoring')
+             ON CONFLICT (user_id, alias_email) DO NOTHING`,
+            [req.user.id, ccAddr]
+          ).catch((e) => console.error("alias auto-detect (sent CC) failed:", e.message));
         }
       }
 
@@ -480,9 +482,11 @@ router.post("/aliases/detect", requireAuth, async (req, res, next) => {
           return (m ? m[1] : part).trim().toLowerCase() || null;
         };
 
-        // Fetch 10 inbox + 10 sent messages in parallel
+        // Fetch 10 client replies + 10 sent messages in parallel.
+        // Use -from:me (not -in:sent) so scheduled/future-dated outgoing emails
+        // are excluded — they don't have the SENT label yet and pollute results.
         const [inboxRes, sentRes] = await Promise.all([
-          gmail.users.messages.list({ userId: "me", q: "subject:Upwork -in:sent", maxResults: 10 }),
+          gmail.users.messages.list({ userId: "me", q: `subject:Upwork -from:${primaryEmail}`, maxResults: 10 }),
           gmail.users.messages.list({ userId: "me", q: "subject:Upwork in:sent", maxResults: 10 }),
         ]);
 
@@ -515,9 +519,14 @@ router.post("/aliases/detect", requireAuth, async (req, res, next) => {
               if (addr && addr !== primaryEmail) toInsert.push({ email: addr, label: "auto-detected" });
             }
           } else if (fromEmail === primaryEmail && ccRaw) {
-            // Ashish's sent email — CC reveals monitoring/outreach aliases
+            // Ashish's sent email — CC reveals monitoring/outreach aliases.
+            // Only keep addresses whose local part contains "ashish", "janet", or "hiphype"
+            // so client colleagues (kiruthika@, susindharan@, joebrown@, etc.) are excluded.
             for (const addr of localParseEmails(ccRaw)) {
-              if (addr && addr !== primaryEmail) toInsert.push({ email: addr, label: "monitoring" });
+              if (!addr || addr === primaryEmail) continue;
+              const local = addr.split("@")[0].toLowerCase();
+              if (!local.includes("ashish") && !local.includes("janet") && !local.includes("hiphype")) continue;
+              toInsert.push({ email: addr, label: "monitoring" });
             }
           }
         }
