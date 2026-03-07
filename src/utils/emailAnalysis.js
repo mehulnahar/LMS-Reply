@@ -10,7 +10,7 @@
 const pool = require("../config/db");
 const { decrypt } = require("./encryption");
 
-const ANALYSIS_MODEL = "claude-haiku-4-5-20251001";
+const ANALYSIS_MODEL = "claude-sonnet-4-6";
 
 const SYSTEM_PROMPT = `You are an email analyst for an Upwork freelancer. Your job is to analyze client emails and extract structured signals.
 

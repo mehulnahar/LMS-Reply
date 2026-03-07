@@ -404,7 +404,7 @@ router.post("/generate", requireAuth, async (req, res, next) => {
                   'anthropic-version': '2023-06-01',
                 },
                 body: JSON.stringify({
-                  model: 'claude-haiku-4-5-20251001',
+                  model: 'claude-sonnet-4-6',
                   max_tokens: 50,
                   messages: [{ role: 'user', content: reEngagePrompt }],
                 }),
@@ -449,7 +449,7 @@ router.post("/generate", requireAuth, async (req, res, next) => {
             'anthropic-version': '2023-06-01',
           },
           body: JSON.stringify({
-            model: 'claude-haiku-4-5-20251001',
+            model: 'claude-sonnet-4-6',
             max_tokens: 50,
             messages: [{
               role: 'user',
@@ -978,7 +978,7 @@ router.post("/generate", requireAuth, async (req, res, next) => {
           const dateLabel = new Date(suggestedDate + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' });
           const snippet = (email.body_text || email.snippet || '').slice(0, 300);
           const fuMsg = `Write a short follow-up email (max 60 words) to ${clientName} about their project: "${projectType}". Context from their email: "${snippet}". Rules: natural, human, no buzzwords, no "I hope this finds you", no subject line. Sign off as:\nBest,\nAshish\nHipHype Tech`;
-          const fuText = await callClaudeHelper(null, fuMsg, anthropicKey, 'claude-haiku-4-5-20251001', 256);
+          const fuText = await callClaudeHelper(null, fuMsg, anthropicKey, 'claude-sonnet-4-6', 256);
           return { text: fuText.trim(), suggestedDate, label: `Send ${dateLabel}` };
         })(),
       ]);
@@ -1066,7 +1066,7 @@ router.post('/regenerate-followup', requireAuth, async (req, res, next) => {
     const dateLabel = new Date(suggestedDate + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' });
     const snippet = (email.body_text || email.snippet || '').slice(0, 300);
     const fuMsg = `Write a short follow-up email (max 60 words) to ${clientName} about their project: "${projectType}". Context from their email: "${snippet}". Rules: natural, human, no buzzwords, no "I hope this finds you", no subject line. Sign off as:\nBest,\nAshish\nHipHype Tech`;
-    const fuText = await callClaudeHelper(null, fuMsg, anthropicKey, 'claude-haiku-4-5-20251001', 256);
+    const fuText = await callClaudeHelper(null, fuMsg, anthropicKey, 'claude-sonnet-4-6', 256);
     res.json({ text: fuText.trim(), suggestedDate, label: `Send ${dateLabel}` });
   } catch (err) { next(err); }
 });
@@ -1602,7 +1602,7 @@ async function checkFollowUpSpecificity(text, clientName, projectType, anthropic
         "anthropic-version": "2023-06-01",
       },
       body: JSON.stringify({
-        model: "claude-haiku-4-5-20251001",
+        model: "claude-sonnet-4-6",
         max_tokens: 10,
         messages: [{ role: "user", content: prompt }],
       }),
@@ -1636,7 +1636,7 @@ async function extractFollowUpAngle(text, anthropicKey) {
         "anthropic-version": "2023-06-01",
       },
       body: JSON.stringify({
-        model: "claude-haiku-4-5-20251001",
+        model: "claude-sonnet-4-6",
         max_tokens: 30,
         messages: [{ role: "user", content: prompt }],
       }),

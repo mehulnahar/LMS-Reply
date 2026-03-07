@@ -39,7 +39,7 @@ const DEFAULT_STAGE = 'DISCOVERY';
 const ANTHROPIC_API_URL = 'https://api.anthropic.com/v1/messages';
 
 /** Haiku model for lightweight classification */
-const HAIKU_MODEL = 'claude-haiku-4-5-20251001';
+const HAIKU_MODEL = 'claude-sonnet-4-6';
 
 // ---------------------------------------------------------------------------
 // classifyThreadStage(emailText, jobContext, anthropicKey) — THREAD-01
