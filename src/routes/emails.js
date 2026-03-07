@@ -131,6 +131,275 @@ router.get("/", requireAuth, async (req, res, next) => {
 });
 
 // ============================================================
+// GET /api/emails/threads — Thread-grouped inbox
+// ============================================================
+router.get("/threads", requireAuth, async (req, res, next) => {
+  try {
+    const { account, status, unread, search, limit = 50, offset = 0 } = req.query;
+
+    // Build WHERE clause for the base email scan (applied inside CTE)
+    let baseWhere = "WHERE e.user_id = $1";
+    const baseParams = [req.user.id];
+    let idx = 2;
+
+    if (account) {
+      baseWhere += ` AND e.account_id = $${idx}`;
+      baseParams.push(account);
+      idx++;
+    }
+
+    if (search) {
+      baseWhere += ` AND (e.subject ILIKE $${idx} OR e.from_name ILIKE $${idx} OR e.from_email ILIKE $${idx})`;
+      baseParams.push(`%${search}%`);
+      idx++;
+    }
+
+    // Post-CTE filters (applied on the outer SELECT)
+    let outerWhere = "";
+    const outerConditions = [];
+    if (status) {
+      outerConditions.push(`tl.status = $${idx}`);
+      baseParams.push(status);
+      idx++;
+    }
+    if (unread === "true") {
+      outerConditions.push("ta.any_unread = true");
+    }
+    if (outerConditions.length > 0) {
+      outerWhere = "WHERE " + outerConditions.join(" AND ");
+    }
+
+    // Pagination params
+    const limitIdx = idx;
+    const offsetIdx = idx + 1;
+    baseParams.push(parseInt(limit), parseInt(offset));
+
+    // CTE: get the latest email per thread + aggregated signals
+    const query = `
+      WITH filtered AS (
+        SELECT
+          e.id, e.thread_id, e.from_name, e.from_email, e.subject, e.snippet,
+          e.received_at, e.is_unread, e.status, e.lead_score, e.has_phone,
+          e.has_urgency, e.is_ooo, e.is_redirect, e.intent, e.summary,
+          e.extracted_phone, e.account_id
+        FROM emails e
+        ${baseWhere}
+      ),
+      thread_latest AS (
+        SELECT DISTINCT ON (thread_id) *
+        FROM filtered
+        ORDER BY thread_id, received_at DESC
+      ),
+      thread_agg AS (
+        SELECT
+          thread_id,
+          COUNT(*) AS message_count,
+          BOOL_OR(is_unread) AS any_unread,
+          MAX(lead_score) AS max_score,
+          MAX(CASE WHEN has_urgency THEN 1 ELSE 0 END) = 1 AS any_urgency,
+          MAX(CASE WHEN has_phone THEN 1 ELSE 0 END) = 1 AS any_phone,
+          STRING_AGG(DISTINCT extracted_phone, ', ') FILTER (WHERE extracted_phone IS NOT NULL) AS all_phones
+        FROM filtered
+        GROUP BY thread_id
+      )
+      SELECT
+        tl.*,
+        ta.message_count, ta.any_unread, ta.max_score, ta.any_urgency, ta.any_phone,
+        ta.all_phones,
+        a.email AS account_email, a.color AS account_color,
+        j.id AS job_id, j.job_heading, j.match_status
+      FROM thread_latest tl
+      JOIN thread_agg ta ON tl.thread_id = ta.thread_id
+      JOIN email_accounts a ON tl.account_id = a.id
+      LEFT JOIN jobs j ON j.email_id = tl.id
+      ${outerWhere}
+      ORDER BY tl.received_at DESC
+      LIMIT $${limitIdx} OFFSET $${offsetIdx}
+    `;
+
+    const { rows } = await pool.query(query, baseParams);
+
+    // Count total threads (for pagination) — same CTE, no LIMIT/OFFSET
+    const countParams = baseParams.slice(0, -2); // exclude limit/offset
+    const countQuery = `
+      WITH filtered AS (
+        SELECT e.thread_id, e.is_unread, e.received_at, e.status
+        FROM emails e
+        ${baseWhere}
+      ),
+      thread_summary AS (
+        SELECT
+          thread_id,
+          BOOL_OR(is_unread) AS any_unread,
+          (ARRAY_AGG(status ORDER BY received_at DESC))[1] AS latest_status
+        FROM filtered
+        GROUP BY thread_id
+      )
+      SELECT COUNT(*) FROM thread_summary
+      ${status || unread === "true" ? "WHERE " : ""}
+      ${status ? `latest_status = $${countParams.length}` : ""}
+      ${status && unread === "true" ? " AND " : ""}
+      ${unread === "true" ? "any_unread = true" : ""}
+    `;
+    const { rows: countRows } = await pool.query(countQuery, countParams);
+
+    res.json({
+      threads: rows.map((r) => ({
+        id: r.id,
+        threadId: r.thread_id,
+        accountId: r.account_id,
+        accountEmail: r.account_email,
+        accountColor: r.account_color,
+        fromEmail: r.from_email,
+        fromName: r.from_name,
+        subject: r.subject,
+        snippet: r.snippet,
+        receivedAt: r.received_at,
+        isUnread: r.any_unread,
+        status: r.status,
+        leadScore: r.max_score,
+        hasPhone: r.any_phone,
+        hasUrgency: r.any_urgency,
+        isOoo: r.is_ooo,
+        isRedirect: r.is_redirect,
+        extractedPhone: r.all_phones || r.extracted_phone,
+        intent: r.intent,
+        summary: r.summary,
+        jobId: r.job_id,
+        jobHeading: r.job_heading,
+        jobMatchStatus: r.match_status,
+        messageCount: parseInt(r.message_count),
+      })),
+      total: parseInt(countRows[0].count),
+      limit: parseInt(limit),
+      offset: parseInt(offset),
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// ============================================================
+// GET /api/emails/thread/:threadId — Full conversation view
+// ============================================================
+router.get("/thread/:threadId", requireAuth, async (req, res, next) => {
+  try {
+    const { threadId } = req.params;
+
+    // Get all emails in this thread
+    const { rows: emailRows } = await pool.query(
+      `SELECT e.*, a.email AS account_email, a.color AS account_color, a.display_name AS account_name
+       FROM emails e
+       JOIN email_accounts a ON e.account_id = a.id
+       WHERE e.thread_id = $1 AND e.user_id = $2
+       ORDER BY e.received_at ASC`,
+      [threadId, req.user.id]
+    );
+
+    if (emailRows.length === 0) {
+      return res.status(404).json({ error: "Thread not found" });
+    }
+
+    const emailIds = emailRows.map((e) => e.id);
+
+    // Get job matched to ANY email in this thread
+    const { rows: jobRows } = await pool.query(
+      "SELECT * FROM jobs WHERE email_id = ANY($1) ORDER BY matched_at DESC LIMIT 1",
+      [emailIds]
+    );
+
+    // Get all replies across the thread
+    const { rows: replyRows } = await pool.query(
+      "SELECT * FROM replies WHERE email_id = ANY($1) ORDER BY created_at DESC",
+      [emailIds]
+    );
+
+    const job = jobRows.length > 0 ? jobRows[0] : null;
+
+    res.json({
+      emails: emailRows.map((email) => ({
+        id: email.id,
+        accountId: email.account_id,
+        accountEmail: email.account_email,
+        accountColor: email.account_color,
+        accountName: email.account_name,
+        fromEmail: email.from_email,
+        fromName: email.from_name,
+        subject: email.subject,
+        snippet: email.snippet,
+        bodyText: email.body_text,
+        bodyHtml: email.body_html,
+        receivedAt: email.received_at,
+        isUnread: email.is_unread,
+        status: email.status,
+        leadScore: email.lead_score,
+        hasPhone: email.has_phone,
+        hasUrgency: email.has_urgency,
+        isOoo: email.is_ooo,
+        isRedirect: email.is_redirect,
+        extractedPhone: email.extracted_phone,
+        intent: email.intent,
+        summary: email.summary,
+        openCount: email.open_count || 0,
+        hotSignalFlagged: email.hot_signal_flagged || false,
+      })),
+      job: job ? {
+        id: job.id,
+        emailId: job.email_id,
+        leadhackId: job.leadhack_id,
+        clientFirstName: job.client_first_name,
+        clientLastName: job.client_last_name,
+        clientEmail: job.client_email,
+        emailSubject: job.email_subject,
+        jobHeading: job.job_heading,
+        jobDescription: job.job_description,
+        matchStatus: job.match_status,
+        matchedAt: job.matched_at,
+        upworkLink: job.upwork_link || null,
+        country: job.country || null,
+        city: job.city || null,
+        company: job.company || null,
+        workload: job.workload || null,
+        duration: job.duration || null,
+        paymentType: job.payment_type || null,
+        amount: job.amount || null,
+        hourlyBudgetMin: job.hourly_budget_min || null,
+        hourlyBudgetMax: job.hourly_budget_max || null,
+        hourlyBudgetType: job.hourly_budget_type || null,
+        isPaymentVerified: job.is_payment_verified || null,
+        isEnterprise: job.is_enterprise || null,
+        buyerHistoryAmount: job.buyer_history_amount || null,
+        avgHourlyRate: job.avg_hourly_rate || null,
+        totalJobsPosted: job.total_jobs_posted || null,
+        totalJobsWithHires: job.total_jobs_with_hires || null,
+        contractorTier: job.contractor_tier || null,
+        category: job.category || null,
+        subCategory: job.sub_category || null,
+        industry: job.industry || null,
+        leadId: job.lead_id || null,
+        v2EnrichedAt: job.v2_enriched_at || null,
+        threadStage: job.thread_stage || null,
+        clientRequestedProposal: job.client_requested_proposal || false,
+        mockupSent: job.mockup_sent || false,
+      } : null,
+      replies: replyRows.map((r) => ({
+        id: r.id,
+        emailId: r.email_id,
+        tone: r.tone,
+        intent: r.intent,
+        generatedText: r.generated_text,
+        editedText: r.edited_text,
+        wasCopied: r.was_copied,
+        model: r.model,
+        createdAt: r.created_at,
+      })),
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// ============================================================
 // GET /api/emails/:id — Full email detail with job + replies
 // ============================================================
 router.get("/:id", requireAuth, async (req, res, next) => {

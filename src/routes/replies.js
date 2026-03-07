@@ -26,6 +26,7 @@ const {
   parseNextStepBlock,
 } = require('../utils/detectThreadContext');
 const { evaluateMockupDecision } = require('../utils/mockupDecision');
+const { findJobForEmail } = require('../utils/threadJobLookup');
 const {
   detectPricingLanguage,
   appendSignatureBlock,
@@ -187,13 +188,8 @@ router.post("/generate", requireAuth, async (req, res, next) => {
 
     const email = emailRows[0];
 
-    // Get job context if available
-    const { rows: jobRows } = await pool.query(
-      "SELECT * FROM jobs WHERE email_id = $1 AND match_status = 'matched'",
-      [email.id]
-    );
-
-    const job = jobRows.length > 0 ? jobRows[0] : null;
+    // Get job context if available (direct match first, then thread-wide fallback)
+    const job = await findJobForEmail(pool, email, req.user.id);
 
     // Compute thread depth if job exists and thread_depth is 0
     if (job && (job.thread_depth === 0 || job.thread_depth === null)) {

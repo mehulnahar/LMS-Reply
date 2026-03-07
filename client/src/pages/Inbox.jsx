@@ -168,12 +168,14 @@ function sanitizeHtml(html) {
 }
 
 export default function Inbox() {
-  const [emails, setEmails] = useState([]);
+  const [threads, setThreads] = useState([]);
   const [accounts, setAccounts] = useState([]);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
   const [syncing, setSyncing] = useState(false);
-  const [selectedId, setSelectedId] = useState(null);
+  const [selectedThreadId, setSelectedThreadId] = useState(null);
+  const [threadEmails, setThreadEmails] = useState([]);  // all emails in selected thread
+  const [activeEmailId, setActiveEmailId] = useState(null);  // which email is active
   const [detail, setDetail] = useState(null);
   const [detailLoading, setDetailLoading] = useState(false);
   const [filter, setFilter] = useState({ status: "", account: "" });
@@ -232,14 +234,14 @@ export default function Inbox() {
   // FLOW-01: Reactivation state
   const [reactivating, setReactivating] = useState(false);
 
-  const fetchEmails = useCallback(async () => {
+  const fetchThreads = useCallback(async () => {
     try {
       const params = {};
       if (filter.status) params.status = filter.status;
       if (filter.account) params.account = filter.account;
       if (filter.search) params.search = filter.search;
-      const data = await api.getEmails(params);
-      setEmails(data.emails || []);
+      const data = await api.getThreads(params);
+      setThreads(data.threads || []);
       setTotal(data.total || 0);
     } catch {
       // silent
@@ -249,15 +251,15 @@ export default function Inbox() {
   }, [filter]);
 
   useEffect(() => {
-    fetchEmails();
+    fetchThreads();
     api.getGmailAccounts().then(setAccounts).catch(() => {});
-  }, [fetchEmails]);
+  }, [fetchThreads]);
 
   const handleSync = async () => {
     setSyncing(true);
     try {
       await api.syncAllEmails();
-      await fetchEmails();
+      await fetchThreads();
     } catch {
       // silent
     } finally {
@@ -265,8 +267,8 @@ export default function Inbox() {
     }
   };
 
-  const selectEmail = async (id) => {
-    setSelectedId(id);
+  const selectThread = async (threadId) => {
+    setSelectedThreadId(threadId);
     setDetailLoading(true);
     setReplyText("");
     setActiveReplyId(null);
@@ -295,7 +297,7 @@ export default function Inbox() {
     setLovableBlock(null);
     setFollowUpBlocks(null);
     setReactivating(false);
-    // UIUP-01/05: Clear analysis/variant state on email switch
+    // UIUP-01/05: Clear analysis/variant state on thread switch
     setJobAnalysisBlock(null);
     setLinkAnalysisBlock(null);
     setVariantA(null);
@@ -303,17 +305,53 @@ export default function Inbox() {
     setSelectedVariant(null);
     // NOTE: Do NOT clear analysisOpen — it persists for the session
     try {
-      const data = await api.getEmail(id);
-      setDetail(data);
+      const data = await api.getThread(threadId);
+      // Thread response: { emails: [...], job, replies }
+      const emails = data.emails || [];
+      setThreadEmails(emails);
+      // Active email = latest in thread (last in chronological order)
+      const latestEmail = emails[emails.length - 1];
+      setActiveEmailId(latestEmail?.id || null);
+      // Build detail in same shape as old getEmail response for compatibility
+      setDetail({
+        email: latestEmail ? {
+          id: latestEmail.id,
+          accountId: latestEmail.accountId,
+          accountEmail: latestEmail.accountEmail,
+          accountColor: latestEmail.accountColor,
+          accountName: latestEmail.accountName,
+          fromEmail: latestEmail.fromEmail,
+          fromName: latestEmail.fromName,
+          subject: latestEmail.subject,
+          snippet: latestEmail.snippet,
+          bodyText: latestEmail.bodyText,
+          bodyHtml: latestEmail.bodyHtml,
+          receivedAt: latestEmail.receivedAt,
+          isUnread: latestEmail.isUnread,
+          status: latestEmail.status,
+          leadScore: latestEmail.leadScore,
+          hasPhone: latestEmail.hasPhone,
+          hasUrgency: latestEmail.hasUrgency,
+          isOoo: latestEmail.isOoo,
+          isRedirect: latestEmail.isRedirect,
+          extractedPhone: latestEmail.extractedPhone,
+          intent: latestEmail.intent,
+          summary: latestEmail.summary,
+          openCount: latestEmail.openCount || 0,
+          hotSignalFlagged: latestEmail.hotSignalFlagged || false,
+        } : null,
+        job: data.job,
+        replies: data.replies || [],
+      });
       if (data.replies?.length > 0) {
         const latest = data.replies[0];
         setReplyText(latest.editedText || latest.generatedText);
         setActiveReplyId(latest.id);
       }
       // Initialize thread awareness state from loaded data
-      if (data?.email) {
-        setEmailOpenCount(data.email.openCount || 0);
-        setHotSignalFlagged(data.email.hotSignalFlagged || false);
+      if (latestEmail) {
+        setEmailOpenCount(latestEmail.openCount || 0);
+        setHotSignalFlagged(latestEmail.hotSignalFlagged || false);
       }
       if (data?.job) {
         setClientRequestedProposal(data.job.clientRequestedProposal || false);
@@ -322,14 +360,19 @@ export default function Inbox() {
           api.getNextSteps(data.job.id).then(d => setNextSteps(d.nextSteps || [])).catch(() => {});
         }
       }
-      // Mark as read in the sidebar list
-      setEmails((prev) =>
-        prev.map((e) => (e.id === id ? { ...e, isUnread: false } : e))
+      // Mark thread as read in the sidebar list
+      setThreads((prev) =>
+        prev.map((t) => (t.threadId === threadId ? { ...t, isUnread: false } : t))
       );
-      // Persist to backend (fire-and-forget)
-      api.markEmailRead(id).catch(() => {});
+      // Persist to backend — mark all emails in thread as read
+      for (const email of emails) {
+        if (email.isUnread) {
+          api.markEmailRead(email.id).catch(() => {});
+        }
+      }
     } catch {
       setDetail(null);
+      setThreadEmails([]);
     } finally {
       setDetailLoading(false);
     }
@@ -604,7 +647,7 @@ export default function Inbox() {
         ...prev,
         email: { ...prev.email, status },
       }));
-      // Determine if email should be removed from current view
+      // Determine if thread should be removed from current view
       const currentFilter = filter.status;
       const shouldRemove = currentFilter && currentFilter !== status;
       // Also remove from "all" view when moving to replied/lost (FLOW-02)
@@ -613,15 +656,16 @@ export default function Inbox() {
 
       if (shouldRemove || shouldAutoMove) {
         // Remove from sidebar list (optimistic)
-        setEmails((prev) => prev.filter((e) => e.id !== detail.email.id));
+        setThreads((prev) => prev.filter((t) => t.threadId !== selectedThreadId));
         setTotal((prev) => Math.max(0, prev - 1));
-        // Clear selection if the removed email was selected
-        setSelectedId(null);
+        // Clear selection
+        setSelectedThreadId(null);
         setDetail(null);
+        setThreadEmails([]);
       } else {
         // Just update in-place
-        setEmails((prev) =>
-          prev.map((e) => (e.id === detail.email.id ? { ...e, status } : e))
+        setThreads((prev) =>
+          prev.map((t) => (t.threadId === selectedThreadId ? { ...t, status } : t))
         );
       }
     } catch {
@@ -644,8 +688,8 @@ export default function Inbox() {
           email: { ...prev.email, status: 'new' },
         }));
         // Update sidebar
-        setEmails((prev) =>
-          prev.map((e) => (e.id === detail.email.id ? { ...e, status: 'new', jobMatchStatus: 'matched' } : e))
+        setThreads((prev) =>
+          prev.map((t) => (t.threadId === selectedThreadId ? { ...t, status: 'new', jobMatchStatus: 'matched' } : t))
         );
         if (!result.followUpUnblocked) {
           alert(`Lead reactivated but follow-up generation remains blocked for ${result.daysRemaining} more days.`);
@@ -657,8 +701,8 @@ export default function Inbox() {
           ...prev,
           email: { ...prev.email, status: 'new' },
         }));
-        setEmails((prev) =>
-          prev.map((e) => (e.id === detail.email.id ? { ...e, status: 'new' } : e))
+        setThreads((prev) =>
+          prev.map((t) => (t.threadId === selectedThreadId ? { ...t, status: 'new' } : t))
         );
       }
       // Clear kill switch UI state if it was showing
@@ -746,7 +790,7 @@ export default function Inbox() {
   // UIUP-03: Copy-blocking when flag mode has unresolved violations
   const hasUnresolvedViolations = bannedPhraseMode === 'flag' && highlightedText !== null;
 
-  const noEmails = !loading && emails.length === 0;
+  const noEmails = !loading && threads.length === 0;
   const noAccounts = accounts.length === 0;
 
   return (
@@ -864,12 +908,12 @@ export default function Inbox() {
             </div>
           )}
 
-          {emails.map((email) => (
+          {threads.map((thread) => (
             <button
-              key={email.id}
-              onClick={() => selectEmail(email.id)}
+              key={thread.threadId}
+              onClick={() => selectThread(thread.threadId)}
               className={`w-full text-left px-4 py-3.5 border-b border-gray-100 dark:border-gray-800/50 transition-colors
-                ${selectedId === email.id
+                ${selectedThreadId === thread.threadId
                   ? "bg-brand-50 dark:bg-brand-900/10 border-l-2 border-l-brand-500"
                   : "hover:bg-gray-50 dark:hover:bg-gray-900 border-l-2 border-l-transparent"
                 }`}
@@ -878,44 +922,51 @@ export default function Inbox() {
                 {/* Account color dot */}
                 <div
                   className="w-2.5 h-2.5 rounded-full flex-shrink-0 mt-1.5"
-                  style={{ backgroundColor: email.accountColor || "#4F46E5" }}
-                  title={email.accountEmail}
+                  style={{ backgroundColor: thread.accountColor || "#4F46E5" }}
+                  title={thread.accountEmail}
                 />
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center justify-between gap-2">
-                    <span className={`text-sm truncate ${email.isUnread ? "font-semibold" : "font-medium text-gray-600 dark:text-gray-400"}`}>
-                      {email.fromName || email.fromEmail}
+                    <span className={`text-sm truncate ${thread.isUnread ? "font-semibold" : "font-medium text-gray-600 dark:text-gray-400"}`}>
+                      {thread.fromName || thread.fromEmail}
                     </span>
-                    <span className="text-xs text-gray-400 dark:text-gray-500 flex-shrink-0">
-                      {timeAgo(email.receivedAt)}
-                    </span>
+                    <div className="flex items-center gap-1.5 flex-shrink-0">
+                      {thread.messageCount > 1 && (
+                        <span className="inline-flex items-center justify-center min-w-[18px] h-[18px] px-1 rounded-full bg-gray-200 dark:bg-gray-700 text-[10px] font-semibold text-gray-600 dark:text-gray-300">
+                          {thread.messageCount}
+                        </span>
+                      )}
+                      <span className="text-xs text-gray-400 dark:text-gray-500">
+                        {timeAgo(thread.receivedAt)}
+                      </span>
+                    </div>
                   </div>
-                  <p className={`text-xs mt-0.5 truncate ${email.isUnread ? "text-gray-700 dark:text-gray-300" : "text-gray-500 dark:text-gray-500"}`}>
-                    {email.subject}
+                  <p className={`text-xs mt-0.5 truncate ${thread.isUnread ? "text-gray-700 dark:text-gray-300" : "text-gray-500 dark:text-gray-500"}`}>
+                    {thread.subject}
                   </p>
                   <div className="flex items-center gap-2 mt-1.5">
-                    {email.leadScore != null && (
-                      <span className={`text-[10px] font-bold ${scoreColor(email.leadScore)}`}>
-                        {email.leadScore}
+                    {thread.leadScore != null && (
+                      <span className={`text-[10px] font-bold ${scoreColor(thread.leadScore)}`}>
+                        {thread.leadScore}
                       </span>
                     )}
-                    {/* Hide "New" badge once the email has been read; show all other statuses always */}
-                    {(email.status !== "new" || email.isUnread) && (
-                      <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-medium ${STATUS_LABELS[email.status]?.color || ""}`}>
-                        {STATUS_LABELS[email.status]?.label || email.status}
+                    {/* Hide "New" badge once the thread has been read; show all other statuses always */}
+                    {(thread.status !== "new" || thread.isUnread) && (
+                      <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-medium ${STATUS_LABELS[thread.status]?.color || ""}`}>
+                        {STATUS_LABELS[thread.status]?.label || thread.status}
                       </span>
                     )}
-                    {email.intent && email.intent !== "general" && INTENT_LABELS[email.intent] && (
-                      <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-medium ${INTENT_LABELS[email.intent].color}`}>
-                        {INTENT_LABELS[email.intent].label}
+                    {thread.intent && thread.intent !== "general" && INTENT_LABELS[thread.intent] && (
+                      <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-medium ${INTENT_LABELS[thread.intent].color}`}>
+                        {INTENT_LABELS[thread.intent].label}
                       </span>
                     )}
-                    {email.hasUrgency && (
+                    {thread.hasUrgency && (
                       <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-red-100 text-red-600 dark:bg-red-900/30 dark:text-red-400 font-medium">
                         Urgent
                       </span>
                     )}
-                    {email.hasPhone && (
+                    {thread.hasPhone && (
                       <svg className="w-3 h-3 text-gray-400" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
                         <path strokeLinecap="round" strokeLinejoin="round" d="M2.25 6.75c0 8.284 6.716 15 15 15h2.25a2.25 2.25 0 002.25-2.25v-1.372c0-.516-.351-.966-.852-1.091l-4.423-1.106c-.44-.11-.902.055-1.173.417l-.97 1.293c-.282.376-.769.542-1.21.38a12.035 12.035 0 01-7.143-7.143c-.162-.441.004-.928.38-1.21l1.293-.97c.363-.271.527-.734.417-1.173L6.963 3.102a1.125 1.125 0 00-1.091-.852H4.5A2.25 2.25 0 002.25 4.5v2.25z" />
                       </svg>
@@ -930,7 +981,7 @@ export default function Inbox() {
 
       {/* ─── Right: Detail Panel ─── */}
       <div className="flex-1 flex flex-col bg-gray-50 dark:bg-gray-900 overflow-hidden">
-        {!selectedId && (
+        {!selectedThreadId && (
           <div className="flex-1 flex items-center justify-center">
             <div className="text-center">
               <svg className="w-12 h-12 text-gray-300 dark:text-gray-700 mx-auto mb-3" fill="none" stroke="currentColor" strokeWidth={1} viewBox="0 0 24 24">
@@ -941,13 +992,13 @@ export default function Inbox() {
           </div>
         )}
 
-        {selectedId && detailLoading && (
+        {selectedThreadId && detailLoading && (
           <div className="flex-1 flex items-center justify-center">
             <Spinner />
           </div>
         )}
 
-        {selectedId && detail && !detailLoading && (
+        {selectedThreadId && detail && !detailLoading && (
           <div className="flex-1 flex flex-col overflow-hidden">
             {/* Email Header */}
             <div className="px-6 py-4 bg-white dark:bg-gray-950 border-b border-gray-200 dark:border-gray-800">
@@ -1069,7 +1120,101 @@ export default function Inbox() {
                   </div>
                 )}
 
-                {/* Email body */}
+                {/* Conversation view — show all messages when thread has multiple emails */}
+                {threadEmails.length > 1 && (
+                  <div className="card p-4 space-y-0">
+                    <div className="flex items-center gap-2 mb-3">
+                      <svg className="w-4 h-4 text-gray-400" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M20.25 8.511c.884.284 1.5 1.128 1.5 2.097v4.286c0 1.136-.847 2.1-1.98 2.193-.34.027-.68.052-1.02.072v3.091l-3-3c-1.354 0-2.694-.055-4.02-.163a2.115 2.115 0 01-.825-.242m9.345-8.334a2.126 2.126 0 00-.476-.095 48.64 48.64 0 00-8.048 0c-1.131.094-1.976 1.057-1.976 2.192v4.286c0 .837.46 1.58 1.155 1.951m9.345-8.334V6.637c0-1.621-1.152-3.026-2.76-3.235A48.455 48.455 0 0011.25 3c-2.115 0-4.198.137-6.24.402-1.608.209-2.76 1.614-2.76 3.235v6.226c0 1.621 1.152 3.026 2.76 3.235.577.075 1.157.14 1.74.194V21l4.155-4.155" />
+                      </svg>
+                      <span className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide">
+                        Conversation ({threadEmails.length} messages)
+                      </span>
+                    </div>
+                    {threadEmails.map((msg, idx) => {
+                      const isLatest = idx === threadEmails.length - 1;
+                      const isActive = msg.id === activeEmailId;
+                      return (
+                        <div key={msg.id} className={`border-l-2 ${isActive ? 'border-brand-500' : 'border-gray-200 dark:border-gray-700'}`}>
+                          <button
+                            onClick={() => {
+                              setActiveEmailId(msg.id);
+                              setDetail(prev => ({
+                                ...prev,
+                                email: {
+                                  id: msg.id,
+                                  accountId: msg.accountId,
+                                  accountEmail: msg.accountEmail,
+                                  accountColor: msg.accountColor,
+                                  accountName: msg.accountName,
+                                  fromEmail: msg.fromEmail,
+                                  fromName: msg.fromName,
+                                  subject: msg.subject,
+                                  snippet: msg.snippet,
+                                  bodyText: msg.bodyText,
+                                  bodyHtml: msg.bodyHtml,
+                                  receivedAt: msg.receivedAt,
+                                  isUnread: msg.isUnread,
+                                  status: msg.status,
+                                  leadScore: msg.leadScore,
+                                  hasPhone: msg.hasPhone,
+                                  hasUrgency: msg.hasUrgency,
+                                  isOoo: msg.isOoo,
+                                  isRedirect: msg.isRedirect,
+                                  extractedPhone: msg.extractedPhone,
+                                  intent: msg.intent,
+                                  summary: msg.summary,
+                                  openCount: msg.openCount || 0,
+                                  hotSignalFlagged: msg.hotSignalFlagged || false,
+                                },
+                              }));
+                            }}
+                            className={`w-full text-left px-4 py-2.5 flex items-center justify-between gap-3 transition-colors
+                              ${isActive ? 'bg-brand-50/50 dark:bg-brand-900/5' : 'hover:bg-gray-50 dark:hover:bg-gray-800/50'}
+                              ${idx < threadEmails.length - 1 ? 'border-b border-gray-100 dark:border-gray-800/50' : ''}`}
+                          >
+                            <div className="flex items-center gap-2 min-w-0">
+                              <span className={`text-xs ${isActive ? 'font-semibold text-brand-600 dark:text-brand-400' : 'font-medium text-gray-600 dark:text-gray-400'}`}>
+                                {msg.fromName || msg.fromEmail}
+                              </span>
+                              {isLatest && (
+                                <span className="text-[10px] px-1.5 py-0.5 rounded bg-brand-100 text-brand-700 dark:bg-brand-900/30 dark:text-brand-400 font-medium">
+                                  Latest
+                                </span>
+                              )}
+                            </div>
+                            <span className="text-[10px] text-gray-400 dark:text-gray-500 flex-shrink-0">
+                              {new Date(msg.receivedAt).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}
+                            </span>
+                          </button>
+                          {isActive && (
+                            <div className="px-4 py-3 bg-white dark:bg-gray-900/50">
+                              {msg.bodyHtml ? (
+                                <div
+                                  className="prose prose-sm dark:prose-invert max-w-none text-sm leading-relaxed
+                                    [&_a]:text-brand-600 [&_a]:dark:text-brand-400 [&_a]:underline
+                                    [&_img]:max-w-full [&_img]:h-auto [&_img]:rounded
+                                    [&_table]:border-collapse [&_td]:p-1 [&_th]:p-1
+                                    [&_blockquote]:border-l-2 [&_blockquote]:border-gray-300 [&_blockquote]:pl-3 [&_blockquote]:italic"
+                                  dangerouslySetInnerHTML={{ __html: sanitizeHtml(msg.bodyHtml) }}
+                                />
+                              ) : msg.bodyText ? (
+                                <div className="prose prose-sm dark:prose-invert max-w-none text-sm leading-relaxed whitespace-pre-wrap">
+                                  {msg.bodyText}
+                                </div>
+                              ) : (
+                                <p className="text-sm text-gray-400">{msg.snippet || "(No content)"}</p>
+                              )}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+
+                {/* Email body — shown only for single-message threads */}
+                {threadEmails.length <= 1 && (
                 <div className="card p-5">
                   {detail.email.bodyHtml ? (
                     <div
@@ -1090,6 +1235,7 @@ export default function Inbox() {
                     </div>
                   )}
                 </div>
+                )}
 
                 {/* Job Context Panel */}
                 <div className="card">

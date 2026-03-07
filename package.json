@@ -58,7 +58,8 @@
           "<rootDir>/src/tests/detect-signals.test.js",
           "<rootDir>/src/tests/lovable-generator.test.js",
           "<rootDir>/src/tests/prompt-quality.test.js",
-          "<rootDir>/src/tests/inbox-workflow.test.js"
+          "<rootDir>/src/tests/inbox-workflow.test.js",
+          "<rootDir>/src/tests/thread-grouping.test.js"
         ]
       },
       {
@@ -73,7 +74,8 @@
           "<rootDir>/src/tests/detect-signals.test.js",
           "<rootDir>/src/tests/lovable-generator.test.js",
           "<rootDir>/src/tests/prompt-quality.test.js",
-          "<rootDir>/src/tests/inbox-workflow.test.js"
+          "<rootDir>/src/tests/inbox-workflow.test.js",
+          "<rootDir>/src/tests/thread-grouping.test.js"
         ],
         "setupFilesAfterEnv": [
           "<rootDir>/src/tests/setup.js"

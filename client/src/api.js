@@ -48,6 +48,13 @@ export const api = {
     return request(`/api/emails${qs ? `?${qs}` : ""}`);
   },
   getEmail: (id) => request(`/api/emails/${id}`),
+
+  // Threads (grouped inbox)
+  getThreads: (params = {}) => {
+    const qs = new URLSearchParams(params).toString();
+    return request(`/api/emails/threads${qs ? `?${qs}` : ""}`);
+  },
+  getThread: (threadId) => request(`/api/emails/thread/${threadId}`),
   updateEmailStatus: (id, status) =>
     request(`/api/emails/${id}/status`, { method: "PUT", body: JSON.stringify({ status }) }),
   markEmailRead: (id) =>
