@@ -39,7 +39,7 @@ const router = express.Router();
 // ────────────────────────────────────────────────────────────
 // Shared helpers
 // ────────────────────────────────────────────────────────────
-async function callClaudeHelper(systemPrompt, userMessage, apiKey, model = 'claude-sonnet-4-6', maxTokens = 1024) {
+async function callClaudeHelper(systemPrompt, userMessage, apiKey, model = 'claude-sonnet-4-6', maxTokens = 1024, opts = {}) {
   const body = { model, max_tokens: maxTokens, messages: [{ role: 'user', content: userMessage }] };
   if (systemPrompt) body.system = systemPrompt;
   const res = await fetch('https://api.anthropic.com/v1/messages', {
@@ -49,7 +49,11 @@ async function callClaudeHelper(systemPrompt, userMessage, apiKey, model = 'clau
   });
   if (!res.ok) throw new Error(`Claude API error: ${res.status}`);
   const data = await res.json();
-  return data.content?.[0]?.text || '';
+  const text = data.content?.[0]?.text || '';
+  if (opts.returnMeta) {
+    return { text, stopReason: data.stop_reason, inputTokens: data.usage?.input_tokens, outputTokens: data.usage?.output_tokens };
+  }
+  return text;
 }
 
 function getNextBusinessDay(daysAhead) {
@@ -600,7 +604,9 @@ router.post("/generate", requireAuth, async (req, res, next) => {
     const userMessage = buildUserMessage(email, job);
 
     const claudeController = new AbortController();
-    const claudeTimeout = setTimeout(() => claudeController.abort(), 30000);
+    // Lovable prompts need more output tokens for detailed mockup specs
+    const mainMaxTokens = promptType === 'LOVABLE_MOCKUP_V1' ? 8192 : 2048;
+    const claudeTimeout = setTimeout(() => claudeController.abort(), promptType === 'LOVABLE_MOCKUP_V1' ? 60000 : 30000);
 
     let claudeData;
     try {
@@ -613,7 +619,7 @@ router.post("/generate", requireAuth, async (req, res, next) => {
         },
         body: JSON.stringify({
           model: "claude-sonnet-4-6",
-          max_tokens: 2048,
+          max_tokens: mainMaxTokens,
           system: systemPrompt,
           messages: [{ role: "user", content: userMessage }],
         }),
@@ -642,6 +648,12 @@ router.post("/generate", requireAuth, async (req, res, next) => {
     const model = claudeData.model || "claude-sonnet-4-6";
     const promptTokens = claudeData.usage?.input_tokens || 0;
     const completionTokens = claudeData.usage?.output_tokens || 0;
+    const stopReason = claudeData.stop_reason || 'end_turn';
+
+    // Detect truncation for lovable prompts
+    if (promptType === 'LOVABLE_MOCKUP_V1' && stopReason === 'max_tokens') {
+      console.warn(`replies: LOVABLE_MOCKUP_V1 main generation TRUNCATED (${completionTokens} output tokens used). Prompt may be incomplete.`);
+    }
 
     // ──────────────────────────────────────────────────────────
     // Step 6: Extract internal blocks + get clean text (PREFETCH-05)
@@ -879,13 +891,15 @@ router.post("/generate", requireAuth, async (req, res, next) => {
       }
     }
 
-    // MOCKUP-02 + MOCKUP-05: Persist mockup data to jobs table
+    // MOCKUP-02 + MOCKUP-05: Persist mockup data to jobs table (only if not truncated)
     if (promptType === 'LOVABLE_MOCKUP_V1' && job && job.id && mockupData) {
-      if (mockupData.lovablePrompt) {
+      if (mockupData.lovablePrompt && stopReason !== 'max_tokens') {
         pool.query(
           'UPDATE jobs SET mockup_lovable_prompt = $1 WHERE id = $2',
           [mockupData.lovablePrompt, job.id]
         ).catch((err) => console.error('replies: mockup prompt persist failed:', err.message));
+      } else if (stopReason === 'max_tokens') {
+        console.warn('replies: Skipping mockup cache  - output was truncated');
       }
     }
 
@@ -991,6 +1005,7 @@ router.post("/generate", requireAuth, async (req, res, next) => {
         lovablePrompt: mockupData.lovablePrompt,
         sendMessage: mockupData.sendMessage,
         mockupAnalysis: mockupData.mockupAnalysis,
+        truncated: stopReason === 'max_tokens',
       };
     }
 
@@ -1004,7 +1019,18 @@ router.post("/generate", requireAuth, async (req, res, next) => {
     // ──────────────────────────────────────────────────────────
     if (generateAll) {
       const mockupApplicable = mockupDecisionGlobal.shouldBuild && !(job && job.follow_up_count >= 2);
-      const mockupAlreadySent = !!(job && job.mockup_lovable_prompt);
+      const cachedPrompt = job && job.mockup_lovable_prompt;
+      // Detect if cached prompt looks truncated (ends mid-sentence, mid-parenthesis, or is suspiciously short)
+      const cachedLooksTruncated = cachedPrompt && (
+        cachedPrompt.endsWith('(') || cachedPrompt.endsWith(',') || cachedPrompt.endsWith(' -') ||
+        /[a-z]$/.test(cachedPrompt.trim()) || // ends with lowercase letter mid-word
+        cachedPrompt.length < 200 // suspiciously short for a full mockup spec
+      );
+      const mockupAlreadySent = !!(cachedPrompt && !cachedLooksTruncated);
+
+      if (cachedLooksTruncated) {
+        console.log('replies: Cached lovable prompt looks truncated, will regenerate fresh.');
+      }
 
       const [lovableResult, followUpResult] = await Promise.allSettled([
         // ── Lovable block ────────────────────────────────────
@@ -1013,16 +1039,20 @@ router.post("/generate", requireAuth, async (req, res, next) => {
             return { applicable: false, reason: mockupDecisionGlobal.alternativeSuggestion };
           }
           if (mockupAlreadySent) {
-            return { applicable: true, alreadySent: true, prompt: job.mockup_lovable_prompt };
+            return { applicable: true, alreadySent: true, prompt: cachedPrompt };
           }
           const lovableTemplate = await getPromptTemplate('LOVABLE_MOCKUP_V1', req.user.id, pool);
           const lovableSystem = buildPromptWithContext(lovableTemplate, email, job, linkAnalysis, 'professional', 'LOVABLE_MOCKUP_V1', objectionContext, threadContext, timezoneCTA, pricingDetection);
-          const lovableRaw = await callClaudeHelper(lovableSystem, buildUserMessage(email, job), anthropicKey, 'claude-sonnet-4-6', 4096);
-          const parsed = parseMockupOutput(lovableRaw);
-          if (job && job.id && parsed.lovablePrompt) {
+          const lovableResult = await callClaudeHelper(lovableSystem, buildUserMessage(email, job), anthropicKey, 'claude-sonnet-4-6', 8192, { returnMeta: true });
+          if (lovableResult.stopReason === 'max_tokens') {
+            console.warn(`replies: Lovable prompt TRUNCATED (used ${lovableResult.outputTokens} tokens). Output may be incomplete.`);
+          }
+          const parsed = parseMockupOutput(lovableResult.text);
+          // Only cache if not truncated - truncated prompts should be regenerated
+          if (job && job.id && parsed.lovablePrompt && lovableResult.stopReason !== 'max_tokens') {
             pool.query('UPDATE jobs SET mockup_lovable_prompt = $1 WHERE id = $2', [parsed.lovablePrompt, job.id]).catch(() => {});
           }
-          return { applicable: true, alreadySent: false, prompt: parsed.lovablePrompt, analysis: parsed.mockupAnalysis };
+          return { applicable: true, alreadySent: false, prompt: parsed.lovablePrompt, analysis: parsed.mockupAnalysis, truncated: lovableResult.stopReason === 'max_tokens' };
         })(),
 
         // ── Follow-up block (3 follow-ups) ──────────────────
@@ -1109,12 +1139,16 @@ router.post('/regenerate-lovable', requireAuth, async (req, res, next) => {
     }
     const lovableTemplate = await getPromptTemplate('LOVABLE_MOCKUP_V1', req.user.id, pool);
     const lovableSystem = buildPromptWithContext(lovableTemplate, email, job, null, 'professional', 'LOVABLE_MOCKUP_V1', {}, {}, '11 AM your time', null);
-    const lovableRaw = await callClaudeHelper(lovableSystem, buildUserMessage(email, job), anthropicKey, 'claude-sonnet-4-6', 4096);
-    const parsed = parseMockupOutput(lovableRaw);
-    if (job && job.id && parsed.lovablePrompt) {
+    const lovableResult = await callClaudeHelper(lovableSystem, buildUserMessage(email, job), anthropicKey, 'claude-sonnet-4-6', 8192, { returnMeta: true });
+    if (lovableResult.stopReason === 'max_tokens') {
+      console.warn(`replies: regenerate-lovable TRUNCATED (used ${lovableResult.outputTokens} tokens). Output may be incomplete.`);
+    }
+    const parsed = parseMockupOutput(lovableResult.text);
+    // Only cache if not truncated
+    if (job && job.id && parsed.lovablePrompt && lovableResult.stopReason !== 'max_tokens') {
       pool.query('UPDATE jobs SET mockup_lovable_prompt = $1 WHERE id = $2', [parsed.lovablePrompt, job.id]).catch(() => {});
     }
-    res.json({ applicable: true, alreadySent: false, prompt: parsed.lovablePrompt, analysis: parsed.mockupAnalysis });
+    res.json({ applicable: true, alreadySent: false, prompt: parsed.lovablePrompt, analysis: parsed.mockupAnalysis, truncated: lovableResult.stopReason === 'max_tokens' });
   } catch (err) { next(err); }
 });
 
