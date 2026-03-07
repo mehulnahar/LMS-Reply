@@ -1,9 +1,9 @@
 /**
- * Reply Generation Routes — REPLY-01 + Phase 12 Pipeline
+ * Reply Generation Routes  - REPLY-01 + Phase 12 Pipeline
  *
- * POST /api/replies/generate     — Generate AI reply (full pipeline with Step 6b validation)
- * PUT  /api/replies/:id/copied   — Mark reply as copied
- * PUT  /api/replies/:id/variant  — Record variant selection (A/B)
+ * POST /api/replies/generate      - Generate AI reply (full pipeline with Step 6b validation)
+ * PUT  /api/replies/:id/copied    - Mark reply as copied
+ * PUT  /api/replies/:id/variant   - Record variant selection (A/B)
  */
 
 const express = require("express");
@@ -96,16 +96,16 @@ HipHype Tech`;
 const TONES = {
   professional: "You write in a professional, business-appropriate tone. Be courteous but direct.",
   friendly: "You write in a warm, friendly tone while remaining professional. Use a conversational style.",
-  concise: "You write clear, well-structured replies. Every sentence delivers value — no filler phrases, but never sacrifice substance for brevity.",
+  concise: "You write clear, well-structured replies. Every sentence delivers value  - no filler phrases, but never sacrifice substance for brevity.",
   detailed: "You write thorough, detailed replies that address every point raised. Be comprehensive.",
 };
 
 // Default fallback system prompt when no template is found in DB
 const DEFAULT_SYSTEM_PROMPT =
   "You are a professional freelancer responding to a client inquiry on Upwork. " +
-  "Write a thorough, value-packed, and professional reply that demonstrates deep understanding of the client's project. Use plain text only — no markdown formatting.";
+  "Write a thorough, value-packed, and professional reply that demonstrates deep understanding of the client's project. Use plain text only  - no markdown formatting.";
 
-// Banned phrases cache — loaded once at startup, refreshed every 5 minutes
+// Banned phrases cache  - loaded once at startup, refreshed every 5 minutes
 // to pick up any changes from Settings UI without requiring server restart
 let _bannedPhrasesCache = null;
 let _bannedPhrasesCacheTime = 0;
@@ -130,7 +130,7 @@ async function getBannedPhrases(dbPool) {
 }
 
 // ============================================================
-// POST /api/replies/generate — Full pipeline with Step 6b validation
+// POST /api/replies/generate  - Full pipeline with Step 6b validation
 // ============================================================
 router.post("/generate", requireAuth, async (req, res, next) => {
   try {
@@ -159,7 +159,7 @@ router.post("/generate", requireAuth, async (req, res, next) => {
 
     const anthropicKey = decrypt(keyRows[0].encrypted_key, keyRows[0].iv, keyRows[0].auth_tag);
 
-    // Fetch LeadHack credentials (optional — gracefully skip if missing)
+    // Fetch LeadHack credentials (optional  - gracefully skip if missing)
     let leadhackCredentials = null;
     const { rows: lhKeyRows } = await pool.query(
       "SELECT encrypted_key, iv, auth_tag FROM api_keys WHERE user_id = $1 AND service = 'leadhack'",
@@ -171,7 +171,7 @@ router.post("/generate", requireAuth, async (req, res, next) => {
         // Stored as JSON: { email, password }
         leadhackCredentials = JSON.parse(raw);
       } catch {
-        // Corrupt / malformed credentials — skip prefetch silently
+        // Corrupt / malformed credentials  - skip prefetch silently
         leadhackCredentials = null;
       }
     }
@@ -216,13 +216,13 @@ router.post("/generate", requireAuth, async (req, res, next) => {
 
     const objectionType = detectObjection(emailText);
 
-    // Use stored agency_sensitive if already flagged — avoid overwriting with false negative
+    // Use stored agency_sensitive if already flagged  - avoid overwriting with false negative
     const agencySensitive =
       (job && job.agency_sensitive === true)
         ? true
         : detectAgencySensitivity(jobText);
 
-    // Use stored scope framing if already detected — avoid overwriting a known value
+    // Use stored scope framing if already detected  - avoid overwriting a known value
     const scopeFraming =
       (job && job.client_scope_framing && job.client_scope_framing !== 'UNKNOWN')
         ? job.client_scope_framing
@@ -230,15 +230,15 @@ router.post("/generate", requireAuth, async (req, res, next) => {
 
     const currentFollowUpCount = job ? (job.follow_up_count || 0) : 0;
 
-    // DUE_DILIGENCE detection — runs on email text (client's message)
+    // DUE_DILIGENCE detection  - runs on email text (client's message)
     const isDueDiligence = detectDueDiligence(emailText);
     const hasProofOfWorkRequest = isDueDiligence ? detectProofOfWorkRequest(emailText) : false;
 
-    // PROFILE_REQUEST, CALL_DEFERRAL detection — runs on email text
+    // PROFILE_REQUEST, CALL_DEFERRAL detection  - runs on email text
     const hasProfileRequest = detectProfileRequest(emailText);
     const hasCallDeferral = detectCallDeferral(emailText);
 
-    // REPEATED_REQUEST detection — needs thread history for content overlap
+    // REPEATED_REQUEST detection  - needs thread history for content overlap
     let threadEmailsForRepeat = [];
     if (email.thread_id) {
       try {
@@ -255,7 +255,7 @@ router.post("/generate", requireAuth, async (req, res, next) => {
     }
     const hasRepeatedRequest = detectRepeatedRequest(emailText, threadEmailsForRepeat);
 
-    // Fire-and-forget DB update — never blocks response
+    // Fire-and-forget DB update  - never blocks response
     if (job) {
       pool.query(
         `UPDATE jobs SET
@@ -267,7 +267,7 @@ router.post("/generate", requireAuth, async (req, res, next) => {
       ).catch((err) => console.error('replies: signal update failed:', err.message));
     }
 
-    // Load counter-move template (awaited — needed for prompt building)
+    // Load counter-move template (awaited  - needed for prompt building)
     let counterMove = null;
     if (objectionType !== 'NONE' && job) {
       try {
@@ -281,7 +281,7 @@ router.post("/generate", requireAuth, async (req, res, next) => {
         counterMove = cmRows.length > 0 ? cmRows[0] : null;
       } catch (cmErr) {
         console.error('replies: counter-move lookup failed:', cmErr.message);
-        // Fail open — proceed without counter-move
+        // Fail open  - proceed without counter-move
       }
     }
 
@@ -295,7 +295,7 @@ router.post("/generate", requireAuth, async (req, res, next) => {
     if (promptType === null) {
       return res.json({
         suppressed: true,
-        reason: "OOO or suppressed intent — no reply generated",
+        reason: "OOO or suppressed intent  - no reply generated",
         promptType: null,
       });
     }
@@ -334,7 +334,7 @@ router.post("/generate", requireAuth, async (req, res, next) => {
     // ── Build the full set of emails the user owns:
     //    - All detected outreach aliases (e.g. ashish@elevatehub.link, janet@hypeit.ink)
     //    - All connected Gmail accounts (e.g. hiphype60@gmail.com, ashish@mycodeworks.tech)
-    //    - Monitoring addresses (e.g. hiphype679@gmail.com — auto-detected from sent CC)
+    //    - Monitoring addresses (e.g. hiphype679@gmail.com  - auto-detected from sent CC)
     //    This prevents the AI treating any of the user's own addresses as a CC'd third party.
     const [{ rows: aliasRows }, { rows: accountRows }] = await Promise.all([
       pool.query('SELECT alias_email FROM user_email_aliases WHERE user_id = $1', [req.user.id]),
@@ -395,12 +395,12 @@ router.post("/generate", requireAuth, async (req, res, next) => {
 
     // ──────────────────────────────────────────────────────────
     // Step 2.5b: Mockup Decision Gate (MOCKUP-01, MOCKUP-05)
-    // Always compute — used by both LOVABLE_MOCKUP_V1 gating and generateAll [link] hint
+    // Always compute  - used by both LOVABLE_MOCKUP_V1 gating and generateAll [link] hint
     // ──────────────────────────────────────────────────────────
     const mockupDecisionGlobal = await evaluateMockupDecision(job, email, anthropicKey);
 
     if (promptType === 'LOVABLE_MOCKUP_V1') {
-      // MOCKUP-05: Follow-Up Day 7 gate — block mockup generation after 2 follow-ups
+      // MOCKUP-05: Follow-Up Day 7 gate  - block mockup generation after 2 follow-ups
       if (job && job.follow_up_count >= 2) {
         return res.json({
           mockupDeclined: true,
@@ -419,7 +419,7 @@ router.post("/generate", requireAuth, async (req, res, next) => {
     }
 
     // ──────────────────────────────────────────────────────────
-    // Step 2.5: Kill Switch — soft warning, never blocks generation (OBJECTION-06)
+    // Step 2.5: Kill Switch  - soft warning, never blocks generation (OBJECTION-06)
     // Records dormant status + re-engagement strategy but always falls through
     // so the user can regenerate anytime.
     // ──────────────────────────────────────────────────────────
@@ -430,7 +430,7 @@ router.post("/generate", requireAuth, async (req, res, next) => {
       const isReEngageable = killSwitchAt && (Date.now() - killSwitchAt.getTime()) > THIRTY_DAYS_MS;
 
       if (isReEngageable) {
-        // Clear kill switch — lead is re-entering the follow-up sequence
+        // Clear kill switch  - lead is re-entering the follow-up sequence
         pool.query(
           'UPDATE jobs SET kill_switch_at = NULL, match_status = $1, follow_up_count = 0 WHERE id = $2',
           ['matched', job.id]
@@ -476,8 +476,8 @@ router.post("/generate", requireAuth, async (req, res, next) => {
             }
           })();
         }
-        // Soft warning — included in response but does NOT block generation
-        killSwitchWarning = 'Follow-up limit reached (2). Lead marked DORMANT — but you can still generate.';
+        // Soft warning  - included in response but does NOT block generation
+        killSwitchWarning = 'Follow-up limit reached (2). Lead marked DORMANT  - but you can still generate.';
       }
       // Always fall through to normal generation
     }
@@ -515,12 +515,12 @@ router.post("/generate", requireAuth, async (req, res, next) => {
               new Intl.DateTimeFormat('en-US', { timeZone: ianaTimezone }).format(new Date());
               timezoneCTA = formatTimezoneCTA(ianaTimezone);
             } catch {
-              // Invalid timezone string from Haiku — use fallback
+              // Invalid timezone string from Haiku  - use fallback
             }
           }
         }
       } catch (tzErr) {
-        // Fail open — use default "11 AM your time" fallback
+        // Fail open  - use default "11 AM your time" fallback
         console.error('replies: timezone resolution failed:', tzErr.message);
       }
     }
@@ -547,7 +547,7 @@ router.post("/generate", requireAuth, async (req, res, next) => {
         await ensureJobDescription(job, email, anthropicKey, leadhackCredentials, pool);
       } catch (err) {
         prefetchWarnings.push(
-          `Job context unavailable — using email content only: ${err.message}`
+          `Job context unavailable  - using email content only: ${err.message}`
         );
       }
     }
@@ -575,7 +575,7 @@ router.post("/generate", requireAuth, async (req, res, next) => {
             [JSON.stringify(linkAnalysis), job.id]
           );
         } catch (dbErr) {
-          // Non-fatal — continue without persisting
+          // Non-fatal  - continue without persisting
           console.error("replies: failed to persist link_analysis_json:", dbErr.message);
         }
       } else {
@@ -594,7 +594,7 @@ router.post("/generate", requireAuth, async (req, res, next) => {
     let systemPrompt = buildPromptWithContext(templateContent, email, job, linkAnalysis, tone, promptType, objectionContext, threadContext, timezoneCTA, pricingDetection);
     // generateAll: if mockup is appropriate for this project, add [link] placeholder hint to reply
     if (generateAll && mockupDecisionGlobal.shouldBuild && !(job && job.follow_up_count >= 2)) {
-      systemPrompt += '\n\n**Mockup Note (generateAll mode):** A visual concept is appropriate for this project. Naturally include ONE short sentence in your reply referencing a quick visual concept you prepared, using exactly `[link]` as the placeholder URL. Keep it casual and human. Example: "I also put together a quick visual — [link] — let me know what you think."';
+      systemPrompt += '\n\n**Mockup Note (generateAll mode):** A visual concept is appropriate for this project. Naturally include ONE short sentence in your reply referencing a quick visual concept you prepared, using exactly `[link]` as the placeholder URL. Keep it casual and human. Example: "I also put together a quick visual  - [link]  - let me know what you think."';
     }
     const userMessage = buildUserMessage(email, job);
 
@@ -693,7 +693,7 @@ router.post("/generate", requireAuth, async (req, res, next) => {
       }
     }
 
-    // Step 6a.1: Sanitize formatting — strip em dashes, en dashes → regular dashes
+    // Step 6a.1: Sanitize formatting  - strip em dashes, en dashes → regular dashes
     const sanitize = (t) => t ? t.replace(/\u2014/g, ' - ').replace(/\u2013/g, '-') : t;
     cleanText = sanitize(cleanText);
     if (variantA) variantA = sanitize(variantA);
@@ -714,7 +714,7 @@ router.post("/generate", requireAuth, async (req, res, next) => {
     let followUpSequence = null;
     const validationWarnings = [];
 
-    // Load banned phrases (cached; falls back to [] on DB error — fail open)
+    // Load banned phrases (cached; falls back to [] on DB error  - fail open)
     const bannedPhrases = await getBannedPhrases(pool);
 
     // 6b-1: Proposal Gate (VALIDATE-01 + QUALITY-03 + QUALITY-04)
@@ -800,7 +800,7 @@ router.post("/generate", requireAuth, async (req, res, next) => {
           }
         } catch (regenErr) {
           console.error("replies: specificity regen failed:", regenErr.message);
-          break; // Fail open — use current validatedText
+          break; // Fail open  - use current validatedText
         }
       }
 
@@ -889,7 +889,7 @@ router.post("/generate", requireAuth, async (req, res, next) => {
     }
 
     // Increment follow_up_count when FOLLOW_UP_V2 is generated (OBJECTION-06)
-    // Note: This was missing from Phase 12/13 — kill switch requires accurate count
+    // Note: This was missing from Phase 12/13  - kill switch requires accurate count
     if (job && promptType === 'FOLLOW_UP_V2') {
       try {
         await pool.query(
@@ -901,8 +901,8 @@ router.post("/generate", requireAuth, async (req, res, next) => {
       }
     }
 
-    // Write generation audit record to reply_generations (fail-open — never blocks response)
-    // Note: lead_id is NOT NULL in reply_generations — only write when job exists
+    // Write generation audit record to reply_generations (fail-open  - never blocks response)
+    // Note: lead_id is NOT NULL in reply_generations  - only write when job exists
     if (job && job.id) {
       try {
         await pool.query(
@@ -920,7 +920,7 @@ router.post("/generate", requireAuth, async (req, res, next) => {
           ]
         );
       } catch (genAuditErr) {
-        // Fail open — log but never block the reply response
+        // Fail open  - log but never block the reply response
         console.error("replies: failed to write reply_generations audit row:", genAuditErr.message);
       }
     }
@@ -928,14 +928,14 @@ router.post("/generate", requireAuth, async (req, res, next) => {
     // THREAD-09: next_steps INSERT for THREAD_CONTINUATION_V1 (fire-and-forget)
     if (job && job.id && promptType === 'THREAD_CONTINUATION_V1' && nextStepRawBlock) {
       const nextStepData = parseNextStepBlock(nextStepRawBlock);
-      // Guard: our_action is NOT NULL in DB — skip INSERT if missing (BLOCKER-02 fix)
+      // Guard: our_action is NOT NULL in DB  - skip INSERT if missing (BLOCKER-02 fix)
       if (nextStepData && nextStepData.our_action) {
         pool.query(
           `INSERT INTO next_steps (lead_id, reply_generation_id, our_action, their_action, followup_approach, followup_date)
            VALUES ($1, $2, $3, $4, $5, $6::DATE)`,
           [
             job.id,
-            null, // reply_generation_id is INTEGER FK to reply_generations table (not replies UUID) — pass null (BLOCKER-01 fix)
+            null, // reply_generation_id is INTEGER FK to reply_generations table (not replies UUID)  - pass null (BLOCKER-01 fix)
             nextStepData.our_action,
             nextStepData.their_action || null,
             nextStepData.followup_approach || null,
@@ -1034,8 +1034,8 @@ router.post("/generate", requireAuth, async (req, res, next) => {
           const jobDescription = (job?.job_description_raw || job?.job_description || '').slice(0, 800);
           const schedules = [
             { days: 3, tone: 'gentle check-in' },
-            { days: 5, tone: 'value-add nudge — mention a relevant idea or insight' },
-            { days: 7, tone: 'final touch — polite last ping before closing the loop' },
+            { days: 5, tone: 'value-add nudge  - mention a relevant idea or insight' },
+            { days: 7, tone: 'final touch  - polite last ping before closing the loop' },
           ];
           const results = await Promise.allSettled(schedules.map(async (s) => {
             const date = getNextBusinessDay(s.days);
@@ -1070,8 +1070,8 @@ router.post("/generate", requireAuth, async (req, res, next) => {
 });
 
 // ============================================================
-// POST /api/replies/regenerate-lovable — regen lovable block only
-// POST /api/replies/regenerate-followup — regen follow-up block only
+// POST /api/replies/regenerate-lovable  - regen lovable block only
+// POST /api/replies/regenerate-followup  - regen follow-up block only
 // ============================================================
 async function loadEmailAndJob(emailId, userId, dbPool) {
   const { rows: emailRows } = await dbPool.query(
@@ -1138,8 +1138,8 @@ router.post('/regenerate-followup', requireAuth, async (req, res, next) => {
     const jobDescription = (job?.job_description_raw || job?.job_description || '').slice(0, 800);
     const schedules = [
       { days: 3, tone: 'gentle check-in' },
-      { days: 5, tone: 'value-add nudge — mention a relevant idea or insight' },
-      { days: 7, tone: 'final touch — polite last ping before closing the loop' },
+      { days: 5, tone: 'value-add nudge  - mention a relevant idea or insight' },
+      { days: 7, tone: 'final touch  - polite last ping before closing the loop' },
     ];
     const results = await Promise.allSettled(schedules.map(async (s) => {
       const date = getNextBusinessDay(s.days);
@@ -1154,7 +1154,7 @@ router.post('/regenerate-followup', requireAuth, async (req, res, next) => {
 });
 
 // ============================================================
-// GET /api/replies/stats/banned-phrases — count banned phrases caught this week
+// GET /api/replies/stats/banned-phrases  - count banned phrases caught this week
 // ============================================================
 router.get('/stats/banned-phrases', requireAuth, async (req, res) => {
   try {
@@ -1171,7 +1171,7 @@ router.get('/stats/banned-phrases', requireAuth, async (req, res) => {
 });
 
 // ============================================================
-// PUT /api/replies/:id/copied — Mark as copied
+// PUT /api/replies/:id/copied  - Mark as copied
 // ============================================================
 router.put("/:id/copied", requireAuth, async (req, res, next) => {
   try {
@@ -1191,7 +1191,7 @@ router.put("/:id/copied", requireAuth, async (req, res, next) => {
 });
 
 // ============================================================
-// PUT /api/replies/:id/variant — Record variant selection (UIUP-05)
+// PUT /api/replies/:id/variant  - Record variant selection (UIUP-05)
 // ============================================================
 router.put("/:id/variant", requireAuth, async (req, res, next) => {
   try {
@@ -1287,11 +1287,11 @@ async function getPromptTemplate(promptType, userId, dbPool) {
  * @returns {string}
  */
 /**
- * getWordLimitOverride — returns the word limit ceiling for a given generation context.
+ * getWordLimitOverride  - returns the word limit ceiling for a given generation context.
  *
  * Overrides baked-in template limits to allow richer, more impactful replies.
  * Strategy-driven stages (CALL_BOOKING, CLOSING, STALLED, FU2) stay short by design.
- * DUE_DILIGENCE and LOVABLE_MOCKUP_V1 handle their own limits — do not call for those.
+ * DUE_DILIGENCE and LOVABLE_MOCKUP_V1 handle their own limits  - do not call for those.
  *
  * @param {string} promptType
  * @param {string} threadStage
@@ -1301,7 +1301,7 @@ async function getPromptTemplate(promptType, userId, dbPool) {
  */
 function getWordLimitOverride(promptType, threadStage, objectionType, job) {
   if (promptType === 'EMAIL_REPLY_V2') {
-    // All first replies — 200-250 word range
+    // All first replies  - 200-250 word range
     return 250;
   }
 
@@ -1353,7 +1353,7 @@ Job Description: ${jobDescription.substring(0, 1000)}
 Client: ${clientName}`;
 
       if (isDifferentPerson) {
-        jobBlock += `\nNote: Email sender (${email.from_name || senderEmail}) is a team member — Upwork account holder is ${clientName} (${jobClientEmail})`;
+        jobBlock += `\nNote: Email sender (${email.from_name || senderEmail}) is a team member  - Upwork account holder is ${clientName} (${jobClientEmail})`;
       }
 
       if (job.city || job.country) {
@@ -1377,37 +1377,37 @@ Client: ${clientName}`;
     }
   }
 
-  // DUE_DILIGENCE: Structured vetting — overrides TECHNICAL_Q counter-move when active
+  // DUE_DILIGENCE: Structured vetting  - overrides TECHNICAL_Q counter-move when active
   if (objectionContext.isDueDiligence) {
     const proofRedirect = objectionContext.hasProofOfWorkRequest
       ? `
 PROOF-OF-WORK REQUEST DETECTED: The client asked for screenshots, videos, or evidence of past builds.
 Do NOT try to provide real portfolio evidence. Instead, redirect to the mockup:
-"Rather than a screenshot from a different client's project, I put together a quick concept for YOUR setup specifically — [link]. Easier to react to than past screenshots."
+"Rather than a screenshot from a different client's project, I put together a quick concept for YOUR setup specifically  - [link]. Easier to react to than past screenshots."
 This redirect counts as your answer to the proof-of-work question.`
       : '';
 
     prompt += `\n\n<due_diligence>
-The client is doing STRUCTURED VENDOR VETTING — they sent 3+ qualification questions.
+The client is doing STRUCTURED VENDOR VETTING  - they sent 3+ qualification questions.
 This is NOT a casual technical question. They are evaluating multiple vendors seriously.
 
 WORD LIMIT: 250–300 words total. Do not exceed 300 words.
 
 MANDATORY STRUCTURE (follow in order):
-1. Answer the first technical question directly with real substance — 2-3 sentences, specific detail, no vagueness.
+1. Answer the first technical question directly with real substance  - 2-3 sentences, specific detail, no vagueness.
 2. ${proofRedirect || 'Answer the next most important question with real technical specificity (tools, approach, concrete detail).'}
 3. Answer one more question briefly (1-2 sentences) OR use remaining questions as the natural bridge to a call.
-4. ONE call-to-action at the end ONLY — tied to "walk through the remaining questions live" or "go through the full architecture together."
+4. ONE call-to-action at the end ONLY  - tied to "walk through the remaining questions live" or "go through the full architecture together."
 
 CRITICAL RULES:
 - Do NOT ignore any question. Acknowledge all questions exist even if some are deferred to the call.
 - Do NOT repeat the call ask mid-reply. ONE CTA, at the very end.
-- Do NOT deflect ALL questions to the call — that looks evasive. Answer at least 2 with substance.
-- Do NOT ask a curiosity question back — this is not a single-question reply. Save questions for the call.
+- Do NOT deflect ALL questions to the call  - that looks evasive. Answer at least 2 with substance.
+- Do NOT ask a curiosity question back  - this is not a single-question reply. Save questions for the call.
 - Give real technical specifics. Generic answers will lose this client.
 </due_diligence>`;
   } else {
-    // OBJECTION-02: Counter-move template injection (soft instruction — Claude follows as guidance)
+    // OBJECTION-02: Counter-move template injection (soft instruction  - Claude follows as guidance)
     if (objectionContext.counterMove) {
       const cm = objectionContext.counterMove;
       prompt += `\n\n<counter_move>
@@ -1433,7 +1433,7 @@ DO NOT ask more than one question. One question only.
   if (objectionContext.agencySensitive) {
     prompt += `\n\n<agency_disclosure>
 The client's job post signals agency sensitivity. You MUST include this disclosure in the first paragraph:
-"To be upfront — we're an agency, but for this project you'd work directly with [Name], a dedicated [role]. Same person from day one, direct Slack access."
+"To be upfront  - we're an agency, but for this project you'd work directly with [Name], a dedicated [role]. Same person from day one, direct Slack access."
 Replace [Name] and [role] with appropriate values from the job context. Do not omit this disclosure.
 </agency_disclosure>`;
   }
@@ -1455,7 +1455,7 @@ Mirror the client's structure exactly. Never impose a different framing.
   if (objectionContext.hasProfileRequest) {
     prompt += `\n\n<profile_redirect>
 The client has asked for your Upwork profile or portfolio link.
-You did NOT come through Upwork's proposal system — you found their project through independent research.
+You did NOT come through Upwork's proposal system  - you found their project through independent research.
 Do NOT use a placeholder like "[Insert Upwork Profile Link]" or "[Your Upwork Profile]".
 
 HANDLE THE PROFILE REQUEST (2-3 sentences max):
@@ -1473,29 +1473,29 @@ CRITICAL: The profile redirect is NOT the whole reply. After handling the redire
   // CALL DEFERRAL: Client said they'll get back to us about the call
   if (objectionContext.hasCallDeferral) {
     prompt += `\n\n<call_deferral>
-The client has DEFERRED the call — they said they'll get back to you about scheduling.
+The client has DEFERRED the call  - they said they'll get back to you about scheduling.
 THIS OVERRIDES the "Call Ask Rules" section above. IGNORE any instruction to suggest a specific call time.
 RULES:
 1. Do NOT suggest a call time. Do NOT propose a specific day, time, or "Would X work?". ZERO call scheduling.
 2. Do NOT push for a call. Do NOT write "Would 11 AM work?" or anything similar. Respect their pace completely.
 3. Focus your reply on ANSWERING THEIR QUESTIONS and DELIVERING VALUE specific to their project.
-4. Since they're not ready for a call yet, your reply IS your pitch — make it count with concrete insights, relevant experience, or a quick strategic observation about their project.
+4. Since they're not ready for a call yet, your reply IS your pitch  - make it count with concrete insights, relevant experience, or a quick strategic observation about their project.
 5. End with a VALUE-FIRST soft close. Examples:
-   - "Happy to put together a quick audit of [specific thing] if that would help — and whenever you're ready for a call, I'm around."
+   - "Happy to put together a quick audit of [specific thing] if that would help  - and whenever you're ready for a call, I'm around."
    - "Let me know if you'd like me to sketch out an approach for [specific thing]. Also happy to jump on a call whenever works for you."
-   Do NOT just say "whenever you're ready" — offer something concrete PLUS the soft availability.
+   Do NOT just say "whenever you're ready"  - offer something concrete PLUS the soft availability.
 </call_deferral>`;
   }
 
-  // REPEATED REQUEST: Client asked the same thing before — they're frustrated
+  // REPEATED REQUEST: Client asked the same thing before  - they're frustrated
   if (objectionContext.hasRepeatedRequest) {
     prompt += `\n\n<repeated_request>
 The client is REPEATING a question they asked before. They are likely frustrated that it wasn't answered.
 MANDATORY RULES:
 1. Answer the repeated question DIRECTLY in your FIRST sentence. No preamble, no "great question", no value pitch before the answer.
 2. If the question has a simple answer (like a link or a yes/no), give it immediately.
-3. Do NOT apologize excessively — one brief acknowledgment at most ("Good point — here's that info:").
-4. After answering the repeated question, STILL deliver value — relevant experience, a project-specific insight, or a strategic observation. The answer comes first, but value follows.
+3. Do NOT apologize excessively  - one brief acknowledgment at most ("Good point  - here's that info:").
+4. After answering the repeated question, STILL deliver value  - relevant experience, a project-specific insight, or a strategic observation. The answer comes first, but value follows.
 5. Include a clear CTA after the value.
 </repeated_request>`;
   }
@@ -1508,7 +1508,7 @@ MANDATORY RULES:
 URL Analyzed: ${best.url}
 Key Finding: ${best.bestFindingForReply}
 </link_analysis>
-Use the key finding above naturally in your reply when appropriate — don't force it.`;
+Use the key finding above naturally in your reply when appropriate  - don't force it.`;
     }
   }
 
@@ -1541,7 +1541,7 @@ Use the key finding above naturally in your reply when appropriate — don't for
     if (stage === 'POST_CALL') {
       const clientRequestedProposal = job.client_requested_proposal === true;
       if (!clientRequestedProposal) {
-        postCallInstruction = '\nPOST-CALL FORMAT: Write a thorough RECAP reply (200-250 words) — summarise key discussion points, confirm specific action items for both sides, outline clear next steps. Do NOT write a full proposal unless the <thread_context> says proposal requested.';
+        postCallInstruction = '\nPOST-CALL FORMAT: Write a thorough RECAP reply (200-250 words)  - summarise key discussion points, confirm specific action items for both sides, outline clear next steps. Do NOT write a full proposal unless the <thread_context> says proposal requested.';
       } else {
         postCallInstruction = '\nPOST-CALL FORMAT: Client requested a full proposal. Write a complete proposal (normal length, structured).';
       }
@@ -1562,7 +1562,7 @@ Energy: ${energyInstruction}${postCallInstruction}
       THINKING:        'Wait approach. Add ONE project-specific insight that adds new value. NO call CTA in this message. Day 3 follow-up carries CTA.',
       PRICING_SILENCE: 'Day 3: Offer a Phase 1 scoped option only (smaller scope, lower price). Day 7: Graceful close. Never defend price directly.',
       CALL_SILENCE:    'Day 2: Recap the call highlights in 3 bullets. Day 5: Add a value insight. Day 10: Graceful close if still no response.',
-      NO_COMMITMENT:   'Offer a tangible attachment — a mockup, an audit finding, or a relevant case study. No pressure close. Make it easy to say yes.',
+      NO_COMMITMENT:   'Offer a tangible attachment  - a mockup, an audit finding, or a relevant case study. No pressure close. Make it easy to say yes.',
       UNKNOWN:         'Add project-specific value. No CTA pressure.',
     };
 
@@ -1574,15 +1574,15 @@ CRITICAL: Do not push. Do not guilt. Add value only.
   }
 
   // PERSONA-01: Janet persona handoff
-  // The outreach was sent as "Janet" — Ashish is now stepping in from his primary inbox.
+  // The outreach was sent as "Janet"  - Ashish is now stepping in from his primary inbox.
   // Claude must introduce Ashish and explain the handoff naturally in the first sentence.
   if (threadContext.isJanetPersona) {
     prompt += `\n\n<persona_intro>
-The initial outreach email to this client was sent by "Janet" — a persona used for cold outreach.
+The initial outreach email to this client was sent by "Janet"  - a persona used for cold outreach.
 You are now writing as Ashish, stepping in from the primary account.
 In your OPENING LINE only, briefly introduce the handoff in a natural, confident way.
-Example: "Janet from our team had reached out earlier — I'm Ashish, picking this up from here."
-Or: "Hi [client name], I'm Ashish — Janet looped me in to follow up on this."
+Example: "Janet from our team had reached out earlier  - I'm Ashish, picking this up from here."
+Or: "Hi [client name], I'm Ashish  - Janet looped me in to follow up on this."
 Keep it one sentence. Do not repeat it. Do not over-explain. After the intro, proceed normally.
 </persona_intro>`;
   }
@@ -1596,7 +1596,7 @@ Keep it one sentence. Do not repeat it. Do not over-explain. After the intro, pr
       prompt += `\n\n<cc_handling>
 A new person (${displayName}) has been CC'd on this thread.
 In your FIRST sentence, address them by name and provide brief context:
-"Hi ${newPerson.name || 'there'}, quick context — [your name] and I have been discussing [project summary] and the next step is [next action]."
+"Hi ${newPerson.name || 'there'}, quick context  - [your name] and I have been discussing [project summary] and the next step is [next action]."
 Do not assume they have read the previous emails.
 </cc_handling>`;
     }
@@ -1634,22 +1634,22 @@ Use these as the primary color palette in the DESIGN section of the Lovable prom
     }
   }
 
-  // VALUE DELIVERY — mandatory reply structure for substantive replies (skip short tactical stages)
+  // VALUE DELIVERY  - mandatory reply structure for substantive replies (skip short tactical stages)
   const shortStages = ['CALL_BOOKING', 'CLOSING', 'STALLED'];
   const currentStage = threadContext.threadStage || (job && job.thread_stage);
   if (!objectionContext.isDueDiligence && promptType !== 'LOVABLE_MOCKUP_V1' && !shortStages.includes(currentStage)) {
     prompt += `\n\n<value_delivery>
 Your reply MUST include ALL of these elements (adapt order and phrasing naturally):
-1. DIRECT ANSWER — If they asked a question, answer it in the first 1-2 sentences. No preamble.
-2. PROJECT-SPECIFIC INSIGHT — A non-obvious observation about their project drawn from the job description. Show you actually read and understood what they need.
-3. RELEVANT EXPERIENCE — Briefly mention a similar project or domain knowledge that's directly relevant (1-2 sentences with a specific outcome if possible).
-4. STRATEGIC OBSERVATION — One thing they may not have considered — a risk, an opportunity, or an approach that adds real value.
-5. CLEAR CTA — A specific next step (call, questions, deliverable offer).
+1. DIRECT ANSWER  - If they asked a question, answer it in the first 1-2 sentences. No preamble.
+2. PROJECT-SPECIFIC INSIGHT  - A non-obvious observation about their project drawn from the job description. Show you actually read and understood what they need.
+3. RELEVANT EXPERIENCE  - Briefly mention a similar project or domain knowledge that's directly relevant (1-2 sentences with a specific outcome if possible).
+4. STRATEGIC OBSERVATION  - One thing they may not have considered  - a risk, an opportunity, or an approach that adds real value.
+5. CLEAR CTA  - A specific next step (call, questions, deliverable offer).
 Each element is mandatory. A reply missing any of these is too thin. Do NOT write a generic 3-sentence reply.
 </value_delivery>`;
   }
 
-  // WORD LIMIT OVERRIDE — supersedes baked-in template limits for richer replies
+  // WORD LIMIT OVERRIDE  - supersedes baked-in template limits for richer replies
   // DUE_DILIGENCE handles its own limit inline (250–300). Skip for mockups + call-booking/closing/stalled.
   if (!objectionContext.isDueDiligence && promptType !== 'LOVABLE_MOCKUP_V1') {
     const wordLimit = getWordLimitOverride(promptType, threadContext.threadStage, objectionContext.objectionType, job);
@@ -1658,7 +1658,7 @@ Each element is mandatory. A reply missing any of these is too thin. Do NOT writ
       prompt += `\n\n<word_limit_override>
 WORD COUNT TARGET: ${wordFloor}–${wordLimit} words. This OVERRIDES and SUPERSEDES any other word limit anywhere in these instructions (including template limits, counter-move limits, and energy matching).
 Your reply MUST be at least ${wordFloor} words. Aim for ${Math.round((wordFloor + wordLimit) / 2)} words.
-If your draft is under ${wordFloor} words, you have NOT included enough substance — go back and add more project-specific value.
+If your draft is under ${wordFloor} words, you have NOT included enough substance  - go back and add more project-specific value.
 </word_limit_override>`;
     }
   }
@@ -1666,7 +1666,7 @@ If your draft is under ${wordFloor} words, you have NOT included enough substanc
   // CTA-01: Timezone-resolved call-to-action injection (with smart day-of-week)
   if (objectionContext.hasCallDeferral) {
     prompt += `\n\n<timezone_cta>
-CALL DEFERRED — THIS OVERRIDES all "Call Ask Rules" in the template above.
+CALL DEFERRED  - THIS OVERRIDES all "Call Ask Rules" in the template above.
 Do NOT suggest a specific meeting time. Do NOT write "Would [day] at [time] work?" or any variation.
 Instead, end with a soft availability statement woven into a value offer (see <call_deferral> rules above).
 NEVER propose a day, time, or timezone. Let them come back to you.
@@ -1692,14 +1692,14 @@ Do NOT use raw timezone abbreviations like "EST" or "PST" without "your time". A
     prompt += `\n\n<cost_context>
 The client has asked about pricing (keywords detected: ${pricingDetection.keywords.join(', ')}).
 ${jobBudget}
-Include a scope-based cost estimate range in your reply. Format: "Based on the scope you've described, this would typically fall in the $X-$Y range — happy to refine that on a quick call."
+Include a scope-based cost estimate range in your reply. Format: "Based on the scope you've described, this would typically fall in the $X-$Y range  - happy to refine that on a quick call."
 Calibrate the estimate to the job scope and budget signals. Do not use a generic number.
 End with a call CTA to discuss pricing details further.
-IMPORTANT: This cost estimate is intentionally included — do NOT strip it or deflect to a call without giving a range.
+IMPORTANT: This cost estimate is intentionally included  - do NOT strip it or deflect to a call without giving a range.
 </cost_context>`;
   }
 
-  // CTA-03 + CTA-04: Greeting reminder (reinforcement — templates already have greeting rules)
+  // CTA-03 + CTA-04: Greeting reminder (reinforcement  - templates already have greeting rules)
   if (promptType !== 'LOVABLE_MOCKUP_V1') {
     const clientFirstName = (job && job.client_first_name) || '';
     prompt += `\n\n<greeting_reminder>
@@ -1739,7 +1739,7 @@ function extractInternalBlocks(rawText) {
   const blockStart = processedText.search(/\[JOB ANALYSIS\]|\[LINK ANALYSIS\]/i);
 
   if (blockStart === -1) {
-    // No blocks present — entire text is the clean reply
+    // No blocks present  - entire text is the clean reply
     return {
       cleanText: processedText.trim(),
       jobAnalysisBlock: null,
@@ -1771,7 +1771,7 @@ function extractInternalBlocks(rawText) {
 }
 
 function buildUserMessage(email, _job) {
-  // Get email body — prefer bodyText, fall back to stripping HTML from bodyHtml
+  // Get email body  - prefer bodyText, fall back to stripping HTML from bodyHtml
   let body = email.body_text;
   if (!body && email.body_html) {
     body = email.body_html
@@ -1824,9 +1824,9 @@ function detectIntent(text) {
 }
 
 /**
- * checkFollowUpSpecificity — QUALITY-01
+ * checkFollowUpSpecificity  - QUALITY-01
  * Secondary Haiku call to classify whether follow-up contains client-specific detail.
- * Returns true (is specific) on Haiku error — fail open.
+ * Returns true (is specific) on Haiku error  - fail open.
  *
  * @param {string} text - Reply text to evaluate
  * @param {string} clientName - Client's name for context
@@ -1860,9 +1860,9 @@ async function checkFollowUpSpecificity(text, clientName, projectType, anthropic
 }
 
 /**
- * extractFollowUpAngle — QUALITY-02
+ * extractFollowUpAngle  - QUALITY-02
  * Extracts 5-10 word angle description using Haiku.
- * Returns null on failure — caller skips DB write gracefully.
+ * Returns null on failure  - caller skips DB write gracefully.
  *
  * @param {string} text - Follow-up reply text
  * @param {string} anthropicKey - Decrypted Anthropic API key

@@ -1,5 +1,5 @@
 /**
- * AI-Powered Email Analysis — SIGNAL-01
+ * AI-Powered Email Analysis  - SIGNAL-01
  *
  * Uses Claude Haiku to analyze Upwork client emails and extract
  * structured signals: lead score, phone, urgency, OOO, redirect, intent.
@@ -28,26 +28,26 @@ Analyze the email and return ONLY a valid JSON object with these fields:
 }
 
 LEAD SCORE GUIDELINES (0-100):
-- 80-100: High-intent client — direct reply with project details, mentions budget/timeline, asks specific questions, provides contact info, wants to schedule a call
-- 60-79: Good prospect — shows genuine interest, asks about availability/experience, describes project needs
-- 40-59: Medium — generic inquiry, short messages, initial Upwork notification about a job posting, or automated Upwork messages with some relevant content
-- 20-39: Low — very short/vague messages, bulk notifications, no clear project need
-- 0-19: Not a lead — out-of-office replies, unsubscribe requests, spam, auto-replies, no-reply addresses, marketing emails
+- 80-100: High-intent client  - direct reply with project details, mentions budget/timeline, asks specific questions, provides contact info, wants to schedule a call
+- 60-79: Good prospect  - shows genuine interest, asks about availability/experience, describes project needs
+- 40-59: Medium  - generic inquiry, short messages, initial Upwork notification about a job posting, or automated Upwork messages with some relevant content
+- 20-39: Low  - very short/vague messages, bulk notifications, no clear project need
+- 0-19: Not a lead  - out-of-office replies, unsubscribe requests, spam, auto-replies, no-reply addresses, marketing emails
 
 INTENT CATEGORIES (pick the most fitting one):
-- "pricing_inquiry" — asking about rates, budget, cost
-- "requirements" — describing project needs, scope, specifications
-- "schedule_call" — wants to meet, call, discuss further
-- "portfolio_request" — asking for samples, previous work, case studies
-- "urgent" — needs something done ASAP, tight deadline
-- "positive_feedback" — thanking, praising, expressing satisfaction
-- "rejection" — declining, not interested, chose someone else
-- "proposal_request" — asking for a proposal or bid
-- "status_update" — checking on progress, asking for updates
-- "change_request" — requesting changes, revisions, modifications
-- "ooo" — out of office, vacation, auto-reply
-- "forwarded" — forwarded email, FYI
-- "general" — doesn't fit other categories
+- "pricing_inquiry"  - asking about rates, budget, cost
+- "requirements"  - describing project needs, scope, specifications
+- "schedule_call"  - wants to meet, call, discuss further
+- "portfolio_request"  - asking for samples, previous work, case studies
+- "urgent"  - needs something done ASAP, tight deadline
+- "positive_feedback"  - thanking, praising, expressing satisfaction
+- "rejection"  - declining, not interested, chose someone else
+- "proposal_request"  - asking for a proposal or bid
+- "status_update"  - checking on progress, asking for updates
+- "change_request"  - requesting changes, revisions, modifications
+- "ooo"  - out of office, vacation, auto-reply
+- "forwarded"  - forwarded email, FYI
+- "general"  - doesn't fit other categories
 
 PHONE EXTRACTION:
 - Look for phone numbers in any format (US, international, with/without country code)
