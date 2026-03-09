@@ -1,5 +1,7 @@
 const app = require("./app");
 const { runMigrations } = require("./config/migrate");
+const { initWhatsApp } = require("./utils/whatsapp");
+const { startCron } = require("./utils/reportCron");
 
 const PORT = process.env.PORT || 3000;
 
@@ -19,6 +21,17 @@ async function start() {
   app.listen(PORT, () => {
     console.log(`LMS Reply server running on port ${PORT}`);
   });
+
+  // Initialise WhatsApp client + morning report cron
+  // Only in production — skip in test environment
+  if (process.env.NODE_ENV !== "test") {
+    try {
+      initWhatsApp();
+      startCron();
+    } catch (err) {
+      console.error("WhatsApp init error:", err.message);
+    }
+  }
 }
 
 start();
