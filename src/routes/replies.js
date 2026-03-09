@@ -458,7 +458,7 @@ router.post("/generate", requireAuth, async (req, res, next) => {
             ['dormant', job.id]
           ).catch(() => {});
         }
-        // Generate re_engagement_strategy via Haiku (fire-and-forget)
+        // Generate re_engagement_strategy via Sonnet (fire-and-forget)
         if (job && job.id) {
           (async () => {
             try {
@@ -504,7 +504,7 @@ router.post("/generate", requireAuth, async (req, res, next) => {
     if (job && (job.city || job.country)) {
       try {
         const location = [job.city, job.country].filter(Boolean).join(', ');
-        // Reuse the same Haiku timezone lookup logic as timezone.js (inline, not HTTP call)
+        // Reuse the same Sonnet timezone lookup logic as timezone.js (inline, not HTTP call)
         const tzRes = await fetch('https://api.anthropic.com/v1/messages', {
           method: 'POST',
           headers: {
@@ -530,7 +530,7 @@ router.post("/generate", requireAuth, async (req, res, next) => {
               new Intl.DateTimeFormat('en-US', { timeZone: ianaTimezone }).format(new Date());
               timezoneCTA = formatTimezoneCTA(ianaTimezone);
             } catch {
-              // Invalid timezone string from Haiku  - use fallback
+              // Invalid timezone string from Sonnet - use fallback
             }
           }
         }
@@ -1921,8 +1921,8 @@ function detectIntent(text) {
 
 /**
  * checkFollowUpSpecificity  - QUALITY-01
- * Secondary Haiku call to classify whether follow-up contains client-specific detail.
- * Returns true (is specific) on Haiku error  - fail open.
+ * Secondary Sonnet call to classify whether follow-up contains client-specific detail.
+ * Returns true (is specific) on Sonnet error - fail open.
  *
  * @param {string} text - Reply text to evaluate
  * @param {string} clientName - Client's name for context
@@ -1957,7 +1957,7 @@ async function checkFollowUpSpecificity(text, clientName, projectType, anthropic
 
 /**
  * extractFollowUpAngle  - QUALITY-02
- * Extracts 5-10 word angle description using Haiku.
+ * Extracts 5-10 word angle description using Sonnet.
  * Returns null on failure  - caller skips DB write gracefully.
  *
  * @param {string} text - Follow-up reply text

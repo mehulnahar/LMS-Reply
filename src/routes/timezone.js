@@ -3,7 +3,7 @@
  *
  * GET /api/timezone?city=Auckland&country=New+Zealand
  *
- * Uses Claude Haiku to resolve a city/country to an IANA timezone string.
+ * Uses Claude Sonnet to resolve a city/country to an IANA timezone string.
  * Result is cached in-process so subsequent requests for the same location
  * are instant and don't consume Claude tokens.
  */
@@ -56,7 +56,7 @@ router.get("/", requireAuth, async (req, res, next) => {
 
     const location = [city, country].filter(Boolean).join(", ");
 
-    // Ask Claude Haiku — lightweight task, no need for Sonnet
+    // Ask Claude Sonnet - lightweight task
     const claudeRes = await fetch("https://api.anthropic.com/v1/messages", {
       method: "POST",
       headers: {

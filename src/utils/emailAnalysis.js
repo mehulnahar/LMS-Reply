@@ -1,10 +1,10 @@
 /**
  * AI-Powered Email Analysis  - SIGNAL-01
  *
- * Uses Claude Haiku to analyze Upwork client emails and extract
+ * Uses Claude Sonnet to analyze Upwork client emails and extract
  * structured signals: lead score, phone, urgency, OOO, redirect, intent.
  *
- * Model: claude-haiku-4-20250514 (fast, cheap, perfect for classification)
+ * Model: claude-sonnet-4-6
  */
 
 const pool = require("../config/db");
@@ -74,7 +74,7 @@ async function getAnthropicKey(userId) {
 }
 
 /**
- * Analyze an email using Claude Haiku.
+ * Analyze an email using Claude Sonnet.
  * Returns structured signals object, or null on failure.
  *
  * @param {string} bodyText - Plain text body of the email
@@ -120,7 +120,7 @@ async function analyzeEmail(bodyText, bodyHtml, subject, anthropicKey, { throwOn
     };
   }
 
-  // Truncate very long emails to save tokens (Haiku handles ~4K well)
+  // Truncate very long emails to save tokens (Sonnet handles ~4K well)
   const truncated = content.length > 3000 ? content.slice(0, 3000) + "\n[... truncated]" : content;
 
   const userMessage = `EMAIL SUBJECT: ${subject || "(No subject)"}\n\nEMAIL BODY:\n${truncated}`;

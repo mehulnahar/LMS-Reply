@@ -5,21 +5,21 @@
  * Phase 15: Thread Continuation Engine
  *
  * Requirements:
- *   THREAD-01: classifyThreadStage  — Haiku-powered stage classification
- *   THREAD-04: parseCcContacts      — Parse Cc header into structured contacts
- *   THREAD-05: detectStallType      — Classify why a thread has stalled
- *   THREAD-08: measureClientMessageLength — Short/Medium/Long word-count bucketing
- *   THREAD-09: parseNextStepBlock   — Extract NEXT STEP SUMMARY internal block from reply text
+ *   THREAD-01: classifyThreadStage  - Sonnet-powered stage classification
+ *   THREAD-04: parseCcContacts      - Parse Cc header into structured contacts
+ *   THREAD-05: detectStallType      - Classify why a thread has stalled
+ *   THREAD-08: measureClientMessageLength - Short/Medium/Long word-count bucketing
+ *   THREAD-09: parseNextStepBlock   - Extract NEXT STEP SUMMARY internal block from reply text
  *
- * Pure CommonJS utility module. Only classifyThreadStage is async (Haiku call).
+ * Pure CommonJS utility module. Only classifyThreadStage is async (Sonnet call).
  * All other functions are synchronous and deterministic.
  *
- * INPUT DISTINCTION (critical — prevents future confusion):
- *   classifyThreadStage()        → reads EMAIL TEXT + job context (async, calls Haiku)
- *   measureClientMessageLength() → reads EMAIL BODY TEXT (sync)
- *   detectStallType()            → reads EMAIL TEXT + jobs row (sync)
- *   parseCcContacts()            → reads Cc header raw string (sync)
- *   parseNextStepBlock()         → reads AI-generated reply text (sync)
+ * INPUT DISTINCTION (critical - prevents future confusion):
+ *   classifyThreadStage()        - reads EMAIL TEXT + job context (async, calls Sonnet)
+ *   measureClientMessageLength() - reads EMAIL BODY TEXT (sync)
+ *   detectStallType()            - reads EMAIL TEXT + jobs row (sync)
+ *   parseCcContacts()            - reads Cc header raw string (sync)
+ *   parseNextStepBlock()         - reads AI-generated reply text (sync)
  *
  * Exports: classifyThreadStage, measureClientMessageLength, detectStallType,
  *          parseCcContacts, parseNextStepBlock
@@ -38,8 +38,8 @@ const DEFAULT_STAGE = 'DISCOVERY';
 /** Anthropic API endpoint */
 const ANTHROPIC_API_URL = 'https://api.anthropic.com/v1/messages';
 
-/** Haiku model for lightweight classification */
-const HAIKU_MODEL = 'claude-sonnet-4-6';
+/** Sonnet model for classification */
+const SONNET_MODEL = 'claude-sonnet-4-6';
 
 // ---------------------------------------------------------------------------
 // classifyThreadStage(emailText, jobContext, anthropicKey) — THREAD-01
@@ -48,8 +48,8 @@ const HAIKU_MODEL = 'claude-sonnet-4-6';
 /**
  * classifyThreadStage — THREAD-01
  *
- * Async. Calls Claude Haiku to classify an email into one of 6 thread stages.
- * Returns DEFAULT_STAGE ('DISCOVERY') on any error or invalid Haiku response.
+ * Async. Calls Claude Sonnet to classify an email into one of 6 thread stages.
+ * Returns DEFAULT_STAGE ('DISCOVERY') on any error or invalid response.
  * Also returns DEFAULT_STAGE immediately if emailText is falsy.
  *
  * @param {string} emailText      - The client's email body text
@@ -82,7 +82,7 @@ Reply with ONLY one word from the list above.`;
         'anthropic-version': '2023-06-01',
       },
       body: JSON.stringify({
-        model: HAIKU_MODEL,
+        model: SONNET_MODEL,
         max_tokens: 10,
         messages: [{ role: 'user', content: prompt }],
       }),

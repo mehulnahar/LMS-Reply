@@ -18,6 +18,7 @@
  */
 
 const WELL_KNOWN_DOMAINS = [
+  // Major brands
   'amazon.com', 'shopify.com', 'wix.com', 'squarespace.com', 'wordpress.com',
   'nike.com', 'adidas.com', 'zara.com', 'hm.com', 'target.com', 'walmart.com',
   'ebay.com', 'etsy.com', 'alibaba.com', 'aliexpress.com', 'temu.com',
@@ -26,6 +27,11 @@ const WELL_KNOWN_DOMAINS = [
   'medium.com', 'wikipedia.org', 'forbes.com', 'techcrunch.com',
   'apple.com', 'google.com', 'microsoft.com', 'netflix.com', 'spotify.com',
   'uber.com', 'airbnb.com', 'booking.com',
+  // Content/listing sites (not end products)
+  'upwork.com', 'fiverr.com', 'freelancer.com', 'toptal.com',
+  'dribbble.com', 'behance.net', 'clutch.co', 'goodfirms.co',
+  'themeforest.net', 'templatemonster.com', 'envato.com',
+  'github.com', 'stackoverflow.com', 'producthunt.com',
 ];
 
 // ────────────────────────────────────────────────────────────
@@ -37,15 +43,20 @@ async function refineSearchQuery(projectDescription, anthropicKey) {
     max_tokens: 200,
     messages: [{
       role: 'user',
-      content: `Convert this project/job description into 1-2 short Exa neural search queries to find LIVE websites or apps similar to what the client needs. Return ONLY the search queries, one per line, no numbering or bullets.
+      content: `Convert this project/job description into 2-3 short Exa neural search queries to find LIVE END-PRODUCT websites or apps similar to what the client wants built. Return ONLY the search queries, one per line, no numbering or bullets.
 
-Project description: ${projectDescription.substring(0, 500)}
+Project description: ${projectDescription.substring(0, 800)}
 
-Rules:
-- Search for LIVE EXAMPLES of the end product, NOT job listings or articles
-- Be specific about the industry/niche (e.g. "fashion dropshipping Shopify store" not "Shopify store")
-- Include platform if relevant (e.g. "Shopify", "WordPress", "React")
-- Keep each query under 15 words`,
+CRITICAL RULES:
+- Find the ACTUAL END PRODUCT the client wants built, NOT agencies/freelancers who build them
+- Example: if client wants a "fashion Shopify store", search for ACTUAL fashion stores running on Shopify, NOT "Shopify development agency" or "Shopify theme designer portfolio"
+- Example: if client wants a "SaaS dashboard", search for ACTUAL SaaS products with dashboards, NOT "SaaS development company"
+- Example: if client wants a "restaurant website", search for ACTUAL restaurant websites, NOT "web design agency for restaurants"
+- Be specific about the industry/niche
+- At least one query should describe the end product as a customer would see it (e.g. "online fashion boutique clothing store" or "premium women's clothing ecommerce")
+- At least one query should include the platform if known (e.g. "Shopify fashion store premium theme")
+- Keep each query under 15 words
+- NEVER use words like "agency", "developer", "freelancer", "designer", "portfolio", "services" in queries`,
     }],
   };
 
@@ -200,21 +211,27 @@ ${contentPreview}
 `;
   }).join('\n');
 
-  const systemPrompt = `You are a research assistant for a software agency. Given scraped website content and a project description, find sites the agency could reference as portfolio examples in a sales email.
+  const systemPrompt = `You are a research assistant for a software agency. Given scraped website content and a project description, find END-PRODUCT sites that the agency could present as portfolio examples ("we built this") in a sales email.
 
-BE GENEROUS WITH SELECTIONS. Your job is to find usable examples, not to be a strict gatekeeper. If a site is a real, functioning website that's even somewhat relevant to the project, INCLUDE IT.
+CRITICAL DISTINCTION - understand what the client wants BUILT:
+- Read the project description carefully to understand the END PRODUCT
+- If the client wants a "fashion Shopify store", we need ACTUAL fashion stores (sites that SELL clothes/products), NOT agencies that build Shopify stores
+- If the client wants a "SaaS dashboard", we need ACTUAL SaaS products, NOT dev agencies
+- If the client wants a "restaurant website", we need ACTUAL restaurant websites, NOT web design firms
 
 INCLUDE a site if:
-- It is a REAL, live website (not a blog post, article, or directory)
-- It has SOME relevance to the client's project (same industry, similar features, or similar platform)
+- It IS the type of end product the client wants built (an actual store, app, platform, etc.)
+- It has real products, content, or functionality - not just a services/portfolio page
 - It is not a major household brand (Nike, Zara, Amazon, etc.)
-- "Powered by Shopify", "Built with WordPress", etc. in footer is FINE - do NOT exclude for this
+- "Powered by Shopify", "Built with WordPress", etc. in footer is FINE
 
-ONLY EXCLUDE if:
-- It is a blog post, article, listicle, or directory (NOT an actual website/store/app)
-- It prominently credits a specific agency ("Built by DevAgency LLC")
+EXCLUDE a site if:
+- It is a development AGENCY, design STUDIO, or freelancer PORTFOLIO (these are builders, not end products)
+- It is a blog post, article, listicle, directory, or theme marketplace
+- It prominently sells development/design SERVICES rather than actual products
 - It is a Fortune 500 / household brand everyone would recognize
 - The page clearly failed to load or is a parking page
+- Its content is primarily about "our services", "hire us", "we build", "our clients"
 
 For each selected site, return:
 - name: The brand/project name
@@ -223,7 +240,7 @@ For each selected site, return:
 - key_features: Array of 2-3 visible features that match what the client needs
 - platform_type: "website" | "web_app" | "mobile_app" | "saas"
 
-Return a JSON array with ALL qualifying sites (aim for 3-5). Be generous - it's better to include a borderline site than to return nothing.`;
+Return a JSON array with qualifying end-product sites (aim for 3-5). If NONE of the scraped sites are actual end products (they're all agencies/blogs/articles), return an empty array [].`;
 
   const body = {
     model: 'claude-sonnet-4-6',
@@ -327,26 +344,17 @@ async function researchSimilarExamples(projectDescription, anthropicKey, exaKey,
 
   // Step 1: Discover candidates via Exa neural search (run all queries)
   const allResults = [];
-  for (const query of searchQueries.slice(0, 2)) {
+  for (const query of searchQueries.slice(0, 3)) {
     try {
       const results = await searchExa(query, exaKey, {
         numResults: 12,
         excludeDomains: WELL_KNOWN_DOMAINS,
-        category: 'company',
       });
       console.log(`research: Exa query "${query.substring(0, 60)}" returned ${results.length} results`);
       results.forEach((r, i) => console.log(`  ${i + 1}. ${r.url} - "${r.title}"`));
       allResults.push(...results);
     } catch (err) {
-      // Retry without category filter if it fails (Exa may not support it for all queries)
-      console.warn(`research: Exa with category failed for "${query}", retrying without category...`);
-      try {
-        const results = await searchExa(query, exaKey, { numResults: 12, excludeDomains: WELL_KNOWN_DOMAINS });
-        console.log(`research: Exa retry returned ${results.length} results`);
-        allResults.push(...results);
-      } catch (retryErr) {
-        console.warn(`research: Exa search fully failed for "${query}":`, retryErr.message);
-      }
+      console.warn(`research: Exa search failed for "${query}":`, err.message);
     }
   }
 
