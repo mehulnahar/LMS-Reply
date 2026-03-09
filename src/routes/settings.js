@@ -224,7 +224,95 @@ router.delete(
 
 // ============================================================
 // POST /api/settings/api-keys/:service/verify — Verify key
+// Makes a real API call to confirm the key is valid
 // ============================================================
+
+/**
+ * Lightweight verification calls for each service.
+ * Each returns { valid: boolean, message: string }
+ */
+async function verifyAnthropicKey(apiKey) {
+  const res = await fetch("https://api.anthropic.com/v1/messages", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "x-api-key": apiKey,
+      "anthropic-version": "2023-06-01",
+    },
+    body: JSON.stringify({
+      model: "claude-3-5-haiku-20241022",
+      max_tokens: 1,
+      messages: [{ role: "user", content: "hi" }],
+    }),
+  });
+  if (res.ok) return { valid: true, message: "Anthropic API key is valid" };
+  if (res.status === 401) return { valid: false, message: "Invalid API key - authentication failed" };
+  if (res.status === 403) return { valid: false, message: "API key lacks required permissions" };
+  return { valid: false, message: `Anthropic API returned ${res.status}` };
+}
+
+async function verifyExaKey(apiKey) {
+  const res = await fetch("https://api.exa.ai/search", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "x-api-key": apiKey,
+    },
+    body: JSON.stringify({
+      query: "test",
+      type: "neural",
+      numResults: 1,
+      contents: { text: { maxCharacters: 10 } },
+    }),
+  });
+  if (res.ok) return { valid: true, message: "Exa API key is valid" };
+  if (res.status === 401 || res.status === 403) return { valid: false, message: "Invalid API key - authentication failed" };
+  return { valid: false, message: `Exa API returned ${res.status}` };
+}
+
+async function verifyOlostepKey(apiKey) {
+  // Use a lightweight scrape of a fast-loading page
+  const res = await fetch("https://api.olostep.com/v1/scrapes", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "Authorization": `Bearer ${apiKey}`,
+    },
+    body: JSON.stringify({
+      url_to_scrape: "https://example.com",
+      formats: ["markdown"],
+    }),
+  });
+  if (res.ok) return { valid: true, message: "Olostep API key is valid" };
+  if (res.status === 401 || res.status === 403) return { valid: false, message: "Invalid API key - authentication failed" };
+  return { valid: false, message: `Olostep API returned ${res.status}` };
+}
+
+async function verifyLeadhackKey(apiKey) {
+  // LeadHack key format is email:password
+  const parts = apiKey.split(":");
+  if (parts.length < 2) return { valid: false, message: "LeadHack key must be in email:password format" };
+  const [email, password] = [parts[0], parts.slice(1).join(":")];
+  const res = await fetch("https://app.leadhack.info:3000/api/admin/getAuthToken", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ email, password }),
+  });
+  if (res.ok) {
+    const data = await res.json().catch(() => null);
+    if (data && data.token) return { valid: true, message: "LeadHack credentials verified" };
+  }
+  if (res.status === 401) return { valid: false, message: "Invalid LeadHack credentials" };
+  return { valid: false, message: `LeadHack API returned ${res.status}` };
+}
+
+const SERVICE_VERIFIERS = {
+  anthropic: verifyAnthropicKey,
+  exa: verifyExaKey,
+  olostep: verifyOlostepKey,
+  leadhack: verifyLeadhackKey,
+};
+
 router.post(
   "/api-keys/:service/verify",
   requireAuth,
@@ -245,23 +333,43 @@ router.post(
         });
       }
 
-      // Verify decryption works (proves key is intact)
+      // Step 1: Decrypt
+      let apiKey;
       try {
-        decrypt(rows[0].encrypted_key, rows[0].iv, rows[0].auth_tag);
-        res.json({
-          service,
-          status: "verified",
-          message: "API key decryption verified successfully",
-        });
+        apiKey = decrypt(rows[0].encrypted_key, rows[0].iv, rows[0].auth_tag);
       } catch {
-        res.json({
+        return res.json({
           service,
           status: "error",
-          message: "API key decryption failed — key may be corrupted",
+          message: "API key decryption failed - key may be corrupted",
         });
       }
+
+      // Step 2: Real API verification (if verifier exists for this service)
+      const verifier = SERVICE_VERIFIERS[service];
+      if (!verifier) {
+        // For Google creds, just confirm decryption works
+        return res.json({
+          service,
+          status: "verified",
+          message: "API key decryption verified (no live check for this service)",
+        });
+      }
+
+      const result = await verifier(apiKey);
+      res.json({
+        service,
+        status: result.valid ? "verified" : "error",
+        message: result.message,
+      });
     } catch (err) {
-      next(err);
+      // Network errors etc. - don't crash, return graceful error
+      console.warn(`verify: ${req.params.service} verification failed:`, err.message);
+      res.json({
+        service: req.params.service,
+        status: "error",
+        message: `Verification failed: ${err.message}`,
+      });
     }
   }
 );
