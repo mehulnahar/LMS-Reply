@@ -32,6 +32,10 @@ const WELL_KNOWN_DOMAINS = [
   'dribbble.com', 'behance.net', 'clutch.co', 'goodfirms.co',
   'themeforest.net', 'templatemonster.com', 'envato.com',
   'github.com', 'stackoverflow.com', 'producthunt.com',
+  // Theme sellers and app marketplaces (sell tools, not end products)
+  'apps.shopify.com', 'themes.shopify.com',
+  'magespark.com', 'shaimastudio.com', 'aestheticecom.com',
+  'out-of-the-sandbox.com', 'pixelunion.net',
 ];
 
 // ────────────────────────────────────────────────────────────
@@ -228,6 +232,7 @@ INCLUDE a site if:
 EXCLUDE a site if:
 - It is a development AGENCY, design STUDIO, or freelancer PORTFOLIO (these are builders, not end products)
 - It is a blog post, article, listicle, directory, or theme marketplace
+- It SELLS themes or templates (e.g. "buy this theme", "add to cart" for a theme) - these sell TOOLS, not end products
 - It prominently sells development/design SERVICES rather than actual products
 - It is a Fortune 500 / household brand everyone would recognize
 - The page clearly failed to load or is a parking page
@@ -364,9 +369,19 @@ async function researchSimilarExamples(projectDescription, anthropicKey, exaKey,
     return { examples: [], rawResultCount: 0, scrapedCount: 0, contextBlock: '' };
   }
 
-  // Step 2: Scrape top candidates with Olostep (max 8 to balance cost vs coverage)
-  const urlsToScrape = uniqueResults.slice(0, 8).map(r => r.url);
-  const scrapedResults = await scrapeMultiple(urlsToScrape, olostepKey, 8);
+  // Step 2: Scrape top candidates with Olostep (max 10 to balance cost vs coverage)
+  const urlsToScrape = uniqueResults.slice(0, 10).map(r => r.url);
+  const scrapedResults = await scrapeMultiple(urlsToScrape, olostepKey, 10);
+
+  // Enrich scrape results with Exa's original text snippets (helps Sonnet when scrape is thin)
+  for (const scraped of scrapedResults) {
+    if (scraped.success && (!scraped.markdown || scraped.markdown.length < 100)) {
+      const exaResult = uniqueResults.find(r => r.url === scraped.url);
+      if (exaResult && exaResult.text) {
+        scraped.markdown = (scraped.markdown || '') + '\n\nExa snippet: ' + exaResult.text;
+      }
+    }
+  }
 
   const successCount = scrapedResults.filter(r => r.success).length;
   if (successCount === 0) {
@@ -379,9 +394,10 @@ async function researchSimilarExamples(projectDescription, anthropicKey, exaKey,
   // Step 4: Build context block for reply prompt injection
   const contextBlock = buildSimilarExamplesBlock(examples);
 
-  // Debug info: include search queries and scraped URLs for troubleshooting
+  // Debug info: include search queries, all discovered URLs, and scraped URLs
   const debug = {
     searchQueries,
+    discoveredUrls: uniqueResults.slice(0, 15).map(r => ({ url: r.url, title: r.title })),
     scrapedUrls: scrapedResults.map(r => ({
       url: r.url,
       success: r.success,
