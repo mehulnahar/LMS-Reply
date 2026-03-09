@@ -150,8 +150,10 @@ function signalEmojis(job) {
 // Main report generator
 // ─────────────────────────────────────────
 async function generateMorningReport(userId) {
-  // Time window: last 12 hours (overnight)
-  const overnightSince = new Date(Date.now() - 12 * 60 * 60 * 1000).toISOString();
+  // Time window: today's midnight IST → 7AM IST
+  const istNow = new Date(Date.now() + 5.5 * 60 * 60 * 1000);
+  const todayIST = istNow.toISOString().split('T')[0]; // YYYY-MM-DD in IST
+  const overnightSince = new Date(`${todayIST}T00:00:00+05:30`).toISOString();
 
   // ── 1. New overnight leads ──
   const newLeads = await pool.query(`
