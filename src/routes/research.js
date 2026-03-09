@@ -131,16 +131,4 @@ router.post('/examples', requireAuth, async (req, res, next) => {
   }
 });
 
-// TEMP debug endpoint
-router.post('/debug-test', async (req, res, next) => {
-  try {
-    if (req.body.secret !== 'research-debug-2026') return res.status(403).json({ error: 'no' });
-    const userId = '2068ca6b-8118-4bc2-9f7c-171bff8b0757';
-    const [a, e, o] = await Promise.all([getApiKey(userId, 'anthropic'), getApiKey(userId, 'exa'), getApiKey(userId, 'olostep')]);
-    const desc = req.body.projectDescription || 'Shopify fashion store for European market, premium themes, mobile-first, dropshipping';
-    const result = await researchSimilarExamples(desc, a, e, o);
-    res.json({ examples: result.examples, rawResultCount: result.rawResultCount, scrapedCount: result.scrapedCount, exampleCount: result.examples.length, debug: result.debug });
-  } catch (err) { next(err); }
-});
-
 module.exports = router;
