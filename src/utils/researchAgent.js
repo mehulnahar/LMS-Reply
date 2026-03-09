@@ -36,6 +36,9 @@ const WELL_KNOWN_DOMAINS = [
   'apps.shopify.com', 'themes.shopify.com',
   'magespark.com', 'shaimastudio.com', 'aestheticecom.com',
   'out-of-the-sandbox.com', 'pixelunion.net',
+  'hulkapps.com', 'vowelweb.com', 'gplpixel.com', 'templatetrip.com',
+  'pickyourapp.com', 'themewagon.com', 'themeisle.com', 'theme-jeuno.myshopify.com',
+  'boostheme.com', 'theme-jeuno.myshopify.com', 'shogun.io',
 ];
 
 // ────────────────────────────────────────────────────────────
@@ -47,20 +50,19 @@ async function refineSearchQuery(projectDescription, anthropicKey) {
     max_tokens: 200,
     messages: [{
       role: 'user',
-      content: `Convert this project/job description into 2-3 short Exa neural search queries to find LIVE END-PRODUCT websites or apps similar to what the client wants built. Return ONLY the search queries, one per line, no numbering or bullets.
+      content: `Convert this project/job description into 2-3 short Exa neural search queries to find REAL LIVE STORES/SITES that are the type of product the client wants built. Return ONLY the search queries, one per line, no numbering or bullets.
 
 Project description: ${projectDescription.substring(0, 800)}
 
 CRITICAL RULES:
-- Find the ACTUAL END PRODUCT the client wants built, NOT agencies/freelancers who build them
-- Example: if client wants a "fashion Shopify store", search for ACTUAL fashion stores running on Shopify, NOT "Shopify development agency" or "Shopify theme designer portfolio"
-- Example: if client wants a "SaaS dashboard", search for ACTUAL SaaS products with dashboards, NOT "SaaS development company"
-- Example: if client wants a "restaurant website", search for ACTUAL restaurant websites, NOT "web design agency for restaurants"
-- Be specific about the industry/niche
-- At least one query should describe the end product as a customer would see it (e.g. "online fashion boutique clothing store" or "premium women's clothing ecommerce")
-- At least one query should include the platform if known (e.g. "Shopify fashion store premium theme")
+- Find REAL BUSINESSES that have the type of website/store/app the client wants
+- If client wants a "fashion Shopify store" -> search for actual clothing brands selling on Shopify, e.g. "independent women's clothing brand online store Shopify"
+- If client wants a "SaaS dashboard" -> search for actual SaaS products, e.g. "project management SaaS tool dashboard"
+- If client wants a "restaurant website" -> search for actual restaurants with websites
+- Queries should find sites where CUSTOMERS BUY PRODUCTS, not where developers buy themes/tools
 - Keep each query under 15 words
-- NEVER use words like "agency", "developer", "freelancer", "designer", "portfolio", "services" in queries`,
+- NEVER use these words: "agency", "developer", "freelancer", "designer", "portfolio", "services", "theme", "template"
+- DO use words like: "shop", "store", "buy", "brand", "boutique", "collection"`,
     }],
   };
 
@@ -215,21 +217,22 @@ ${contentPreview}
 `;
   }).join('\n');
 
-  const systemPrompt = `You select websites from scraped content that a software agency can present as portfolio examples ("we built this") to a client.
+  const systemPrompt = `You select websites that a software agency can present as portfolio examples ("we built this") to a client.
 
-YOUR JOB: Include as many relevant sites as possible. Be GENEROUS. When in doubt, INCLUDE the site.
+The client wants a specific END PRODUCT built. You must find sites that ARE that type of product - sites where real customers visit, browse, and buy/use things.
 
-The client wants a specific END PRODUCT built (e.g. a fashion store, a SaaS app, a restaurant website). You must find sites that ARE that type of product.
+THE KEY TEST: Would a real customer use this site to buy a product or use a service? If YES -> INCLUDE. If the site sells developer tools, themes, or services to OTHER businesses -> EXCLUDE.
 
-ONLY 3 hard exclusions:
-1. Dev agencies / design studios / freelancer portfolios (sites that SELL development services)
-2. Blog posts, articles, or directories (not actual products)
-3. Fortune 500 household brands (Nike, Amazon, Zara, etc.)
+4 hard exclusions:
+1. Dev agencies / design studios / freelancer portfolios (sell development services)
+2. Theme/template sellers (sites where you BUY a theme - look for "add to cart" for a theme, pricing for themes, "download theme", "buy theme")
+3. Blog posts, articles, or directories
+4. Fortune 500 household brands (Nike, Amazon, Zara, etc.)
 
-Everything else should be INCLUDED if it remotely resembles the client's project. A fashion store with only a few products? INCLUDE. A store on a different platform than requested? INCLUDE. A store in a slightly different niche? INCLUDE. "Powered by Shopify" in the footer? INCLUDE. The scrape content is thin but the URL looks like a real store? INCLUDE.
+BE GENEROUS with everything else. A store with few products? INCLUDE. Different platform? INCLUDE. Slightly different niche? INCLUDE. "Powered by Shopify" in footer? INCLUDE. Thin scrape content but URL looks like a real store? INCLUDE.
 
 For each site, return JSON:
-- name: Brand/project name
+- name: Brand/project name (NOT the theme name - the BRAND name)
 - url: Exact URL
 - pitch_angle: One sentence as if agency built it
 - key_features: Array of 2-3 features matching client needs
@@ -337,9 +340,34 @@ async function researchSimilarExamples(projectDescription, anthropicKey, exaKey,
   const searchQueries = await refineSearchQuery(projectDescription, anthropicKey);
   console.log(`research: Refined into ${searchQueries.length} search queries:`, searchQueries);
 
-  // Step 1: Discover candidates via Exa neural search (run all queries)
+  // Step 1: Discover candidates via Exa neural search
+  // Strategy: Use first query with category="company" (finds real businesses via entity matching)
+  // Then use remaining queries without category but with excludeDomains (broader net)
   const allResults = [];
-  for (const query of searchQueries.slice(0, 3)) {
+
+  // First query: company category (better at finding real businesses, but no excludeDomains)
+  if (searchQueries.length > 0) {
+    try {
+      const results = await searchExa(searchQueries[0], exaKey, {
+        numResults: 12,
+        category: 'company',
+      });
+      console.log(`research: Exa company query "${searchQueries[0].substring(0, 60)}" returned ${results.length} results`);
+      results.forEach((r, i) => console.log(`  ${i + 1}. ${r.url} - "${r.title}"`));
+      allResults.push(...results);
+    } catch (err) {
+      console.warn(`research: Exa company search failed, trying without category...`);
+      try {
+        const results = await searchExa(searchQueries[0], exaKey, { numResults: 12, excludeDomains: WELL_KNOWN_DOMAINS });
+        allResults.push(...results);
+      } catch (retryErr) {
+        console.warn(`research: Exa search fully failed for query 1:`, retryErr.message);
+      }
+    }
+  }
+
+  // Remaining queries: broader search with domain exclusions
+  for (const query of searchQueries.slice(1, 3)) {
     try {
       const results = await searchExa(query, exaKey, {
         numResults: 12,
