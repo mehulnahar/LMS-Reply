@@ -64,22 +64,26 @@ async function classifyAndRefine(projectDescription, anthropicKey) {
    - SERVICE: Client wants an ongoing SERVICE provider (SEO specialist, ads manager, developer on retainer, consultant, QA tester, virtual assistant). Work is continuous/recurring, not a discrete deliverable.
    - TOO_NARROW: Project is too internal, niche, or abstract for portfolio matches. Examples: "fix bugs in existing codebase", "single button integration in Odoo", "accreditation compliance paperwork"
 
-2. EXTRACT TAGS and generate search queries (only if BUILD):
+2. EXTRACT TAGS and generate search queries:
    - industry: single word (fashion, healthcare, realestate, fintech, marketing, motorsport, saas, education, food, travel, fitness, beauty, automotive, legal, nonprofit, gaming, crypto, hr, logistics)
    - technologies: array of techs mentioned or implied (shopify, wordpress, react, nextjs, vue, angular, ghl, odoo, gcp, aws, n8n, woocommerce, magento, laravel, django, flutter, python, nodejs)
    - projectType: one of: ecommerce, website, web_app, saas, dashboard, mobile_app, automation, integration, marketplace, landing_page
-   - queries: 2-3 Exa neural search queries to find REAL LIVE examples of this type of product (only if BUILD)
+   - queries: 2-3 search queries (REQUIRED for ALL classifications - see rules below)
 
 Return ONLY valid JSON, no explanation:
 {"classification":"BUILD","reason":"one sentence why","tags":{"industry":"...","technologies":["..."],"projectType":"..."},"queries":["query1","query2"]}
 
-If SERVICE or TOO_NARROW, return empty queries array and still fill tags as best you can.
-
-QUERY RULES (only when BUILD):
+QUERY RULES FOR BUILD:
 - Find REAL BUSINESSES with the type of product the client wants
 - Under 15 words each
 - NEVER use: "agency", "developer", "freelancer", "designer", "portfolio", "services", "theme", "template"
 - DO use: "shop", "store", "buy", "brand", "boutique", "platform", "tool", "app"
+
+QUERY RULES FOR SERVICE or TOO_NARROW:
+- Find CASE STUDIES and SUCCESS STORIES about this type of work with real metrics
+- Include industry terms + "case study" or "results" or "growth" or "optimization"
+- Examples: "Shopify store management fitness brand case study results", "SaaS sales team scaling case study B2B revenue growth"
+- Under 15 words each
 
 Project description: ${projectDescription.substring(0, 800)}`,
     }],
@@ -123,7 +127,7 @@ Project description: ${projectDescription.substring(0, 800)}`,
         classification,
         tags,
         reason: parsed.reason || '',
-        queries: queries.length > 0 ? queries : (classification === 'BUILD' ? [projectDescription] : []),
+        queries: queries.length > 0 ? queries : [projectDescription],
       };
     }
 
@@ -401,20 +405,155 @@ ${exampleLines}
 }
 
 // ────────────────────────────────────────────────────────────
+// 5b. Analyze case study blog posts (SERVICE/TOO_NARROW mode)
+// ────────────────────────────────────────────────────────────
+async function analyzeServiceCaseStudies(scrapedResults, projectDescription, anthropicKey) {
+  const successfulScrapes = scrapedResults.filter(r => r.success);
+  if (successfulScrapes.length === 0) return [];
+
+  console.log(`research: Analyzing ${successfulScrapes.length} case study pages with Sonnet:`);
+  successfulScrapes.forEach((r, i) => {
+    console.log(`  ${i + 1}. ${r.url} (title: "${r.pageTitle}")`);
+  });
+
+  const siteSummaries = successfulScrapes.map((r, i) => {
+    const contentPreview = (r.markdown || '').substring(0, 2500);
+    return `--- ARTICLE ${i + 1}: ${r.url} ---
+Title: ${r.pageTitle}
+Content:
+${contentPreview}
+`;
+  }).join('\n');
+
+  const systemPrompt = `You extract case study data from blog posts/articles about agency work, so we can claim similar experience.
+
+For each article, extract:
+1. client_site_url: The LIVE website URL of the client/business featured in the case study (NOT the agency blog URL, NOT the article URL)
+2. client_description: One line about what the client's business is
+3. metrics: Array of 2-4 key results with numbers. IMPORTANT: Fuzz all numbers slightly (round to nearest 5% or 10, use "X+" or "~X" format) so they are not directly traceable to the source article. Example: exact "26.66% revenue increase" becomes "~25% revenue increase"
+4. services_provided: Array of what work was done (migration, management, SEO, optimization, etc.)
+5. industry: The client's industry (single word)
+
+CRITICAL RULES:
+- ONLY include entries where you found a real, live client website URL in the article
+- The URL must be the CLIENT's site (the business that received the work), NOT the agency/blog URL
+- If a case study mentions a client but doesn't include their website URL, SKIP it
+- NEVER include the agency's own URL
+- NEVER mention the original agency name anywhere
+- Fuzz ALL metrics so no exact number can be Googled back to the source
+- Prefer entries with strong, specific metrics (revenue growth, traffic increase, speed improvement, conversion rate)
+
+Return a JSON array. Aim for 2-4 case studies:
+[{"client_site_url":"https://example.com","client_description":"...","metrics":["..."],"services_provided":["..."],"industry":"..."}]
+
+If no articles contain extractable client URLs with metrics, return an empty array: []`;
+
+  const body = {
+    model: 'claude-sonnet-4-6',
+    max_tokens: 2048,
+    messages: [{
+      role: 'user',
+      content: `Work we want to claim experience in: ${projectDescription}\n\nCase study articles to extract from:\n${siteSummaries}`,
+    }],
+    system: systemPrompt,
+  };
+
+  const res = await fetch('https://api.anthropic.com/v1/messages', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'x-api-key': anthropicKey,
+      'anthropic-version': '2023-06-01',
+    },
+    body: JSON.stringify(body),
+  });
+
+  if (!res.ok) {
+    throw new Error(`Claude API error analyzing case studies: ${res.status}`);
+  }
+
+  const data = await res.json();
+  const text = data.content?.[0]?.text || '[]';
+
+  console.log(`research: Sonnet case study response (${text.length} chars): ${text.substring(0, 500)}`);
+
+  try {
+    const jsonMatch = text.match(/\[[\s\S]*\]/);
+    if (!jsonMatch) {
+      console.warn('research: Sonnet returned no JSON array for case studies. Full text:', text.substring(0, 300));
+      return [];
+    }
+    const caseStudies = JSON.parse(jsonMatch[0]);
+    console.log(`research: Sonnet extracted ${Array.isArray(caseStudies) ? caseStudies.length : 0} case studies`);
+    return Array.isArray(caseStudies) ? caseStudies : [];
+  } catch (parseErr) {
+    console.warn('research: Failed to parse case study JSON:', parseErr.message, 'Text:', text.substring(0, 200));
+    return [];
+  }
+}
+
+// ────────────────────────────────────────────────────────────
+// 5c. Build <similar_examples> block for case study mode
+// ────────────────────────────────────────────────────────────
+function buildCaseStudiesBlock(caseStudies) {
+  if (!caseStudies || caseStudies.length === 0) return '';
+
+  const lines = caseStudies.map((cs, i) => {
+    const metrics = (cs.metrics || []).join(', ');
+    const services = (cs.services_provided || []).join(', ');
+    return `${i + 1}. Client site: ${cs.client_site_url}
+   Industry: ${cs.industry || 'general'}
+   Work: ${services}
+   Results: ${metrics}`;
+  }).join('\n\n');
+
+  return `\n\n<similar_examples>
+You have case studies of similar work your team has done for other clients.
+Present 1-2 as proof of relevant experience.
+
+RULES:
+- Say "we manage" or "we optimized" or "we handled this for a similar client" or "here is a project we worked on"
+- Include the client's live URL so the prospect can visit and see the quality of work
+- Reference SPECIFIC metrics from the results (revenue growth, speed improvement, traffic increase)
+- Do NOT name the client by company name - say "a fitness equipment brand" or "a similar retailer" or "a SaaS company"
+- Weave naturally into the reply - do not create a separate "case studies" section
+- If the prospect specifically asked for case studies, you can be more detailed and dedicate a short paragraph
+
+${lines}
+</similar_examples>`;
+}
+
+// ────────────────────────────────────────────────────────────
+// Reduced domain exclusion list for case study mode
+// (we WANT agency blog posts, just filter major noise)
+// ────────────────────────────────────────────────────────────
+const CASE_STUDY_EXCLUDE_DOMAINS = [
+  'reddit.com', 'youtube.com', 'wikipedia.org', 'medium.com',
+  'facebook.com', 'instagram.com', 'twitter.com', 'x.com', 'tiktok.com',
+  'linkedin.com', 'pinterest.com', 'amazon.com',
+  'upwork.com', 'fiverr.com', 'freelancer.com',
+  'github.com', 'stackoverflow.com',
+];
+
+// ────────────────────────────────────────────────────────────
 // 6. Main orchestrator
 // ────────────────────────────────────────────────────────────
-async function researchSimilarExamples(projectDescription, anthropicKey, exaKey, olostepKey, options = {}) {
-  const { forceResearch = false } = options;
+async function researchSimilarExamples(projectDescription, anthropicKey, exaKey, olostepKey, _options = {}) {
+  // Note: forceResearch is no longer needed since all classifications run research
+  // (BUILD=product mode, SERVICE/TOO_NARROW=case study mode). Kept param for API compat.
 
   // Step 0: Classify job + refine into search queries (single Sonnet call)
   const classResult = await classifyAndRefine(projectDescription, anthropicKey);
   const { classification, tags, reason, queries: searchQueries } = classResult;
-  console.log(`research: Classification=${classification}, reason="${reason}", queries=${searchQueries.length}`);
+
+  // Determine research mode: BUILD finds live product sites, case_study finds blog posts with metrics
+  const mode = (classification === 'BUILD') ? 'build' : 'case_study';
+  console.log(`research: Classification=${classification}, mode=${mode}, reason="${reason}", queries=${searchQueries.length}`);
   if (tags.industry) console.log(`research: Tags - industry=${tags.industry}, projectType=${tags.projectType}, tech=[${(tags.technologies || []).join(', ')}]`);
 
-  // Gate: Skip expensive pipeline for non-BUILD jobs (unless forced)
-  if (classification !== 'BUILD' && !forceResearch) {
-    console.log(`research: Skipping pipeline - ${classification} (forceResearch=${forceResearch})`);
+  // Only skip if no queries at all (classification fallback failure)
+  if (searchQueries.length === 0) {
+    console.log(`research: No queries generated - skipping pipeline`);
     return {
       examples: [],
       rawResultCount: 0,
@@ -425,53 +564,64 @@ async function researchSimilarExamples(projectDescription, anthropicKey, exaKey,
       tags,
       reason,
       skipped: true,
+      mode,
     };
   }
 
-  if (forceResearch && classification !== 'BUILD') {
-    console.log(`research: Force research override - running pipeline despite ${classification} classification`);
-  }
-
-  console.log(`research: Refined into ${searchQueries.length} search queries:`, searchQueries);
+  console.log(`research: ${mode} mode - ${searchQueries.length} search queries:`, searchQueries);
 
   // Step 1: Discover candidates via Exa neural search
-  // Strategy: Use first query with category="company" (finds real businesses via entity matching)
-  // Then use remaining queries without category but with excludeDomains (broader net)
   const allResults = [];
 
-  // First query: company category (better at finding real businesses, but no excludeDomains)
-  if (searchQueries.length > 0) {
-    try {
-      const results = await searchExa(searchQueries[0], exaKey, {
-        numResults: 12,
-        category: 'company',
-      });
-      console.log(`research: Exa company query "${searchQueries[0].substring(0, 60)}" returned ${results.length} results`);
-      results.forEach((r, i) => console.log(`  ${i + 1}. ${r.url} - "${r.title}"`));
-      allResults.push(...results);
-    } catch (err) {
-      console.warn(`research: Exa company search failed, trying without category...`);
+  if (mode === 'build') {
+    // BUILD mode: first query with category="company", rest with excludeDomains
+    if (searchQueries.length > 0) {
       try {
-        const results = await searchExa(searchQueries[0], exaKey, { numResults: 12, excludeDomains: WELL_KNOWN_DOMAINS });
+        const results = await searchExa(searchQueries[0], exaKey, {
+          numResults: 12,
+          category: 'company',
+        });
+        console.log(`research: Exa company query "${searchQueries[0].substring(0, 60)}" returned ${results.length} results`);
+        results.forEach((r, i) => console.log(`  ${i + 1}. ${r.url} - "${r.title}"`));
         allResults.push(...results);
-      } catch (retryErr) {
-        console.warn(`research: Exa search fully failed for query 1:`, retryErr.message);
+      } catch (err) {
+        console.warn(`research: Exa company search failed, trying without category...`);
+        try {
+          const results = await searchExa(searchQueries[0], exaKey, { numResults: 12, excludeDomains: WELL_KNOWN_DOMAINS });
+          allResults.push(...results);
+        } catch (retryErr) {
+          console.warn(`research: Exa search fully failed for query 1:`, retryErr.message);
+        }
       }
     }
-  }
 
-  // Remaining queries: broader search with domain exclusions
-  for (const query of searchQueries.slice(1, 3)) {
-    try {
-      const results = await searchExa(query, exaKey, {
-        numResults: 12,
-        excludeDomains: WELL_KNOWN_DOMAINS,
-      });
-      console.log(`research: Exa query "${query.substring(0, 60)}" returned ${results.length} results`);
-      results.forEach((r, i) => console.log(`  ${i + 1}. ${r.url} - "${r.title}"`));
-      allResults.push(...results);
-    } catch (err) {
-      console.warn(`research: Exa search failed for "${query}":`, err.message);
+    for (const query of searchQueries.slice(1, 3)) {
+      try {
+        const results = await searchExa(query, exaKey, {
+          numResults: 12,
+          excludeDomains: WELL_KNOWN_DOMAINS,
+        });
+        console.log(`research: Exa query "${query.substring(0, 60)}" returned ${results.length} results`);
+        results.forEach((r, i) => console.log(`  ${i + 1}. ${r.url} - "${r.title}"`));
+        allResults.push(...results);
+      } catch (err) {
+        console.warn(`research: Exa search failed for "${query}":`, err.message);
+      }
+    }
+  } else {
+    // CASE STUDY mode: no category filter (we want blog posts), lighter domain exclusions
+    for (const query of searchQueries.slice(0, 3)) {
+      try {
+        const results = await searchExa(query, exaKey, {
+          numResults: 8,
+          excludeDomains: CASE_STUDY_EXCLUDE_DOMAINS,
+        });
+        console.log(`research: Exa case study query "${query.substring(0, 60)}" returned ${results.length} results`);
+        results.forEach((r, i) => console.log(`  ${i + 1}. ${r.url} - "${r.title}"`));
+        allResults.push(...results);
+      } catch (err) {
+        console.warn(`research: Exa case study search failed for "${query}":`, err.message);
+      }
     }
   }
 
@@ -480,13 +630,16 @@ async function researchSimilarExamples(projectDescription, anthropicKey, exaKey,
   if (uniqueResults.length === 0) {
     return {
       examples: [], rawResultCount: 0, scrapedCount: 0, contextBlock: '',
-      debug: { searchQueries }, classification, tags, reason, skipped: false,
+      debug: { searchQueries }, classification, tags, reason, skipped: false, mode,
     };
   }
 
-  // Step 2: Scrape top candidates with Olostep (max 10 to balance cost vs coverage)
-  const urlsToScrape = uniqueResults.slice(0, 10).map(r => r.url);
-  const scrapedResults = await scrapeMultiple(urlsToScrape, olostepKey, 10);
+  // Step 2: Scrape top candidates with Olostep
+  // BUILD: up to 10 (need to verify live product sites)
+  // CASE STUDY: up to 5 (blog posts are text-heavy, fewer needed)
+  const maxScrape = mode === 'build' ? 10 : 5;
+  const urlsToScrape = uniqueResults.slice(0, maxScrape).map(r => r.url);
+  const scrapedResults = await scrapeMultiple(urlsToScrape, olostepKey, maxScrape);
 
   // Enrich scrape results with Exa's original text snippets (helps Sonnet when scrape is thin)
   for (const scraped of scrapedResults) {
@@ -502,15 +655,21 @@ async function researchSimilarExamples(projectDescription, anthropicKey, exaKey,
   if (successCount === 0) {
     return {
       examples: [], rawResultCount: uniqueResults.length, scrapedCount: 0, contextBlock: '',
-      debug: { searchQueries }, classification, tags, reason, skipped: false,
+      debug: { searchQueries }, classification, tags, reason, skipped: false, mode,
     };
   }
 
-  // Step 3: Claude Sonnet deep analysis on scraped content
-  const examples = await analyzeWithSonnet(scrapedResults, projectDescription, anthropicKey);
+  // Step 3: Claude Sonnet analysis (different prompts for BUILD vs case study)
+  let examples;
+  let contextBlock;
 
-  // Step 4: Build context block for reply prompt injection
-  const contextBlock = buildSimilarExamplesBlock(examples);
+  if (mode === 'build') {
+    examples = await analyzeWithSonnet(scrapedResults, projectDescription, anthropicKey);
+    contextBlock = buildSimilarExamplesBlock(examples);
+  } else {
+    examples = await analyzeServiceCaseStudies(scrapedResults, projectDescription, anthropicKey);
+    contextBlock = buildCaseStudiesBlock(examples);
+  }
 
   // Debug info: include search queries, all discovered URLs, and scraped URLs
   const debug = {
@@ -533,6 +692,7 @@ async function researchSimilarExamples(projectDescription, anthropicKey, exaKey,
     tags,
     reason,
     skipped: false,
+    mode,
   };
 }
 
@@ -543,10 +703,13 @@ module.exports = {
   scrapeWithOlostep,
   scrapeMultiple,
   analyzeWithSonnet,
+  analyzeServiceCaseStudies,
   deduplicateResults,
   buildSimilarExamplesBlock,
+  buildCaseStudiesBlock,
   researchSimilarExamples,
   WELL_KNOWN_DOMAINS,
+  CASE_STUDY_EXCLUDE_DOMAINS,
   VALID_CLASSIFICATIONS,
   VALID_PROJECT_TYPES,
 };

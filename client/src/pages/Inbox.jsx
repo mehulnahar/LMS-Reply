@@ -450,6 +450,7 @@ export default function Inbox() {
         tags: result.tags || {},
         reason: result.reason || '',
         skipped: result.skipped || false,
+        mode: result.mode || 'build',
         error: null,
       });
     } catch (err) {
@@ -462,6 +463,7 @@ export default function Inbox() {
         tags: {},
         reason: '',
         skipped: false,
+        mode: 'build',
         error: err.message || 'Research failed',
       });
     } finally {
@@ -1744,7 +1746,7 @@ export default function Inbox() {
                               {CLASSIFICATION_LABELS[researchResults.classification].label}
                             </span>
                           )}
-                          {researchResults.classification === 'BUILD' && researchResults.tags?.projectType && PROJECT_TYPE_LABELS[researchResults.tags.projectType] && (
+                          {researchResults.tags?.projectType && PROJECT_TYPE_LABELS[researchResults.tags.projectType] && (
                             <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-medium ${PROJECT_TYPE_LABELS[researchResults.tags.projectType].color}`}>
                               {PROJECT_TYPE_LABELS[researchResults.tags.projectType].label}
                             </span>
@@ -1754,7 +1756,7 @@ export default function Inbox() {
                               {researchResults.tags.industry}
                             </span>
                           )}
-                          {researchResults.classification === 'BUILD' && (researchResults.tags?.technologies || []).map((tech) => (
+                          {(researchResults.tags?.technologies || []).map((tech) => (
                             <span key={tech} className="text-[10px] px-1.5 py-0.5 rounded-full font-medium bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400">
                               {tech}
                             </span>
@@ -1780,20 +1782,11 @@ export default function Inbox() {
                             </svg>
                             <div className="flex-1">
                               <p className="text-xs font-medium text-slate-700 dark:text-slate-300">
-                                {researchResults.classification === 'SERVICE'
-                                  ? 'Service role - portfolio examples not applicable'
-                                  : 'Scope too specific for portfolio research'}
+                                Could not generate research queries for this job
                               </p>
                               {researchResults.reason && (
                                 <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5 italic">{researchResults.reason}</p>
                               )}
-                              <button
-                                onClick={() => handleResearch(true)}
-                                disabled={researching}
-                                className="text-xs text-cyan-600 dark:text-cyan-400 hover:underline mt-1.5 font-medium"
-                              >
-                                {researching ? 'Researching...' : 'Force Research'}
-                              </button>
                             </div>
                             <button
                               onClick={() => setResearchResults(null)}
@@ -1830,6 +1823,46 @@ export default function Inbox() {
                               </div>
                             </details>
                           )}
+                        </div>
+                      ) : researchResults.mode === 'case_study' ? (
+                        <div>
+                          <div className="flex items-center justify-between mb-2">
+                            <p className="text-xs font-medium text-purple-800 dark:text-purple-300 flex items-center gap-1.5">
+                              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 0 0-3.375-3.375h-1.5A1.125 1.125 0 0 1 13.5 7.125v-1.5a3.375 3.375 0 0 0-3.375-3.375H8.25m0 12.75h7.5m-7.5 3H12M10.5 2.25H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 0 0-9-9Z" />
+                              </svg>
+                              {researchResults.examples.length} case stud{researchResults.examples.length !== 1 ? 'ies' : 'y'} found
+                              <span className="text-gray-400 font-normal">({researchResults.rawResultCount} discovered, {researchResults.scrapedCount} scraped)</span>
+                            </p>
+                            <button
+                              onClick={() => setResearchResults(null)}
+                              className="text-xs text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"
+                            >
+                              Dismiss
+                            </button>
+                          </div>
+                          <div className="space-y-2">
+                            {researchResults.examples.map((cs, i) => (
+                              <div key={i} className="flex items-start gap-2 p-2 rounded-md bg-white dark:bg-gray-900/50 border border-purple-100 dark:border-purple-900/30">
+                                <span className="text-xs font-bold text-purple-600 dark:text-purple-400 mt-0.5">{i + 1}.</span>
+                                <div className="min-w-0 flex-1">
+                                  <p className="text-xs font-medium text-gray-800 dark:text-gray-200 truncate">{cs.client_description || 'Client project'}</p>
+                                  <a href={cs.client_site_url} target="_blank" rel="noopener noreferrer" className="text-xs text-purple-600 dark:text-purple-400 hover:underline break-all">{cs.client_site_url}</a>
+                                  {cs.metrics && cs.metrics.length > 0 && (
+                                    <p className="text-xs text-emerald-600 dark:text-emerald-400 mt-0.5 flex items-center gap-1">
+                                      <span className="font-medium">Results:</span> {cs.metrics.join(' | ')}
+                                    </p>
+                                  )}
+                                  {cs.services_provided && cs.services_provided.length > 0 && (
+                                    <p className="text-xs text-gray-400 dark:text-gray-500 mt-0.5">Work: {cs.services_provided.join(', ')}</p>
+                                  )}
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                          <p className="text-xs text-purple-700 dark:text-purple-400 mt-2 italic">
+                            These case studies will be auto-injected when you click Generate.
+                          </p>
                         </div>
                       ) : (
                         <div>

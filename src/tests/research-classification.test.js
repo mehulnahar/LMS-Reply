@@ -77,31 +77,31 @@ describe('classifyAndRefine', () => {
     expect(result.reason).toBeTruthy();
   });
 
-  it('classifies a SERVICE job correctly', async () => {
+  it('classifies a SERVICE job with case study queries', async () => {
     mockSonnetResponse({
       classification: 'SERVICE',
       reason: 'Client wants an ongoing SEO specialist',
       tags: { industry: 'marketing', technologies: [], projectType: 'website' },
-      queries: [],
+      queries: ['SEO management case study results growth'],
     });
 
     const result = await classifyAndRefine('Looking for an SEO specialist to manage our campaigns', 'test-key');
     expect(result.classification).toBe('SERVICE');
-    expect(result.queries).toHaveLength(0);
+    expect(result.queries.length).toBeGreaterThanOrEqual(1);
     expect(result.reason).toContain('SEO');
   });
 
-  it('classifies a TOO_NARROW job correctly', async () => {
+  it('classifies a TOO_NARROW job with case study queries', async () => {
     mockSonnetResponse({
       classification: 'TOO_NARROW',
       reason: 'Internal bug fixing task',
       tags: { industry: 'saas', technologies: ['python'], projectType: 'web_app' },
-      queries: [],
+      queries: ['Django admin optimization case study results'],
     });
 
     const result = await classifyAndRefine('Fix bugs in our internal Django admin panel', 'test-key');
     expect(result.classification).toBe('TOO_NARROW');
-    expect(result.queries).toHaveLength(0);
+    expect(result.queries.length).toBeGreaterThanOrEqual(1);
   });
 
   it('falls back to BUILD on invalid classification value', async () => {
@@ -200,7 +200,7 @@ describe('classifyAndRefine', () => {
     expect(result.queries).toEqual(['Build a fashion store']);
   });
 
-  it('returns empty queries for SERVICE even with empty queries', async () => {
+  it('uses projectDescription as fallback query for SERVICE with empty queries', async () => {
     mockSonnetResponse({
       classification: 'SERVICE',
       reason: 'ongoing service',
@@ -209,7 +209,7 @@ describe('classifyAndRefine', () => {
     });
 
     const result = await classifyAndRefine('Need a VA', 'test-key');
-    expect(result.queries).toHaveLength(0);
+    expect(result.queries).toEqual(['Need a VA']);
   });
 
   it('return shape always has classification, tags, reason, queries', async () => {
@@ -238,57 +238,117 @@ describe('researchSimilarExamples - classification gate', () => {
     global.fetch = originalFetch;
   });
 
-  it('skips pipeline for SERVICE classification', async () => {
-    // Mock: classifyAndRefine returns SERVICE, should NOT call Exa/Olostep
+  it('runs case_study pipeline for SERVICE classification', async () => {
+    let fetchCount = 0;
     global.fetch = jest.fn().mockImplementation((url) => {
+      fetchCount++;
       if (url.includes('anthropic')) {
+        if (fetchCount === 1) {
+          // classifyAndRefine returns SERVICE with case study queries
+          return Promise.resolve({
+            ok: true,
+            json: () => Promise.resolve({
+              content: [{ text: JSON.stringify({
+                classification: 'SERVICE',
+                reason: 'Ongoing SEO work',
+                tags: { industry: 'marketing', technologies: [], projectType: 'website' },
+                queries: ['SEO management case study results growth'],
+              }) }],
+            }),
+          });
+        }
+        // analyzeServiceCaseStudies
         return Promise.resolve({
           ok: true,
           json: () => Promise.resolve({
-            content: [{ text: JSON.stringify({
-              classification: 'SERVICE',
-              reason: 'Ongoing SEO work',
-              tags: { industry: 'marketing', technologies: [], projectType: 'website' },
-              queries: [],
-            }) }],
+            content: [{ text: JSON.stringify([
+              { client_site_url: 'https://test-client.com', client_description: 'Marketing agency client', metrics: ['Traffic +50%'], services_provided: ['SEO'], industry: 'marketing' },
+            ]) }],
           }),
         });
       }
-      return Promise.reject(new Error('Should not call Exa or Olostep'));
+      if (url.includes('exa.ai')) {
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve({
+            results: [{ title: 'SEO Case Study', url: 'https://agency-blog.com/case-study', text: 'Great results', highlights: [] }],
+          }),
+        });
+      }
+      if (url.includes('olostep.com')) {
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve({
+            result: { markdown_content: '# SEO Case Study', page_metadata: { status_code: 200, title: 'Case Study' }, links_on_page: [] },
+          }),
+        });
+      }
+      return Promise.reject(new Error('unexpected URL'));
     });
 
     const result = await researchSimilarExamples('SEO specialist needed', 'key', 'exa', 'olostep');
-    expect(result.skipped).toBe(true);
+    expect(result.skipped).toBe(false);
+    expect(result.mode).toBe('case_study');
     expect(result.classification).toBe('SERVICE');
-    expect(result.examples).toHaveLength(0);
-    expect(result.contextBlock).toBe('');
-    // Only one fetch call (classifyAndRefine), NOT Exa or Olostep
-    expect(global.fetch).toHaveBeenCalledTimes(1);
+    expect(result.examples.length).toBeGreaterThanOrEqual(1);
+    expect(result.examples[0]).toHaveProperty('client_site_url');
+    expect(result.examples[0]).toHaveProperty('metrics');
+    // Should have called Exa + Olostep + Sonnet analyze (not just classify)
+    expect(global.fetch).toHaveBeenCalledTimes(4);
   });
 
-  it('skips pipeline for TOO_NARROW classification', async () => {
+  it('runs case_study pipeline for TOO_NARROW classification', async () => {
+    let fetchCount = 0;
     global.fetch = jest.fn().mockImplementation((url) => {
+      fetchCount++;
       if (url.includes('anthropic')) {
+        if (fetchCount === 1) {
+          return Promise.resolve({
+            ok: true,
+            json: () => Promise.resolve({
+              content: [{ text: JSON.stringify({
+                classification: 'TOO_NARROW',
+                reason: 'Internal bug fixes',
+                tags: { industry: 'saas', technologies: ['python'], projectType: 'web_app' },
+                queries: ['Django admin optimization case study'],
+              }) }],
+            }),
+          });
+        }
         return Promise.resolve({
           ok: true,
           json: () => Promise.resolve({
-            content: [{ text: JSON.stringify({
-              classification: 'TOO_NARROW',
-              reason: 'Internal bug fixes',
-              tags: { industry: 'saas', technologies: ['python'], projectType: 'web_app' },
-              queries: [],
-            }) }],
+            content: [{ text: JSON.stringify([
+              { client_site_url: 'https://django-client.com', client_description: 'SaaS platform', metrics: ['Performance +40%'], services_provided: ['Django optimization'], industry: 'saas' },
+            ]) }],
           }),
         });
       }
-      return Promise.reject(new Error('Should not call Exa or Olostep'));
+      if (url.includes('exa.ai')) {
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve({
+            results: [{ title: 'Django Case Study', url: 'https://blog.com/django', text: 'Results', highlights: [] }],
+          }),
+        });
+      }
+      if (url.includes('olostep.com')) {
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve({
+            result: { markdown_content: '# Django', page_metadata: { status_code: 200, title: 'T' }, links_on_page: [] },
+          }),
+        });
+      }
+      return Promise.reject(new Error('unexpected'));
     });
 
     const result = await researchSimilarExamples('Fix bugs in Django admin', 'key', 'exa', 'olostep');
-    expect(result.skipped).toBe(true);
+    expect(result.skipped).toBe(false);
+    expect(result.mode).toBe('case_study');
     expect(result.classification).toBe('TOO_NARROW');
     expect(result.tags.technologies).toContain('python');
-    expect(global.fetch).toHaveBeenCalledTimes(1);
+    expect(result.examples.length).toBeGreaterThanOrEqual(1);
   });
 
   it('runs full pipeline for BUILD classification', async () => {
@@ -340,6 +400,7 @@ describe('researchSimilarExamples - classification gate', () => {
 
     const result = await researchSimilarExamples('Build a Shopify store', 'key', 'exa', 'olostep');
     expect(result.skipped).toBe(false);
+    expect(result.mode).toBe('build');
     expect(result.classification).toBe('BUILD');
     expect(result.examples.length).toBeGreaterThanOrEqual(1);
     // Should have called Exa and Olostep (not just Anthropic)

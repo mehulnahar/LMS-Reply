@@ -120,7 +120,7 @@ router.post('/examples', requireAuth, async (req, res, next) => {
     if (result.skipped) {
       console.log(`research: Skipped - ${result.classification} (${result.reason})`);
     } else {
-      console.log(`research: Found ${result.examples.length} verified examples from ${result.rawResultCount} discovered, ${result.scrapedCount} scraped`);
+      console.log(`research: [${result.mode}] Found ${result.examples.length} examples from ${result.rawResultCount} discovered, ${result.scrapedCount} scraped`);
     }
 
     // Persist classification to DB (fire-and-forget)
@@ -144,6 +144,7 @@ router.post('/examples', requireAuth, async (req, res, next) => {
       tags: result.tags,
       reason: result.reason,
       skipped: result.skipped || false,
+      mode: result.mode || 'build',
     });
   } catch (err) {
     next(err);
