@@ -6,6 +6,7 @@ import Signup from "./pages/Signup";
 import Dashboard from "./pages/Dashboard";
 import Settings from "./pages/Settings";
 import Inbox from "./pages/Inbox";
+import Calls from "./pages/Calls";
 
 function PrivateRoute({ children }) {
   const { user, loading } = useAuth();
@@ -35,6 +36,7 @@ export default function App() {
       <Route path="/signup" element={<PublicRoute><Signup /></PublicRoute>} />
       <Route path="/inbox" element={<PrivateRoute><Layout fullWidth><Inbox /></Layout></PrivateRoute>} />
       <Route path="/dashboard" element={<PrivateRoute><Layout><Dashboard /></Layout></PrivateRoute>} />
+      <Route path="/calls" element={<PrivateRoute><Layout fullWidth><Calls /></Layout></PrivateRoute>} />
       <Route path="/settings" element={<PrivateRoute><Layout><Settings /></Layout></PrivateRoute>} />
       <Route path="*" element={<Navigate to="/inbox" replace />} />
     </Routes>

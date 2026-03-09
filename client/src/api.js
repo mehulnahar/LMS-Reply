@@ -141,6 +141,10 @@ export const api = {
       body: JSON.stringify({ emailId, projectDescription, forceResearch }),
     }),
 
+  // Calls (Google Calendar)
+  getCallEvents: (start, end) =>
+    request(`/api/calls/events?start=${encodeURIComponent(start)}&end=${encodeURIComponent(end)}`),
+
   // WhatsApp
   getWhatsAppStatus: () => request('/api/whatsapp/status'),
   getWhatsAppQR: () => request('/api/whatsapp/qr'),

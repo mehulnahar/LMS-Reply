@@ -71,6 +71,7 @@ router.get("/auth-url", requireAuth, async (req, res) => {
       "https://www.googleapis.com/auth/gmail.readonly",
       "https://www.googleapis.com/auth/userinfo.email",
       "https://www.googleapis.com/auth/userinfo.profile",
+      "https://www.googleapis.com/auth/calendar.events.readonly",
     ],
     state: req.user.id,
   });

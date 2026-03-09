@@ -16,6 +16,7 @@ const replyRoutes = require("./routes/replies");
 const timezoneRoutes = require("./routes/timezone");
 const researchRoutes = require("./routes/research");
 const whatsappRoutes = require("./routes/whatsapp");
+const callsRoutes = require("./routes/calls");
 
 const app = express();
 
@@ -67,6 +68,7 @@ app.use("/api/replies", replyRoutes);
 app.use("/api/timezone", timezoneRoutes);
 app.use("/api/research", researchRoutes);
 app.use("/api/whatsapp", whatsappRoutes);
+app.use("/api/calls", callsRoutes);
 
 // ---------------------------------------------------------------------------
 // API root (keep for health probes)
