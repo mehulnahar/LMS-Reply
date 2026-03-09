@@ -33,12 +33,22 @@ const {
   formatTimezoneCTA,
   getNextCallDay,
 } = require('../utils/promptEnhancements');
+const { researchSimilarExamples } = require('../utils/researchAgent');
 
 const router = express.Router();
 
 // ────────────────────────────────────────────────────────────
 // Shared helpers
 // ────────────────────────────────────────────────────────────
+async function getApiKey(userId, service) {
+  const { rows } = await pool.query(
+    'SELECT encrypted_key, iv, auth_tag FROM api_keys WHERE user_id = $1 AND service = $2',
+    [userId, service]
+  );
+  if (!rows.length) return null;
+  return decrypt(rows[0].encrypted_key, rows[0].iv, rows[0].auth_tag);
+}
+
 async function callClaudeHelper(systemPrompt, userMessage, apiKey, model = 'claude-sonnet-4-6', maxTokens = 1024, opts = {}) {
   const body = { model, max_tokens: maxTokens, messages: [{ role: 'user', content: userMessage }] };
   if (systemPrompt) body.system = systemPrompt;
@@ -589,6 +599,34 @@ router.post("/generate", requireAuth, async (req, res, next) => {
     }
 
     // ──────────────────────────────────────────────────────────
+    // Step 4c: Research similar examples (first contact only, non-blocking)
+    // ──────────────────────────────────────────────────────────
+    let researchContextBlock = '';
+    const isFirstContact = promptType === 'EMAIL_REPLY_V2' || promptType === 'PROPOSAL_V4';
+    if (isFirstContact && job) {
+      try {
+        const [exaKey, olostepKey] = await Promise.all([
+          getApiKey(req.user.id, 'exa'),
+          getApiKey(req.user.id, 'olostep'),
+        ]);
+        if (exaKey && olostepKey) {
+          const projectDesc = job.job_heading || job.job_description?.substring(0, 200) || email.subject || '';
+          if (projectDesc.length >= 5) {
+            console.log('research: Auto-research triggered for first contact');
+            const research = await researchSimilarExamples(projectDesc, anthropicKey, exaKey, olostepKey);
+            researchContextBlock = research.contextBlock || '';
+            if (research.examples.length > 0) {
+              console.log(`research: Injecting ${research.examples.length} verified examples into reply context`);
+            }
+          }
+        }
+      } catch (err) {
+        // Research is an enhancement, never block reply generation
+        console.warn('research: Auto-research failed (non-fatal):', err.message);
+      }
+    }
+
+    // ──────────────────────────────────────────────────────────
     // Step 5: Build context + call Claude (PREFETCH-04)
     // ──────────────────────────────────────────────────────────
     // ── Detect Janet persona: outreach was sent as "Janet" but reply is from Ashish
@@ -597,6 +635,11 @@ router.post("/generate", requireAuth, async (req, res, next) => {
 
     const threadContext = { threadStage, clientMessageLength, stallType, ccContacts: filteredCcContacts, isJanetPersona, outreachAlias };
     let systemPrompt = buildPromptWithContext(templateContent, email, job, linkAnalysis, tone, promptType, objectionContext, threadContext, timezoneCTA, pricingDetection);
+
+    // Inject research examples into prompt (after buildPromptWithContext)
+    if (researchContextBlock) {
+      systemPrompt += researchContextBlock;
+    }
     // generateAll: if mockup is appropriate for this project, add [link] placeholder hint to reply
     if (generateAll && mockupDecisionGlobal.shouldBuild && !(job && job.follow_up_count >= 2)) {
       systemPrompt += '\n\n**Mockup Note (generateAll mode):** A visual concept is appropriate for this project. Naturally include ONE short sentence in your reply referencing a quick visual concept you prepared, using exactly `[link]` as the placeholder URL. Keep it casual and human. Example: "I also put together a quick visual  - [link]  - let me know what you think."';

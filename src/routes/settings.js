@@ -29,7 +29,7 @@ const { encrypt, decrypt, maskApiKey } = require("../utils/encryption");
 
 const router = express.Router();
 
-const VALID_SERVICES = ["anthropic", "leadhack", "google_client_id", "google_client_secret"];
+const VALID_SERVICES = ["anthropic", "leadhack", "google_client_id", "google_client_secret", "exa", "olostep"];
 
 // ============================================================
 // Validation Schemas

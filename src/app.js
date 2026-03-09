@@ -14,6 +14,7 @@ const emailRoutes = require("./routes/emails");
 const jobRoutes = require("./routes/jobs");
 const replyRoutes = require("./routes/replies");
 const timezoneRoutes = require("./routes/timezone");
+const researchRoutes = require("./routes/research");
 
 const app = express();
 
@@ -63,6 +64,7 @@ app.use("/api/emails", emailRoutes);
 app.use("/api/jobs", jobRoutes);
 app.use("/api/replies", replyRoutes);
 app.use("/api/timezone", timezoneRoutes);
+app.use("/api/research", researchRoutes);
 
 // ---------------------------------------------------------------------------
 // API root (keep for health probes)
