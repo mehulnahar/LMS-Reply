@@ -131,43 +131,4 @@ router.post('/examples', requireAuth, async (req, res, next) => {
   }
 });
 
-// ════════════════════════════════════════════════════════════
-// TEMPORARY: Debug endpoint for testing research pipeline
-// TODO: Remove after debugging is complete
-// ════════════════════════════════════════════════════════════
-router.post('/debug-test', async (req, res, next) => {
-  try {
-    const { secret, projectDescription } = req.body;
-    if (secret !== 'research-debug-2026') {
-      return res.status(403).json({ error: 'Invalid secret' });
-    }
-
-    const userId = '2068ca6b-8118-4bc2-9f7c-171bff8b0757';
-    const [anthropicKey, exaKey, olostepKey] = await Promise.all([
-      getApiKey(userId, 'anthropic'),
-      getApiKey(userId, 'exa'),
-      getApiKey(userId, 'olostep'),
-    ]);
-
-    if (!anthropicKey || !exaKey || !olostepKey) {
-      return res.status(400).json({ error: 'Missing API keys', has: { anthropic: !!anthropicKey, exa: !!exaKey, olostep: !!olostepKey } });
-    }
-
-    const desc = projectDescription || 'Shopify Theme Designer (Fashion E-commerce) - premium Shopify themes for fashion stores, scalable, mobile-first, dropshipping';
-    console.log('debug-test: Starting with:', desc.substring(0, 100));
-
-    const result = await researchSimilarExamples(desc, anthropicKey, exaKey, olostepKey);
-
-    res.json({
-      examples: result.examples,
-      rawResultCount: result.rawResultCount,
-      scrapedCount: result.scrapedCount,
-      exampleCount: result.examples.length,
-      debug: result.debug,
-    });
-  } catch (err) {
-    next(err);
-  }
-});
-
 module.exports = router;
