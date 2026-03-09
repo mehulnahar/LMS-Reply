@@ -76,8 +76,8 @@ async function enrichEventWithClient(userId, attendeeEmails) {
        e.has_urgency, e.hot_signal_flagged, e.intent, e.body_text AS email_body,
        e.received_at,
        j.id AS job_id, j.job_heading, j.job_description, j.country,
-       j.match_status, j.prompt_type_used AS stage, j.follow_up_count,
-       j.kill_switch_active,
+       j.match_status, j.follow_up_count,
+       j.kill_switch_at IS NOT NULL AS kill_switch_active,
        r.reply_text, r.created_at AS reply_date
      FROM emails e
      LEFT JOIN jobs j ON j.email_id = e.id
