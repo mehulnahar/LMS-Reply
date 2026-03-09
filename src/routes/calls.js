@@ -117,6 +117,7 @@ router.get("/events", requireAuth, async (req, res) => {
 
     const seen = new Set();
     const events = [];
+    let needsReauth = false;
 
     for (const account of accounts) {
       try {
@@ -165,13 +166,20 @@ router.get("/events", requireAuth, async (req, res) => {
           });
         }
       } catch (accountErr) {
-        console.error(`[Calls] Calendar fetch error for ${account.email}:`, accountErr.message);
+        const msg = accountErr.message || "";
+        const isScope = accountErr.code === 403 ||
+          msg.includes("insufficient") ||
+          msg.includes("calendar") ||
+          msg.includes("scope") ||
+          msg.includes("insufficientPermissions");
+        if (isScope) needsReauth = true;
+        console.error(`[Calls] Calendar fetch error for ${account.email}:`, msg);
       }
     }
 
     events.sort((a, b) => new Date(a.start) - new Date(b.start));
 
-    res.json({ events });
+    res.json({ events, needsReauth });
   } catch (err) {
     console.error("[Calls] Error:", err.message);
     res.status(500).json({ error: "Failed to fetch calendar events" });

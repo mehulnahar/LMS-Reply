@@ -91,6 +91,7 @@ export default function Calls() {
   const [events, setEvents] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
+  const [needsReauth, setNeedsReauth] = useState(false);
   const [selected, setSelected] = useState(null);
 
   const monday = getMonday(weekOffset);
@@ -105,6 +106,7 @@ export default function Calls() {
       end.setHours(23, 59, 59, 999);
       const data = await api.getCallEvents(start.toISOString(), end.toISOString());
       setEvents(data.events || []);
+      setNeedsReauth(!!data.needsReauth);
     } catch (e) {
       setError(e.message);
     } finally {
@@ -118,7 +120,7 @@ export default function Calls() {
   const weekLabel = `${weekDates[0].toLocaleDateString("en-US", { month: "short", day: "numeric" })} - ${weekDates[6].toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}`;
 
   return (
-    <div className="flex h-[calc(100vh-4rem)] -mx-4 sm:-mx-6 -mt-8">
+    <div className="flex h-[calc(100vh-4rem)] -mx-4 sm:-mx-6">
 
       {/* ── Left: calendar area ── */}
       <div className={`flex flex-col flex-1 min-w-0 overflow-hidden ${selected ? "border-r border-gray-200 dark:border-gray-800" : ""}`}>
@@ -181,20 +183,30 @@ export default function Calls() {
           </div>
         </div>
 
+        {/* Reauth banner */}
+        {needsReauth && (
+          <div className="mx-4 sm:mx-6 mt-3 p-3 rounded-lg bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 text-xs text-amber-700 dark:text-amber-400 flex items-start gap-2">
+            <svg className="w-4 h-4 flex-shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z" />
+            </svg>
+            <span>
+              Calendar access not granted. Go to <strong>Settings &rarr; Gmail Accounts</strong>, disconnect your account, and reconnect it to grant calendar read access.
+            </span>
+          </div>
+        )}
+
         {/* Error banner */}
         {error && (
-          <div className="mx-4 sm:mx-6 mt-3 p-3 rounded-lg bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 text-xs text-amber-700 dark:text-amber-400">
-            {error.includes("calendar") || error.includes("scope") || error.includes("403")
-              ? "Calendar access not granted. Reconnect your Gmail account — the new connection includes calendar read access."
-              : error}
+          <div className="mx-4 sm:mx-6 mt-3 p-3 rounded-lg bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 text-xs text-red-700 dark:text-red-400">
+            {error}
           </div>
         )}
 
         {/* View content */}
         <div className="flex-1 overflow-auto">
           {view === "week"
-            ? <WeekView events={events} weekDates={weekDates} selected={selected} onSelect={setSelected} />
-            : <ListView events={events} weekDates={weekDates} selected={selected} onSelect={setSelected} />
+            ? <WeekView events={events} weekDates={weekDates} selected={selected} onSelect={setSelected} needsReauth={needsReauth} />
+            : <ListView events={events} weekDates={weekDates} selected={selected} onSelect={setSelected} needsReauth={needsReauth} />
           }
         </div>
       </div>
@@ -219,7 +231,7 @@ function WeekView({ events, weekDates, selected, onSelect }) {
   return (
     <div className="flex flex-col">
       {/* Day headers */}
-      <div className="flex flex-shrink-0 border-b border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-950 sticky top-0 z-10" style={{ paddingLeft: "52px" }}>
+      <div className="flex flex-shrink-0 border-b border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-950 sticky top-0 z-10" style={{ paddingLeft: "64px" }}>
         {weekDates.map((date, i) => {
           const isToday = isSameDay(date, today);
           return (
@@ -239,7 +251,7 @@ function WeekView({ events, weekDates, selected, onSelect }) {
       {/* Time grid */}
       <div className="flex" style={{ minHeight: `${totalH}px` }}>
         {/* Time labels */}
-        <div className="flex-shrink-0 w-13 relative" style={{ width: "52px", height: `${totalH}px` }}>
+        <div className="flex-shrink-0 relative" style={{ width: "64px", height: `${totalH}px` }}>
           {HOURS.map((h) => (
             <div key={h} style={{ position: "absolute", top: `${(h - START_HOUR) * HOUR_PX}px`, right: "6px" }}>
               <span className="text-xs text-gray-400 dark:text-gray-600">
@@ -336,7 +348,7 @@ function WeekView({ events, weekDates, selected, onSelect }) {
 /* ================================================================
    List View
    ================================================================ */
-function ListView({ events, weekDates, selected, onSelect }) {
+function ListView({ events, weekDates, selected, onSelect, needsReauth }) {
   const today = new Date();
   const grouped = weekDates
     .map((date) => ({ date, evts: eventsForDay(events, date) }))
@@ -349,7 +361,11 @@ function ListView({ events, weekDates, selected, onSelect }) {
           <path strokeLinecap="round" strokeLinejoin="round" d="M6.75 3v2.25M17.25 3v2.25M3 18.75V7.5a2.25 2.25 0 012.25-2.25h13.5A2.25 2.25 0 0121 7.5v11.25m-18 0A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75m-18 0v-7.5A2.25 2.25 0 015.25 9h13.5A2.25 2.25 0 0121 11.25v7.5" />
         </svg>
         <p className="text-sm font-medium">No calls this week</p>
-        <p className="text-xs mt-1">Connect your Gmail to sync Google Calendar</p>
+        <p className="text-xs mt-1">
+          {needsReauth
+            ? "Reconnect Gmail in Settings to grant calendar access"
+            : "Connect your Gmail to sync Google Calendar"}
+        </p>
       </div>
     );
   }
