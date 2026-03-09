@@ -464,11 +464,18 @@ function DetailPanel({ event, onClose }) {
   const { client } = event;
 
   const copyCallPrep = () => {
+    const externalAttendees = (event.attendees || []).filter((a) => !a.self);
     const parts = [
       `CALL: ${event.title}`,
       `TIME: ${fmtTime(event.start)} - ${fmtTime(event.end)}`,
+      event.location ? `LOCATION: ${event.location}` : null,
+      event.meetLink ? `MEET: ${event.meetLink}` : null,
+      externalAttendees.length
+        ? `ATTENDEES: ${externalAttendees.map((a) => a.name || a.email).join(", ")}`
+        : null,
+      "",
       client ? `CLIENT: ${client.from_name} (${client.from_email})` : null,
-      client ? `SCORE: ${client.lead_score}${client.country ? ` | ${client.country}` : ""}${client.stage ? ` | ${client.stage.replace(/_/g, " ")}` : ""}` : null,
+      client ? `SCORE: ${client.lead_score}${client.country ? ` | ${client.country}` : ""}` : null,
       "",
       client?.job_heading ? `PROJECT: ${client.job_heading}` : null,
       "",
