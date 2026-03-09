@@ -1109,6 +1109,11 @@ export default function Settings() {
           </div>
         </div>
 
+        {/* ================================================================ */}
+        {/* WhatsApp Bot Section                                            */}
+        {/* ================================================================ */}
+        <WhatsAppSettings />
+
       {/* ================================================================ */}
       {/* Disconnect Confirmation Dialog (modal overlay)                    */}
       {/* ================================================================ */}
@@ -1350,5 +1355,229 @@ function Spinner() {
       <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
       <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
     </svg>
+  );
+}
+
+/* ================================================================
+   WhatsApp Bot Settings
+   ================================================================ */
+function WhatsAppSettings() {
+  const [status, setStatus] = useState(null);
+  const [qrImage, setQrImage] = useState(null);
+  const [phone, setPhone] = useState('');
+  const [savedPhone, setSavedPhone] = useState(null);
+  const [saving, setSaving] = useState(false);
+  const [testing, setTesting] = useState(false);
+  const [reporting, setReporting] = useState(false);
+  const [toast, setToast] = useState(null);
+  const [reportPreview, setReportPreview] = useState(null);
+  const pollRef = useRef(null);
+
+  const showToast = (msg, type = 'success') => {
+    setToast({ msg, type });
+    setTimeout(() => setToast(null), 4000);
+  };
+
+  const fetchStatus = useCallback(async () => {
+    try {
+      const data = await api.getWhatsAppStatus();
+      setStatus(data.status);
+      if (data.status === 'qr_ready') {
+        const qrData = await api.getWhatsAppQR();
+        if (qrData.qr) setQrImage(qrData.qr);
+      } else {
+        setQrImage(null);
+      }
+    } catch (_e) { /* ignore */ }
+  }, []);
+
+  useEffect(() => {
+    fetchStatus();
+    api.getWhatsAppConfig().then(cfg => {
+      if (cfg?.phone_number) setSavedPhone(cfg.phone_number);
+    }).catch(() => {});
+    pollRef.current = setInterval(fetchStatus, 5000);
+    return () => clearInterval(pollRef.current);
+  }, [fetchStatus]);
+
+  const handleSave = async () => {
+    if (!phone.trim()) return;
+    setSaving(true);
+    try {
+      const cleaned = phone.replace(/[\s+\-()]/g, '');
+      await api.saveWhatsAppConfig(cleaned);
+      setSavedPhone(cleaned);
+      setPhone('');
+      showToast('Phone number saved');
+    } catch (e) {
+      showToast(e.message || 'Failed to save', 'error');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleTest = async () => {
+    setTesting(true);
+    try {
+      await api.sendWhatsAppTest();
+      showToast('Test message sent to your WhatsApp!');
+    } catch (e) {
+      showToast(e.message || 'Failed to send test', 'error');
+    } finally {
+      setTesting(false);
+    }
+  };
+
+  const handleReport = async () => {
+    setReporting(true);
+    setReportPreview(null);
+    try {
+      const data = await api.sendWhatsAppReport();
+      setReportPreview(data.preview);
+      if (data.sent) showToast('Morning report sent to your WhatsApp!');
+      else showToast('Report preview ready (send after connecting WhatsApp)', 'info');
+    } catch (e) {
+      showToast(e.message || 'Failed to generate report', 'error');
+    } finally {
+      setReporting(false);
+    }
+  };
+
+  const statusConfig = {
+    ready:         { label: 'Connected', dot: 'bg-green-500 animate-pulse', text: 'text-green-600 dark:text-green-400' },
+    authenticated: { label: 'Authenticating...', dot: 'bg-yellow-500 animate-pulse', text: 'text-yellow-600 dark:text-yellow-400' },
+    qr_ready:      { label: 'Scan QR to connect', dot: 'bg-blue-500 animate-pulse', text: 'text-blue-600 dark:text-blue-400' },
+    disconnected:  { label: 'Disconnected', dot: 'bg-gray-400', text: 'text-gray-500' },
+    error:         { label: 'Error — restart server', dot: 'bg-red-500', text: 'text-red-600 dark:text-red-400' },
+  };
+  const s = statusConfig[status] || statusConfig.disconnected;
+
+  return (
+    <div className="card">
+      <div className="px-6 py-4 border-b border-gray-200 dark:border-gray-800">
+        <h2 className="text-base font-semibold flex items-center gap-2">
+          <svg className="w-5 h-5 text-green-500" viewBox="0 0 24 24" fill="currentColor">
+            <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z"/>
+          </svg>
+          WhatsApp Morning Report
+        </h2>
+        <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+          Sends a daily briefing to your WhatsApp at 7:00 AM IST — new leads, calls today, pipeline snapshot.
+        </p>
+      </div>
+
+      <div className="px-6 py-5 space-y-5">
+
+        {/* Status */}
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <span className={`w-2.5 h-2.5 rounded-full ${s.dot}`} />
+            <span className={`text-sm font-medium ${s.text}`}>{s.label}</span>
+          </div>
+          {savedPhone && (
+            <span className="text-xs text-gray-400 dark:text-gray-500 font-mono">+{savedPhone}</span>
+          )}
+        </div>
+
+        {/* QR Code */}
+        {qrImage && (
+          <div className="flex flex-col items-center gap-3 p-5 bg-gray-50 dark:bg-gray-800/50 rounded-xl border border-gray-200 dark:border-gray-700">
+            <p className="text-sm font-medium text-gray-700 dark:text-gray-300">Scan with WhatsApp to connect</p>
+            <img src={qrImage} alt="WhatsApp QR Code" className="w-52 h-52 rounded-lg" />
+            <p className="text-xs text-gray-400">WhatsApp → Linked Devices → Link a Device</p>
+          </div>
+        )}
+
+        {/* Phone number */}
+        <div>
+          <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1.5">
+            WhatsApp Number
+          </label>
+          <div className="flex gap-2">
+            <input
+              type="text"
+              value={phone}
+              onChange={e => setPhone(e.target.value)}
+              onKeyDown={e => e.key === 'Enter' && handleSave()}
+              placeholder={savedPhone ? `Current: +${savedPhone}` : 'e.g. 919479421291'}
+              className="input flex-1 font-mono text-sm"
+            />
+            <button
+              onClick={handleSave}
+              disabled={saving || !phone.trim()}
+              className="btn-primary px-4 text-sm disabled:opacity-50"
+            >
+              {saving ? <Spinner /> : 'Save'}
+            </button>
+          </div>
+          <p className="text-xs text-gray-400 mt-1">Country code + number, no + or spaces</p>
+        </div>
+
+        {/* Actions */}
+        <div className="flex gap-3 flex-wrap">
+          <button
+            onClick={handleTest}
+            disabled={testing || status !== 'ready' || !savedPhone}
+            title={status !== 'ready' ? 'Connect WhatsApp first by scanning the QR code' : ''}
+            className="flex items-center gap-2 px-4 py-2 text-sm font-medium rounded-lg border border-gray-300 dark:border-gray-600 hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+          >
+            {testing ? <Spinner /> : (
+              <svg className="w-4 h-4 text-gray-500" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M6 12L3.269 3.126A59.768 59.768 0 0121.485 12 59.77 59.77 0 013.27 20.876L5.999 12zm0 0h7.5" />
+              </svg>
+            )}
+            Send Test
+          </button>
+
+          <button
+            onClick={handleReport}
+            disabled={reporting}
+            className="flex items-center gap-2 px-4 py-2 text-sm font-medium rounded-lg bg-green-600 hover:bg-green-700 text-white transition-colors disabled:opacity-40"
+          >
+            {reporting ? <Spinner /> : (
+              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M3 13.125C3 12.504 3.504 12 4.125 12h2.25c.621 0 1.125.504 1.125 1.125v6.75C7.5 20.496 6.996 21 6.375 21h-2.25A1.125 1.125 0 013 19.875v-6.75zM9.75 8.625c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125v11.25c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V8.625zM16.5 4.125c0-.621.504-1.125 1.125-1.125h2.25C20.496 3 21 3.504 21 4.125v15.75c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V4.125z" />
+              </svg>
+            )}
+            Preview &amp; Send Report
+          </button>
+        </div>
+
+        {/* Report preview */}
+        {reportPreview && (
+          <div className="bg-gray-50 dark:bg-gray-800/60 rounded-xl border border-gray-200 dark:border-gray-700 overflow-hidden">
+            <div className="px-4 py-2.5 border-b border-gray-200 dark:border-gray-700 flex items-center justify-between">
+              <span className="text-xs font-medium text-gray-600 dark:text-gray-400">Report Preview</span>
+              <button onClick={() => setReportPreview(null)} className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300">
+                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+            <pre className="px-4 py-4 text-xs text-gray-700 dark:text-gray-300 whitespace-pre-wrap font-mono leading-relaxed overflow-auto max-h-80">
+              {reportPreview}
+            </pre>
+          </div>
+        )}
+
+        {/* Schedule info */}
+        <div className="flex items-center gap-2 text-xs text-gray-400 dark:text-gray-500 pt-1">
+          <svg className="w-4 h-4 flex-shrink-0" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
+            <path strokeLinecap="round" strokeLinejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 11-18 0 9 9 0 0118 0z" />
+          </svg>
+          Auto-fires every day at 7:00 AM IST
+        </div>
+
+      </div>
+
+      {/* Toast */}
+      {toast && (
+        <div className={`fixed bottom-6 right-6 z-50 px-4 py-3 rounded-xl shadow-lg text-sm font-medium text-white transition-all ${
+          toast.type === 'error' ? 'bg-red-600' : toast.type === 'info' ? 'bg-blue-600' : 'bg-green-600'
+        }`}>
+          {toast.msg}
+        </div>
+      )}
+    </div>
   );
 }

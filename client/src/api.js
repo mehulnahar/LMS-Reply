@@ -141,6 +141,17 @@ export const api = {
       body: JSON.stringify({ emailId, projectDescription, forceResearch }),
     }),
 
+  // WhatsApp
+  getWhatsAppStatus: () => request('/api/whatsapp/status'),
+  getWhatsAppQR: () => request('/api/whatsapp/qr'),
+  getWhatsAppConfig: () => request('/api/whatsapp/config'),
+  saveWhatsAppConfig: (phoneNumber) => request('/api/whatsapp/config', {
+    method: 'POST',
+    body: JSON.stringify({ phoneNumber }),
+  }),
+  sendWhatsAppTest: () => request('/api/whatsapp/test', { method: 'POST' }),
+  sendWhatsAppReport: () => request('/api/whatsapp/report', { method: 'POST' }),
+
   // Health
   health: () => request("/api/health"),
 };
