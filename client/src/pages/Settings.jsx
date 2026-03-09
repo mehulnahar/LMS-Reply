@@ -1067,7 +1067,6 @@ export default function Settings() {
             </div>
           )}
         </div>
-      </div>
 
         {/* ================================================================ */}
         {/* Reply Editor Section                                             */}
@@ -1113,6 +1112,8 @@ export default function Settings() {
         {/* WhatsApp Bot Section                                            */}
         {/* ================================================================ */}
         <WhatsAppSettings />
+
+      </div>
 
       {/* ================================================================ */}
       {/* Disconnect Confirmation Dialog (modal overlay)                    */}
@@ -1500,7 +1501,7 @@ function WhatsAppSettings() {
               onChange={e => setPhone(e.target.value)}
               onKeyDown={e => e.key === 'Enter' && handleSave()}
               placeholder={savedPhone ? `Current: +${savedPhone}` : 'e.g. 919479421291'}
-              className="input flex-1 font-mono text-sm"
+              className="input-field flex-1 font-mono text-sm"
             />
             <button
               onClick={handleSave}
