@@ -60,7 +60,8 @@
           "<rootDir>/src/tests/prompt-quality.test.js",
           "<rootDir>/src/tests/inbox-workflow.test.js",
           "<rootDir>/src/tests/thread-grouping.test.js",
-          "<rootDir>/src/tests/research-agent.test.js"
+          "<rootDir>/src/tests/research-agent.test.js",
+          "<rootDir>/src/tests/research-classification.test.js"
         ]
       },
       {
@@ -77,7 +78,8 @@
           "<rootDir>/src/tests/prompt-quality.test.js",
           "<rootDir>/src/tests/inbox-workflow.test.js",
           "<rootDir>/src/tests/thread-grouping.test.js",
-          "<rootDir>/src/tests/research-agent.test.js"
+          "<rootDir>/src/tests/research-agent.test.js",
+          "<rootDir>/src/tests/research-classification.test.js"
         ],
         "setupFilesAfterEnv": [
           "<rootDir>/src/tests/setup.js"

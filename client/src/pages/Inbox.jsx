@@ -17,6 +17,25 @@ const INTENT_LABELS = {
   general:           { label: "General",    color: "bg-gray-100 text-gray-500 dark:bg-gray-800 dark:text-gray-400" },
 };
 
+const CLASSIFICATION_LABELS = {
+  BUILD:      { label: 'Build',       color: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400' },
+  SERVICE:    { label: 'Service',     color: 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400' },
+  TOO_NARROW: { label: 'Too Narrow',  color: 'bg-gray-100 text-gray-500 dark:bg-gray-800 dark:text-gray-400' },
+};
+
+const PROJECT_TYPE_LABELS = {
+  ecommerce:    { label: 'E-Commerce',   color: 'bg-pink-100 text-pink-700 dark:bg-pink-900/30 dark:text-pink-400' },
+  website:      { label: 'Website',      color: 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400' },
+  web_app:      { label: 'Web App',      color: 'bg-violet-100 text-violet-700 dark:bg-violet-900/30 dark:text-violet-400' },
+  saas:         { label: 'SaaS',         color: 'bg-indigo-100 text-indigo-700 dark:bg-indigo-900/30 dark:text-indigo-400' },
+  dashboard:    { label: 'Dashboard',    color: 'bg-sky-100 text-sky-700 dark:bg-sky-900/30 dark:text-sky-400' },
+  mobile_app:   { label: 'Mobile App',   color: 'bg-teal-100 text-teal-700 dark:bg-teal-900/30 dark:text-teal-400' },
+  automation:   { label: 'Automation',   color: 'bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400' },
+  integration:  { label: 'Integration',  color: 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400' },
+  marketplace:  { label: 'Marketplace',  color: 'bg-rose-100 text-rose-700 dark:bg-rose-900/30 dark:text-rose-400' },
+  landing_page: { label: 'Landing Page', color: 'bg-lime-100 text-lime-700 dark:bg-lime-900/30 dark:text-lime-400' },
+};
+
 const STATUS_LABELS = {
   new: { label: "New", color: "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400" },
   replied: { label: "Replied", color: "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400" },
@@ -416,17 +435,21 @@ export default function Inbox() {
   };
 
   // Research Agent - find similar live examples via Exa + Olostep + Sonnet
-  const handleResearch = async () => {
+  const handleResearch = async (forceResearch = false) => {
     if (!detail?.email?.id) return;
     setResearching(true);
     setResearchResults(null);
     try {
-      const result = await api.researchExamples(detail.email.id, detail.job?.jobHeading || '');
+      const result = await api.researchExamples(detail.email.id, detail.job?.jobHeading || '', forceResearch);
       setResearchResults({
         examples: result.examples || [],
         rawResultCount: result.rawResultCount || 0,
         scrapedCount: result.scrapedCount || 0,
         exampleCount: result.exampleCount || 0,
+        classification: result.classification || null,
+        tags: result.tags || {},
+        reason: result.reason || '',
+        skipped: result.skipped || false,
         error: null,
       });
     } catch (err) {
@@ -435,6 +458,10 @@ export default function Inbox() {
         rawResultCount: 0,
         scrapedCount: 0,
         exampleCount: 0,
+        classification: null,
+        tags: {},
+        reason: '',
+        skipped: false,
         error: err.message || 'Research failed',
       });
     } finally {
@@ -1702,7 +1729,39 @@ export default function Inbox() {
                   </div>
                   {/* Research Results Panel */}
                   {researchResults && (
-                    <div className={`px-5 py-3 border-b ${researchResults.error ? 'bg-red-50 dark:bg-red-900/10 border-red-200 dark:border-red-800' : 'bg-cyan-50 dark:bg-cyan-900/10 border-cyan-200 dark:border-cyan-800'}`}>
+                    <div className={`px-5 py-3 border-b ${
+                      researchResults.error
+                        ? 'bg-red-50 dark:bg-red-900/10 border-red-200 dark:border-red-800'
+                        : researchResults.skipped
+                          ? 'bg-slate-50 dark:bg-slate-900/10 border-slate-200 dark:border-slate-800'
+                          : 'bg-cyan-50 dark:bg-cyan-900/10 border-cyan-200 dark:border-cyan-800'
+                    }`}>
+                      {/* Tag pills row */}
+                      {researchResults.classification && (
+                        <div className="flex flex-wrap items-center gap-1.5 mb-2">
+                          {CLASSIFICATION_LABELS[researchResults.classification] && (
+                            <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-bold uppercase tracking-wide ${CLASSIFICATION_LABELS[researchResults.classification].color}`}>
+                              {CLASSIFICATION_LABELS[researchResults.classification].label}
+                            </span>
+                          )}
+                          {researchResults.tags?.projectType && PROJECT_TYPE_LABELS[researchResults.tags.projectType] && (
+                            <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-medium ${PROJECT_TYPE_LABELS[researchResults.tags.projectType].color}`}>
+                              {PROJECT_TYPE_LABELS[researchResults.tags.projectType].label}
+                            </span>
+                          )}
+                          {researchResults.tags?.industry && (
+                            <span className="text-[10px] px-1.5 py-0.5 rounded-full font-medium bg-cyan-100 text-cyan-700 dark:bg-cyan-900/30 dark:text-cyan-400">
+                              {researchResults.tags.industry}
+                            </span>
+                          )}
+                          {(researchResults.tags?.technologies || []).map((tech) => (
+                            <span key={tech} className="text-[10px] px-1.5 py-0.5 rounded-full font-medium bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400">
+                              {tech}
+                            </span>
+                          ))}
+                        </div>
+                      )}
+
                       {researchResults.error ? (
                         <div className="flex items-start gap-2">
                           <svg className="w-4 h-4 text-red-500 flex-shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
@@ -1711,6 +1770,37 @@ export default function Inbox() {
                           <div>
                             <p className="text-xs font-medium text-red-700 dark:text-red-400">Research Failed</p>
                             <p className="text-xs text-red-600 dark:text-red-500 mt-0.5">{researchResults.error}</p>
+                          </div>
+                        </div>
+                      ) : researchResults.skipped ? (
+                        <div className="space-y-2">
+                          <div className="flex items-start gap-2">
+                            <svg className="w-4 h-4 text-slate-400 dark:text-slate-500 flex-shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
+                              <path strokeLinecap="round" strokeLinejoin="round" d="m11.25 11.25.041-.02a.75.75 0 0 1 1.063.852l-.708 2.836a.75.75 0 0 0 1.063.853l.041-.021M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Zm-9-3.75h.008v.008H12V8.25Z" />
+                            </svg>
+                            <div className="flex-1">
+                              <p className="text-xs font-medium text-slate-700 dark:text-slate-300">
+                                {researchResults.classification === 'SERVICE'
+                                  ? 'Service role - portfolio examples not applicable'
+                                  : 'Scope too specific for portfolio research'}
+                              </p>
+                              {researchResults.reason && (
+                                <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5 italic">{researchResults.reason}</p>
+                              )}
+                              <button
+                                onClick={() => handleResearch(true)}
+                                disabled={researching}
+                                className="text-xs text-cyan-600 dark:text-cyan-400 hover:underline mt-1.5 font-medium"
+                              >
+                                {researching ? 'Researching...' : 'Force Research'}
+                              </button>
+                            </div>
+                            <button
+                              onClick={() => setResearchResults(null)}
+                              className="text-xs text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 flex-shrink-0"
+                            >
+                              Dismiss
+                            </button>
                           </div>
                         </div>
                       ) : researchResults.examples.length === 0 ? (

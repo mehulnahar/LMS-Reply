@@ -18,6 +18,16 @@ const {
   WELL_KNOWN_DOMAINS,
 } = require('../utils/researchAgent');
 
+// Helper: mock classifyAndRefine Sonnet response (BUILD with queries)
+function mockClassifyBuild(queries = ['refined query 1', 'refined query 2']) {
+  return JSON.stringify({
+    classification: 'BUILD',
+    reason: 'Client wants something built',
+    tags: { industry: 'tech', technologies: ['react'], projectType: 'web_app' },
+    queries,
+  });
+}
+
 // ============================================================
 // WELL_KNOWN_DOMAINS - Static check
 // ============================================================
@@ -483,6 +493,7 @@ describe('researchSimilarExamples', () => {
   });
 
   it('orchestrates the full Exa + Olostep + Sonnet flow', async () => {
+    let anthropicCallCount = 0;
     global.fetch = jest.fn().mockImplementation((url) => {
       // Exa search
       if (url.includes('exa.ai')) {
@@ -509,8 +520,15 @@ describe('researchSimilarExamples', () => {
           }),
         });
       }
-      // Claude Sonnet analysis
+      // Claude Sonnet - first call = classifyAndRefine, second = analyzeWithSonnet
       if (url.includes('anthropic')) {
+        anthropicCallCount++;
+        if (anthropicCallCount === 1) {
+          return Promise.resolve({
+            ok: true,
+            json: () => Promise.resolve({ content: [{ text: mockClassifyBuild(['fashion boutique store']) }] }),
+          });
+        }
         return Promise.resolve({
           ok: true,
           json: () => Promise.resolve({
@@ -531,22 +549,48 @@ describe('researchSimilarExamples', () => {
     expect(result.rawResultCount).toBe(2);
     expect(result.scrapedCount).toBe(2);
     expect(result.contextBlock).toContain('<similar_examples>');
+    // New fields from classification
+    expect(result.classification).toBe('BUILD');
+    expect(result.skipped).toBe(false);
   });
 
   it('returns empty when Exa finds nothing', async () => {
-    global.fetch = jest.fn().mockResolvedValue({
-      ok: true,
-      json: () => Promise.resolve({ results: [] }),
+    let anthropicCallCount = 0;
+    global.fetch = jest.fn().mockImplementation((url) => {
+      if (url.includes('anthropic')) {
+        anthropicCallCount++;
+        if (anthropicCallCount === 1) {
+          return Promise.resolve({
+            ok: true,
+            json: () => Promise.resolve({ content: [{ text: mockClassifyBuild() }] }),
+          });
+        }
+      }
+      return Promise.resolve({
+        ok: true,
+        json: () => Promise.resolve({ results: [] }),
+      });
     });
 
     const result = await researchSimilarExamples('test', 'key', 'exa', 'olostep');
     expect(result.examples).toHaveLength(0);
     expect(result.rawResultCount).toBe(0);
     expect(result.contextBlock).toBe('');
+    expect(result.classification).toBe('BUILD');
   });
 
   it('returns empty when all scrapes fail', async () => {
+    let anthropicCallCount = 0;
     global.fetch = jest.fn().mockImplementation((url) => {
+      if (url.includes('anthropic')) {
+        anthropicCallCount++;
+        if (anthropicCallCount === 1) {
+          return Promise.resolve({
+            ok: true,
+            json: () => Promise.resolve({ content: [{ text: mockClassifyBuild() }] }),
+          });
+        }
+      }
       if (url.includes('exa.ai')) {
         return Promise.resolve({
           ok: true,
@@ -577,7 +621,21 @@ describe('researchSimilarExamples', () => {
       name: `Store ${i}`, url: `https://store${i}.com`, pitch_angle: 'Good', key_features: ['f'], platform_type: 'website',
     }));
 
+    let anthropicCallCount = 0;
     global.fetch = jest.fn().mockImplementation((url) => {
+      if (url.includes('anthropic')) {
+        anthropicCallCount++;
+        if (anthropicCallCount === 1) {
+          return Promise.resolve({
+            ok: true,
+            json: () => Promise.resolve({ content: [{ text: mockClassifyBuild() }] }),
+          });
+        }
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve({ content: [{ text: JSON.stringify(tenExamples) }] }),
+        });
+      }
       if (url.includes('exa.ai')) {
         return Promise.resolve({
           ok: true,

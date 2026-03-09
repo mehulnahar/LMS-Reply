@@ -41,28 +41,47 @@ const WELL_KNOWN_DOMAINS = [
   'boostheme.com', 'theme-jeuno.myshopify.com', 'shogun.io',
 ];
 
+const VALID_CLASSIFICATIONS = ['BUILD', 'SERVICE', 'TOO_NARROW'];
+
+const VALID_PROJECT_TYPES = [
+  'ecommerce', 'website', 'web_app', 'saas', 'dashboard',
+  'mobile_app', 'automation', 'integration', 'marketplace', 'landing_page',
+];
+
 // ────────────────────────────────────────────────────────────
-// 0. Refine project description into Exa search query via Sonnet
+// 0. Classify job + refine into Exa search queries (combined Sonnet call)
 // ────────────────────────────────────────────────────────────
-async function refineSearchQuery(projectDescription, anthropicKey) {
+async function classifyAndRefine(projectDescription, anthropicKey) {
   const body = {
     model: 'claude-sonnet-4-6',
-    max_tokens: 200,
+    max_tokens: 400,
     messages: [{
       role: 'user',
-      content: `Convert this project/job description into 2-3 short Exa neural search queries to find REAL LIVE STORES/SITES that are the type of product the client wants built. Return ONLY the search queries, one per line, no numbering or bullets.
+      content: `Analyze this project/job description and do TWO things:
 
-Project description: ${projectDescription.substring(0, 800)}
+1. CLASSIFY the project:
+   - BUILD: Client wants a product, platform, website, app, store, dashboard, or tool BUILT or significantly customized. Examples: "build me a Shopify store", "need a SaaS dashboard", "create a mobile app", "custom WordPress site"
+   - SERVICE: Client wants an ongoing SERVICE provider (SEO specialist, ads manager, developer on retainer, consultant, QA tester, virtual assistant). Work is continuous/recurring, not a discrete deliverable.
+   - TOO_NARROW: Project is too internal, niche, or abstract for portfolio matches. Examples: "fix bugs in existing codebase", "single button integration in Odoo", "accreditation compliance paperwork"
 
-CRITICAL RULES:
-- Find REAL BUSINESSES that have the type of website/store/app the client wants
-- If client wants a "fashion Shopify store" -> search for actual clothing brands selling on Shopify, e.g. "independent women's clothing brand online store Shopify"
-- If client wants a "SaaS dashboard" -> search for actual SaaS products, e.g. "project management SaaS tool dashboard"
-- If client wants a "restaurant website" -> search for actual restaurants with websites
-- Queries should find sites where CUSTOMERS BUY PRODUCTS, not where developers buy themes/tools
-- Keep each query under 15 words
-- NEVER use these words: "agency", "developer", "freelancer", "designer", "portfolio", "services", "theme", "template"
-- DO use words like: "shop", "store", "buy", "brand", "boutique", "collection"`,
+2. EXTRACT TAGS and generate search queries (only if BUILD):
+   - industry: single word (fashion, healthcare, realestate, fintech, marketing, motorsport, saas, education, food, travel, fitness, beauty, automotive, legal, nonprofit, gaming, crypto, hr, logistics)
+   - technologies: array of techs mentioned or implied (shopify, wordpress, react, nextjs, vue, angular, ghl, odoo, gcp, aws, n8n, woocommerce, magento, laravel, django, flutter, python, nodejs)
+   - projectType: one of: ecommerce, website, web_app, saas, dashboard, mobile_app, automation, integration, marketplace, landing_page
+   - queries: 2-3 Exa neural search queries to find REAL LIVE examples of this type of product (only if BUILD)
+
+Return ONLY valid JSON, no explanation:
+{"classification":"BUILD","reason":"one sentence why","tags":{"industry":"...","technologies":["..."],"projectType":"..."},"queries":["query1","query2"]}
+
+If SERVICE or TOO_NARROW, return empty queries array and still fill tags as best you can.
+
+QUERY RULES (only when BUILD):
+- Find REAL BUSINESSES with the type of product the client wants
+- Under 15 words each
+- NEVER use: "agency", "developer", "freelancer", "designer", "portfolio", "services", "theme", "template"
+- DO use: "shop", "store", "buy", "brand", "boutique", "platform", "tool", "app"
+
+Project description: ${projectDescription.substring(0, 800)}`,
     }],
   };
 
@@ -77,15 +96,64 @@ CRITICAL RULES:
       body: JSON.stringify(body),
     });
 
-    if (!res.ok) throw new Error(`Sonnet query refine failed: ${res.status}`);
+    if (!res.ok) throw new Error(`Sonnet classify+refine failed: ${res.status}`);
     const data = await res.json();
     const text = data.content?.[0]?.text || '';
+
+    // Try to parse as JSON
+    const jsonMatch = text.match(/\{[\s\S]*\}/);
+    if (jsonMatch) {
+      const parsed = JSON.parse(jsonMatch[0]);
+      const classification = VALID_CLASSIFICATIONS.includes(parsed.classification)
+        ? parsed.classification
+        : 'BUILD';
+      const tags = parsed.tags || {};
+      // Validate projectType
+      if (tags.projectType && !VALID_PROJECT_TYPES.includes(tags.projectType)) {
+        tags.projectType = 'website';
+      }
+      // Ensure technologies is an array
+      if (!Array.isArray(tags.technologies)) {
+        tags.technologies = [];
+      }
+      const queries = Array.isArray(parsed.queries)
+        ? parsed.queries.filter(q => typeof q === 'string' && q.length > 5)
+        : [];
+      return {
+        classification,
+        tags,
+        reason: parsed.reason || '',
+        queries: queries.length > 0 ? queries : (classification === 'BUILD' ? [projectDescription] : []),
+      };
+    }
+
+    // Fallback: treat as plain-text queries (old format), default to BUILD
+    console.warn('research: classifyAndRefine returned non-JSON, falling back to BUILD');
     const queries = text.split('\n').map(q => q.trim()).filter(q => q.length > 5);
-    return queries.length > 0 ? queries : [projectDescription];
+    return {
+      classification: 'BUILD',
+      tags: {},
+      reason: 'Fallback - could not parse classification',
+      queries: queries.length > 0 ? queries : [projectDescription],
+    };
   } catch (err) {
-    console.warn('research: Query refinement failed, using raw description:', err.message);
-    return [projectDescription];
+    console.warn('research: classifyAndRefine failed, defaulting to BUILD:', err.message);
+    return {
+      classification: 'BUILD',
+      tags: {},
+      reason: 'Fallback - classification error',
+      queries: [projectDescription],
+    };
   }
+}
+
+/**
+ * @deprecated Use classifyAndRefine() instead. Kept for backward compatibility.
+ * Returns just the queries array (old behavior).
+ */
+async function refineSearchQuery(projectDescription, anthropicKey) {
+  const result = await classifyAndRefine(projectDescription, anthropicKey);
+  return result.queries;
 }
 
 // ────────────────────────────────────────────────────────────
@@ -335,9 +403,35 @@ ${exampleLines}
 // ────────────────────────────────────────────────────────────
 // 6. Main orchestrator
 // ────────────────────────────────────────────────────────────
-async function researchSimilarExamples(projectDescription, anthropicKey, exaKey, olostepKey) {
-  // Step 0: Refine project description into targeted search queries
-  const searchQueries = await refineSearchQuery(projectDescription, anthropicKey);
+async function researchSimilarExamples(projectDescription, anthropicKey, exaKey, olostepKey, options = {}) {
+  const { forceResearch = false } = options;
+
+  // Step 0: Classify job + refine into search queries (single Sonnet call)
+  const classResult = await classifyAndRefine(projectDescription, anthropicKey);
+  const { classification, tags, reason, queries: searchQueries } = classResult;
+  console.log(`research: Classification=${classification}, reason="${reason}", queries=${searchQueries.length}`);
+  if (tags.industry) console.log(`research: Tags - industry=${tags.industry}, projectType=${tags.projectType}, tech=[${(tags.technologies || []).join(', ')}]`);
+
+  // Gate: Skip expensive pipeline for non-BUILD jobs (unless forced)
+  if (classification !== 'BUILD' && !forceResearch) {
+    console.log(`research: Skipping pipeline - ${classification} (forceResearch=${forceResearch})`);
+    return {
+      examples: [],
+      rawResultCount: 0,
+      scrapedCount: 0,
+      contextBlock: '',
+      debug: { searchQueries: [] },
+      classification,
+      tags,
+      reason,
+      skipped: true,
+    };
+  }
+
+  if (forceResearch && classification !== 'BUILD') {
+    console.log(`research: Force research override - running pipeline despite ${classification} classification`);
+  }
+
   console.log(`research: Refined into ${searchQueries.length} search queries:`, searchQueries);
 
   // Step 1: Discover candidates via Exa neural search
@@ -384,7 +478,10 @@ async function researchSimilarExamples(projectDescription, anthropicKey, exaKey,
   const uniqueResults = deduplicateResults(allResults);
 
   if (uniqueResults.length === 0) {
-    return { examples: [], rawResultCount: 0, scrapedCount: 0, contextBlock: '' };
+    return {
+      examples: [], rawResultCount: 0, scrapedCount: 0, contextBlock: '',
+      debug: { searchQueries }, classification, tags, reason, skipped: false,
+    };
   }
 
   // Step 2: Scrape top candidates with Olostep (max 10 to balance cost vs coverage)
@@ -403,7 +500,10 @@ async function researchSimilarExamples(projectDescription, anthropicKey, exaKey,
 
   const successCount = scrapedResults.filter(r => r.success).length;
   if (successCount === 0) {
-    return { examples: [], rawResultCount: uniqueResults.length, scrapedCount: 0, contextBlock: '' };
+    return {
+      examples: [], rawResultCount: uniqueResults.length, scrapedCount: 0, contextBlock: '',
+      debug: { searchQueries }, classification, tags, reason, skipped: false,
+    };
   }
 
   // Step 3: Claude Sonnet deep analysis on scraped content
@@ -429,10 +529,15 @@ async function researchSimilarExamples(projectDescription, anthropicKey, exaKey,
     scrapedCount: successCount,
     contextBlock,
     debug,
+    classification,
+    tags,
+    reason,
+    skipped: false,
   };
 }
 
 module.exports = {
+  classifyAndRefine,
   refineSearchQuery,
   searchExa,
   scrapeWithOlostep,
@@ -442,4 +547,6 @@ module.exports = {
   buildSimilarExamplesBlock,
   researchSimilarExamples,
   WELL_KNOWN_DOMAINS,
+  VALID_CLASSIFICATIONS,
+  VALID_PROJECT_TYPES,
 };

@@ -29,7 +29,7 @@ async function getApiKey(userId, service) {
 // ════════════════════════════════════════════════════════════
 router.post('/examples', requireAuth, async (req, res, next) => {
   try {
-    const { projectDescription, emailId } = req.body;
+    const { projectDescription, emailId, forceResearch } = req.body;
 
     // Fetch all 3 required API keys in parallel
     const [anthropicKey, exaKey, olostepKey] = await Promise.all([
@@ -113,9 +113,24 @@ router.post('/examples', requireAuth, async (req, res, next) => {
 
     console.log(`research: Starting research for "${enrichedDescription.substring(0, 80)}..."`);
 
-    const result = await researchSimilarExamples(fullContext, anthropicKey, exaKey, olostepKey);
+    const result = await researchSimilarExamples(fullContext, anthropicKey, exaKey, olostepKey, {
+      forceResearch: !!forceResearch,
+    });
 
-    console.log(`research: Found ${result.examples.length} verified examples from ${result.rawResultCount} discovered, ${result.scrapedCount} scraped`);
+    if (result.skipped) {
+      console.log(`research: Skipped - ${result.classification} (${result.reason})`);
+    } else {
+      console.log(`research: Found ${result.examples.length} verified examples from ${result.rawResultCount} discovered, ${result.scrapedCount} scraped`);
+    }
+
+    // Persist classification to DB (fire-and-forget)
+    if (emailId && result.classification) {
+      pool.query(
+        `UPDATE jobs SET research_classification = $1, research_tags = $2,
+         research_classification_reason = $3 WHERE email_id = $4`,
+        [result.classification, JSON.stringify(result.tags || {}), result.reason || '', emailId]
+      ).catch(err => console.warn('research: Failed to persist classification:', err.message));
+    }
 
     res.json({
       projectDescription: (projectDescription || '').trim(),
@@ -125,6 +140,10 @@ router.post('/examples', requireAuth, async (req, res, next) => {
       exampleCount: result.examples.length,
       contextBlock: result.contextBlock,
       debug: result.debug,
+      classification: result.classification,
+      tags: result.tags,
+      reason: result.reason,
+      skipped: result.skipped || false,
     });
   } catch (err) {
     next(err);

@@ -135,10 +135,10 @@ export const api = {
     request(`/api/jobs/${jobId}/next-steps`),
 
   // Research (Exa + Olostep + Sonnet)
-  researchExamples: (emailId, projectDescription = '') =>
+  researchExamples: (emailId, projectDescription = '', forceResearch = false) =>
     request('/api/research/examples', {
       method: 'POST',
-      body: JSON.stringify({ emailId, projectDescription }),
+      body: JSON.stringify({ emailId, projectDescription, forceResearch }),
     }),
 
   // Health

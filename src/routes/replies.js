@@ -604,7 +604,13 @@ router.post("/generate", requireAuth, async (req, res, next) => {
     let researchContextBlock = '';
     const isFirstContact = promptType === 'EMAIL_REPLY_V2' || promptType === 'PROPOSAL_V4';
     const needsPortfolioProof = objectionContext.hasProfileRequest || objectionContext.hasProofOfWorkRequest || objectionContext.isDueDiligence;
-    const shouldResearch = (isFirstContact || needsPortfolioProof) && job;
+    let shouldResearch = (isFirstContact || needsPortfolioProof) && job;
+
+    // Gate: Skip auto-research if job is already classified as non-BUILD
+    if (shouldResearch && job.research_classification && job.research_classification !== 'BUILD') {
+      console.log(`research: Skipping auto-research - pre-classified as ${job.research_classification}`);
+      shouldResearch = false;
+    }
     if (shouldResearch) {
       try {
         const [exaKey, olostepKey] = await Promise.all([
