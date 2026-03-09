@@ -207,7 +207,7 @@ async function analyzeWithSonnet(scrapedResults, projectDescription, anthropicKe
 
   // Build context from scraped content (truncate each to keep within limits)
   const siteSummaries = successfulScrapes.map((r, i) => {
-    const contentPreview = (r.markdown || '').substring(0, 1500);
+    const contentPreview = (r.markdown || '').substring(0, 2000);
     return `--- SITE ${i + 1}: ${r.url} ---
 Title: ${r.pageTitle}
 Content preview:
@@ -215,37 +215,27 @@ ${contentPreview}
 `;
   }).join('\n');
 
-  const systemPrompt = `You are a research assistant for a software agency. Given scraped website content and a project description, find END-PRODUCT sites that the agency could present as portfolio examples ("we built this") in a sales email.
+  const systemPrompt = `You select websites from scraped content that a software agency can present as portfolio examples ("we built this") to a client.
 
-CRITICAL DISTINCTION - understand what the client wants BUILT:
-- Read the project description carefully to understand the END PRODUCT
-- If the client wants a "fashion Shopify store", we need ACTUAL fashion stores (sites that SELL clothes/products), NOT agencies that build Shopify stores
-- If the client wants a "SaaS dashboard", we need ACTUAL SaaS products, NOT dev agencies
-- If the client wants a "restaurant website", we need ACTUAL restaurant websites, NOT web design firms
+YOUR JOB: Include as many relevant sites as possible. Be GENEROUS. When in doubt, INCLUDE the site.
 
-INCLUDE a site if:
-- It IS the type of end product the client wants built (an actual store, app, platform, etc.)
-- It has real products, content, or functionality - not just a services/portfolio page
-- It is not a major household brand (Nike, Zara, Amazon, etc.)
-- "Powered by Shopify", "Built with WordPress", etc. in footer is FINE
+The client wants a specific END PRODUCT built (e.g. a fashion store, a SaaS app, a restaurant website). You must find sites that ARE that type of product.
 
-EXCLUDE a site if:
-- It is a development AGENCY, design STUDIO, or freelancer PORTFOLIO (these are builders, not end products)
-- It is a blog post, article, listicle, directory, or theme marketplace
-- It SELLS themes or templates (e.g. "buy this theme", "add to cart" for a theme) - these sell TOOLS, not end products
-- It prominently sells development/design SERVICES rather than actual products
-- It is a Fortune 500 / household brand everyone would recognize
-- The page clearly failed to load or is a parking page
-- Its content is primarily about "our services", "hire us", "we build", "our clients"
+ONLY 3 hard exclusions:
+1. Dev agencies / design studios / freelancer portfolios (sites that SELL development services)
+2. Blog posts, articles, or directories (not actual products)
+3. Fortune 500 household brands (Nike, Amazon, Zara, etc.)
 
-For each selected site, return:
-- name: The brand/project name
-- url: The exact URL
-- pitch_angle: One sentence pitch as if the agency built it, highlighting relevance to the client
-- key_features: Array of 2-3 visible features that match what the client needs
+Everything else should be INCLUDED if it remotely resembles the client's project. A fashion store with only a few products? INCLUDE. A store on a different platform than requested? INCLUDE. A store in a slightly different niche? INCLUDE. "Powered by Shopify" in the footer? INCLUDE. The scrape content is thin but the URL looks like a real store? INCLUDE.
+
+For each site, return JSON:
+- name: Brand/project name
+- url: Exact URL
+- pitch_angle: One sentence as if agency built it
+- key_features: Array of 2-3 features matching client needs
 - platform_type: "website" | "web_app" | "mobile_app" | "saas"
 
-Return a JSON array with qualifying end-product sites (aim for 3-5). If NONE of the scraped sites are actual end products (they're all agencies/blogs/articles), return an empty array [].`;
+Return a JSON array. Aim for 3-5 sites minimum.`;
 
   const body = {
     model: 'claude-sonnet-4-6',

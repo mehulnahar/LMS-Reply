@@ -466,9 +466,9 @@ describe('analyzeWithSonnet', () => {
     await analyzeWithSonnet(scraped, 'test', 'key');
 
     const body = JSON.parse(global.fetch.mock.calls[0][1].body);
-    expect(body.system).toContain('agency');
-    expect(body.system).toContain('EXCLUDE');
-    expect(body.system).toContain('household brand');
+    expect(body.system).toContain('agenc');
+    expect(body.system).toContain('exclusion');
+    expect(body.system).toContain('household brands');
   });
 });
 
