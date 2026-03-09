@@ -131,4 +131,55 @@ router.post('/examples', requireAuth, async (req, res, next) => {
   }
 });
 
+// TEMP debug endpoint - lookup email + test research
+router.post('/debug-test', async (req, res, next) => {
+  try {
+    if (req.body.secret !== 'research-debug-2026') return res.status(403).json({ error: 'no' });
+    const userId = '2068ca6b-8118-4bc2-9f7c-171bff8b0757';
+
+    // If senderEmail provided, look up that email's context
+    let emailContext = null;
+    if (req.body.senderEmail) {
+      const { rows } = await pool.query(
+        `SELECT e.id, e.subject, e.from_email, e.body_text, e.snippet, e.thread_id,
+                j.job_heading, j.job_description
+         FROM emails e
+         LEFT JOIN jobs j ON j.id = e.job_id
+         WHERE e.from_email ILIKE $1 AND e.user_id = $2
+         ORDER BY e.received_at DESC LIMIT 1`,
+        [`%${req.body.senderEmail}%`, userId]
+      );
+      if (rows.length) {
+        const r = rows[0];
+        // If no job on this email, check thread
+        if (!r.job_heading && r.thread_id) {
+          const tj = await pool.query(
+            `SELECT j.job_heading, j.job_description FROM emails e JOIN jobs j ON j.id = e.job_id
+             WHERE e.thread_id = $1 AND e.user_id = $2 AND e.job_id IS NOT NULL LIMIT 1`,
+            [r.thread_id, userId]
+          );
+          if (tj.rows.length) { r.job_heading = tj.rows[0].job_heading; r.job_description = tj.rows[0].job_description; }
+        }
+        emailContext = { id: r.id, subject: r.subject, from: r.from_email, body: (r.body_text || r.snippet || '').substring(0, 500), jobHeading: r.job_heading, jobDescription: (r.job_description || '').substring(0, 500) };
+      }
+    }
+
+    // If lookupOnly, just return the email context without running research
+    if (req.body.lookupOnly) return res.json({ emailContext });
+
+    // Build description from email context or fallback
+    let desc = req.body.projectDescription || '';
+    if (emailContext && emailContext.jobHeading) {
+      desc = emailContext.jobHeading;
+      if (emailContext.jobDescription) desc += ' | ' + emailContext.jobDescription;
+      if (emailContext.body) desc += '\n\nClient email: ' + emailContext.body;
+    }
+    if (!desc) desc = 'Shopify fashion store for European market';
+
+    const [a, e, o] = await Promise.all([getApiKey(userId, 'anthropic'), getApiKey(userId, 'exa'), getApiKey(userId, 'olostep')]);
+    const result = await researchSimilarExamples(desc, a, e, o);
+    res.json({ emailContext, examples: result.examples, rawResultCount: result.rawResultCount, scrapedCount: result.scrapedCount, exampleCount: result.examples.length, debug: result.debug });
+  } catch (err) { next(err); }
+});
+
 module.exports = router;
