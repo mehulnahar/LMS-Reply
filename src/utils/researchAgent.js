@@ -29,6 +29,49 @@ const WELL_KNOWN_DOMAINS = [
 ];
 
 // ────────────────────────────────────────────────────────────
+// 0. Refine project description into Exa search query via Haiku
+// ────────────────────────────────────────────────────────────
+async function refineSearchQuery(projectDescription, anthropicKey) {
+  const body = {
+    model: 'claude-3-5-haiku-20241022',
+    max_tokens: 200,
+    messages: [{
+      role: 'user',
+      content: `Convert this project/job description into 1-2 short Exa neural search queries to find LIVE websites or apps similar to what the client needs. Return ONLY the search queries, one per line, no numbering or bullets.
+
+Project description: ${projectDescription.substring(0, 500)}
+
+Rules:
+- Search for LIVE EXAMPLES of the end product, NOT job listings or articles
+- Be specific about the industry/niche (e.g. "fashion dropshipping Shopify store" not "Shopify store")
+- Include platform if relevant (e.g. "Shopify", "WordPress", "React")
+- Keep each query under 15 words`,
+    }],
+  };
+
+  try {
+    const res = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': anthropicKey,
+        'anthropic-version': '2023-06-01',
+      },
+      body: JSON.stringify(body),
+    });
+
+    if (!res.ok) throw new Error(`Haiku query refine failed: ${res.status}`);
+    const data = await res.json();
+    const text = data.content?.[0]?.text || '';
+    const queries = text.split('\n').map(q => q.trim()).filter(q => q.length > 5);
+    return queries.length > 0 ? queries : [projectDescription];
+  } catch (err) {
+    console.warn('research: Query refinement failed, using raw description:', err.message);
+    return [projectDescription];
+  }
+}
+
+// ────────────────────────────────────────────────────────────
 // 1. Discover candidates via Exa neural search
 // ────────────────────────────────────────────────────────────
 async function searchExa(query, exaApiKey, options = {}) {
@@ -157,8 +200,8 @@ SELECTION CRITERIA (ALL must be met):
 1. LIVE AND POLISHED - The site/app must appear professional, well-designed, and fully functional
 2. RELEVANT - Must be genuinely similar to the client's project type, industry, or features
 3. LESSER-KNOWN - Not a household name or major brand. Indie, niche, or regional projects are ideal
-4. NO VISIBLE ATTRIBUTION - Skip if the content shows "Built by [Agency]", "Developed by [Company]", or "Powered by [Platform]" prominently in footer/about page
-5. CLAIMABLE - Someone could believably say "we built this" without easy contradiction
+4. NO AGENCY ATTRIBUTION - Skip if an agency/developer name is credited (e.g. "Built by WebAgency", "Developed by DevShop"). NOTE: generic platform footers like "Powered by Shopify" or "Built with WordPress" are OK and should NOT disqualify a site
+5. CLAIMABLE - Someone could believably say "we built/customized this" without easy contradiction
 
 For each selected example, return:
 - name: The project/brand name
@@ -171,9 +214,11 @@ EXCLUDE:
 - Blog posts, articles, directories, or listicles
 - Template demos or placeholder sites
 - Sites that are clearly under construction
-- Sites with prominent developer/agency credits
+- Sites with prominent developer/agency credits (NOT platform credits like "Powered by Shopify")
 - Major well-known brands or Fortune 500 companies
 - Sites that look outdated or poorly maintained
+
+IMPORTANT: "Powered by Shopify", "Built with WordPress", etc. in the footer is NOT a reason to exclude. These are platform credits, not agency credits. Most stores have them.
 
 Return ONLY a JSON array. If fewer than 3 qualify, return what you have. If none qualify, return [].`;
 
@@ -265,14 +310,22 @@ ${exampleLines}
 // 6. Main orchestrator
 // ────────────────────────────────────────────────────────────
 async function researchSimilarExamples(projectDescription, anthropicKey, exaKey, olostepKey) {
-  // Step 1: Discover candidates via Exa neural search
-  const exaResults = await searchExa(
-    projectDescription,
-    exaKey,
-    { numResults: 15, excludeDomains: WELL_KNOWN_DOMAINS }
-  );
+  // Step 0: Refine project description into targeted search queries
+  const searchQueries = await refineSearchQuery(projectDescription, anthropicKey);
+  console.log(`research: Refined into ${searchQueries.length} search queries:`, searchQueries);
 
-  const uniqueResults = deduplicateResults(exaResults);
+  // Step 1: Discover candidates via Exa neural search (run all queries)
+  const allResults = [];
+  for (const query of searchQueries.slice(0, 2)) {
+    try {
+      const results = await searchExa(query, exaKey, { numResults: 10, excludeDomains: WELL_KNOWN_DOMAINS });
+      allResults.push(...results);
+    } catch (err) {
+      console.warn(`research: Exa search failed for query "${query}":`, err.message);
+    }
+  }
+
+  const uniqueResults = deduplicateResults(allResults);
 
   if (uniqueResults.length === 0) {
     return { examples: [], rawResultCount: 0, scrapedCount: 0, contextBlock: '' };
@@ -302,6 +355,7 @@ async function researchSimilarExamples(projectDescription, anthropicKey, exaKey,
 }
 
 module.exports = {
+  refineSearchQuery,
   searchExa,
   scrapeWithOlostep,
   scrapeMultiple,

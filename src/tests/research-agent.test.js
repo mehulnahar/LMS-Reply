@@ -466,7 +466,7 @@ describe('analyzeWithSonnet', () => {
     await analyzeWithSonnet(scraped, 'test', 'key');
 
     const body = JSON.parse(global.fetch.mock.calls[0][1].body);
-    expect(body.system).toContain('NO VISIBLE ATTRIBUTION');
+    expect(body.system).toContain('NO AGENCY ATTRIBUTION');
     expect(body.system).toContain('CLAIMABLE');
     expect(body.system).toContain('LESSER-KNOWN');
   });

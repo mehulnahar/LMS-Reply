@@ -48,13 +48,15 @@ router.post('/examples', requireAuth, async (req, res, next) => {
       return res.status(400).json({ error: 'Olostep API key not configured. Get one at https://olostep.com and add it in Settings.' });
     }
 
-    // Build description from projectDescription + emailId job context
+    // Build rich context from email + job for the research agent
     let enrichedDescription = (projectDescription || '').trim();
+    let clientRequest = ''; // What the client specifically asked for
     if (emailId) {
       try {
-        // First try direct job link on this email
+        // Fetch email body + job details together
         let { rows } = await pool.query(
-          `SELECT e.subject, e.thread_id, j.job_heading, j.job_description
+          `SELECT e.subject, e.thread_id, e.body_text, e.snippet,
+                  j.job_heading, j.job_description
            FROM emails e
            LEFT JOIN jobs j ON j.id = e.job_id
            WHERE e.id = $1 AND e.user_id = $2`,
@@ -77,11 +79,19 @@ router.post('/examples', requireAuth, async (req, res, next) => {
         }
         if (rows.length) {
           const jobHeading = rows[0].job_heading || '';
-          const jobDesc = rows[0].job_description ? rows[0].job_description.substring(0, 200) : '';
+          const jobDesc = rows[0].job_description || '';
           const subject = rows[0].subject || '';
+          const emailBody = rows[0].body_text || rows[0].snippet || '';
+
+          // Capture what the client is asking for from the email
+          if (emailBody) {
+            clientRequest = emailBody.substring(0, 500);
+          }
+
           if (jobHeading) {
             enrichedDescription += enrichedDescription ? ` | Job: ${jobHeading}` : jobHeading;
-            if (jobDesc) enrichedDescription += ` | ${jobDesc}`;
+            // Include full job description (up to 1000 chars) for better query refinement
+            if (jobDesc) enrichedDescription += ` | ${jobDesc.substring(0, 1000)}`;
           } else if (subject && !enrichedDescription) {
             enrichedDescription = subject;
           }
@@ -95,9 +105,15 @@ router.post('/examples', requireAuth, async (req, res, next) => {
       return res.status(400).json({ error: 'Could not determine project description. Provide projectDescription or ensure email has a matched job.' });
     }
 
+    // Combine job context + client email for richer research input
+    let fullContext = enrichedDescription;
+    if (clientRequest) {
+      fullContext += `\n\nClient's email (what they're asking for): ${clientRequest}`;
+    }
+
     console.log(`research: Starting research for "${enrichedDescription.substring(0, 80)}..."`);
 
-    const result = await researchSimilarExamples(enrichedDescription, anthropicKey, exaKey, olostepKey);
+    const result = await researchSimilarExamples(fullContext, anthropicKey, exaKey, olostepKey);
 
     console.log(`research: Found ${result.examples.length} verified examples from ${result.rawResultCount} discovered, ${result.scrapedCount} scraped`);
 
