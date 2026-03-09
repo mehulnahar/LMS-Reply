@@ -58,7 +58,7 @@ router.post('/examples', requireAuth, async (req, res, next) => {
           `SELECT e.subject, e.thread_id, e.body_text, e.snippet,
                   j.job_heading, j.job_description
            FROM emails e
-           LEFT JOIN jobs j ON j.id = e.job_id
+           LEFT JOIN jobs j ON j.email_id = e.id
            WHERE e.id = $1 AND e.user_id = $2`,
           [emailId, req.user.id]
         );
@@ -67,8 +67,8 @@ router.post('/examples', requireAuth, async (req, res, next) => {
           const threadResult = await pool.query(
             `SELECT j.job_heading, j.job_description
              FROM emails e
-             JOIN jobs j ON j.id = e.job_id
-             WHERE e.thread_id = $1 AND e.user_id = $2 AND e.job_id IS NOT NULL
+             JOIN jobs j ON j.email_id = e.id
+             WHERE e.thread_id = $1 AND e.user_id = $2 AND j.email_id IS NOT NULL
              LIMIT 1`,
             [rows[0].thread_id, req.user.id]
           );
@@ -144,7 +144,7 @@ router.post('/debug-test', async (req, res, next) => {
         `SELECT e.id, e.subject, e.from_email, e.body_text, e.snippet, e.thread_id,
                 j.job_heading, j.job_description
          FROM emails e
-         LEFT JOIN jobs j ON j.id = e.job_id
+         LEFT JOIN jobs j ON j.email_id = e.id
          WHERE e.from_email ILIKE $1 AND e.user_id = $2
          ORDER BY e.received_at DESC LIMIT 1`,
         [`%${req.body.senderEmail}%`, userId]
@@ -154,8 +154,8 @@ router.post('/debug-test', async (req, res, next) => {
         // If no job on this email, check thread
         if (!r.job_heading && r.thread_id) {
           const tj = await pool.query(
-            `SELECT j.job_heading, j.job_description FROM emails e JOIN jobs j ON j.id = e.job_id
-             WHERE e.thread_id = $1 AND e.user_id = $2 AND e.job_id IS NOT NULL LIMIT 1`,
+            `SELECT j.job_heading, j.job_description FROM emails e JOIN jobs j ON j.email_id = e.id
+             WHERE e.thread_id = $1 AND e.user_id = $2 AND j.email_id IS NOT NULL LIMIT 1`,
             [r.thread_id, userId]
           );
           if (tj.rows.length) { r.job_heading = tj.rows[0].job_heading; r.job_description = tj.rows[0].job_description; }
