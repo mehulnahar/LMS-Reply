@@ -112,6 +112,7 @@ export default function Settings() {
   const [syncing, setSyncing] = useState(null);
   const [disconnecting, setDisconnecting] = useState(null);
   const [verifying, setVerifying] = useState(null); // serviceId being verified
+  const [verifyResult, setVerifyResult] = useState(null); // { serviceId, status, message }
 
   // Confirmation dialog for disconnect
   const [disconnectDialog, setDisconnectDialog] = useState(null); // { id, email, emailCount, replyCount }
@@ -367,19 +368,21 @@ export default function Settings() {
   };
 
   const handleVerify = async (serviceId) => {
-    clearNotifications();
+    setVerifyResult(null);
     setVerifying(serviceId);
     try {
       const result = await api.verifyKey(serviceId);
-      if (result.status === "verified") {
-        showSuccess(result.message || `${serviceId} key verified`);
-      } else {
-        showError(result.message || `${serviceId} key verification failed`);
-      }
+      setVerifyResult({
+        serviceId,
+        status: result.status === "verified" ? "success" : "error",
+        message: result.message || (result.status === "verified" ? "Key verified" : "Verification failed"),
+      });
     } catch (err) {
-      showError(err.message);
+      setVerifyResult({ serviceId, status: "error", message: err.message });
     } finally {
       setVerifying(null);
+      // Auto-clear after 6 seconds
+      setTimeout(() => setVerifyResult(null), 6000);
     }
   };
 
@@ -1005,6 +1008,26 @@ export default function Settings() {
                         </div>
                       )}
                     </div>
+
+                    {/* Inline Verify Result */}
+                    {verifyResult && verifyResult.serviceId === service.id && (
+                      <div className={`mt-3 ml-14 p-2.5 rounded-lg text-xs flex items-center gap-2 ${
+                        verifyResult.status === "success"
+                          ? "bg-emerald-50 dark:bg-emerald-900/20 border border-emerald-200 dark:border-emerald-800 text-emerald-700 dark:text-emerald-400"
+                          : "bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 text-red-700 dark:text-red-400"
+                      }`}>
+                        {verifyResult.status === "success" ? (
+                          <svg className="w-3.5 h-3.5 flex-shrink-0" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                          </svg>
+                        ) : (
+                          <svg className="w-3.5 h-3.5 flex-shrink-0" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z" />
+                          </svg>
+                        )}
+                        {verifyResult.message}
+                      </div>
+                    )}
 
                     {/* Inline Edit */}
                     {isEditing && (
