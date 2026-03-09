@@ -1,0 +1,6 @@
+[build]
+builder = "railpack"
+buildCommand = "npm ci && cd client && npm install && npx vite build"
+
+[deploy]
+startCommand = "npm start"
