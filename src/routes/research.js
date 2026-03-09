@@ -31,10 +31,6 @@ router.post('/examples', requireAuth, async (req, res, next) => {
   try {
     const { projectDescription, emailId } = req.body;
 
-    if (!projectDescription || typeof projectDescription !== 'string' || projectDescription.trim().length < 5) {
-      return res.status(400).json({ error: 'projectDescription is required (min 5 characters)' });
-    }
-
     // Fetch all 3 required API keys in parallel
     const [anthropicKey, exaKey, olostepKey] = await Promise.all([
       getApiKey(req.user.id, 'anthropic'),
@@ -52,26 +48,35 @@ router.post('/examples', requireAuth, async (req, res, next) => {
       return res.status(400).json({ error: 'Olostep API key not configured. Get one at https://olostep.com and add it in Settings.' });
     }
 
-    // If emailId provided, enrich projectDescription with job context
-    let enrichedDescription = projectDescription.trim();
+    // Build description from projectDescription + emailId job context
+    let enrichedDescription = (projectDescription || '').trim();
     if (emailId) {
       try {
         const { rows } = await pool.query(
-          `SELECT j.job_heading, j.job_description
+          `SELECT e.subject, j.job_heading, j.job_description
            FROM emails e
-           JOIN jobs j ON j.id = e.job_id
+           LEFT JOIN jobs j ON j.id = e.job_id
            WHERE e.id = $1 AND e.user_id = $2`,
           [emailId, req.user.id]
         );
-        if (rows.length && rows[0].job_heading) {
-          enrichedDescription += ` | Job: ${rows[0].job_heading}`;
-          if (rows[0].job_description) {
-            enrichedDescription += ` | ${rows[0].job_description.substring(0, 200)}`;
+        if (rows.length) {
+          const jobHeading = rows[0].job_heading || '';
+          const jobDesc = rows[0].job_description ? rows[0].job_description.substring(0, 200) : '';
+          const subject = rows[0].subject || '';
+          if (jobHeading) {
+            enrichedDescription += enrichedDescription ? ` | Job: ${jobHeading}` : jobHeading;
+            if (jobDesc) enrichedDescription += ` | ${jobDesc}`;
+          } else if (subject && !enrichedDescription) {
+            enrichedDescription = subject;
           }
         }
       } catch (err) {
         console.warn('research: Could not enrich with job context:', err.message);
       }
+    }
+
+    if (!enrichedDescription || enrichedDescription.length < 5) {
+      return res.status(400).json({ error: 'Could not determine project description. Provide projectDescription or ensure email has a matched job.' });
     }
 
     console.log(`research: Starting research for "${enrichedDescription.substring(0, 80)}..."`);

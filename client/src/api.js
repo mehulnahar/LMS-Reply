@@ -134,6 +134,13 @@ export const api = {
   getNextSteps: (jobId) =>
     request(`/api/jobs/${jobId}/next-steps`),
 
+  // Research (Exa + Olostep + Sonnet)
+  researchExamples: (emailId) =>
+    request('/api/research/examples', {
+      method: 'POST',
+      body: JSON.stringify({ emailId, projectDescription: '' }),
+    }),
+
   // Health
   health: () => request("/api/health"),
 };

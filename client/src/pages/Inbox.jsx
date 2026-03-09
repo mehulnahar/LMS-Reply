@@ -233,6 +233,9 @@ export default function Inbox() {
   const searchTimerRef = useRef(null);
   // FLOW-01: Reactivation state
   const [reactivating, setReactivating] = useState(false);
+  // Research agent state
+  const [researching, setResearching] = useState(false);
+  const [researchResults, setResearchResults] = useState(null); // { examples, rawResultCount, scrapedCount, error }
 
   const fetchThreads = useCallback(async () => {
     try {
@@ -297,6 +300,8 @@ export default function Inbox() {
     setLovableBlock(null);
     setFollowUpBlocks(null);
     setReactivating(false);
+    setResearchResults(null);
+    setResearching(false);
     // UIUP-01/05: Clear analysis/variant state on thread switch
     setJobAnalysisBlock(null);
     setLinkAnalysisBlock(null);
@@ -407,6 +412,33 @@ export default function Inbox() {
       setManualLinkError(err.message || "Failed to match job by link");
     } finally {
       setMatchingByLink(false);
+    }
+  };
+
+  // Research Agent - find similar live examples via Exa + Olostep + Sonnet
+  const handleResearch = async () => {
+    if (!detail?.email?.id) return;
+    setResearching(true);
+    setResearchResults(null);
+    try {
+      const result = await api.researchExamples(detail.email.id);
+      setResearchResults({
+        examples: result.examples || [],
+        rawResultCount: result.rawResultCount || 0,
+        scrapedCount: result.scrapedCount || 0,
+        exampleCount: result.exampleCount || 0,
+        error: null,
+      });
+    } catch (err) {
+      setResearchResults({
+        examples: [],
+        rawResultCount: 0,
+        scrapedCount: 0,
+        exampleCount: 0,
+        error: err.message || 'Research failed',
+      });
+    } finally {
+      setResearching(false);
     }
   };
 
@@ -1634,6 +1666,23 @@ export default function Inbox() {
                         ))}
                       </select>
                       <button
+                        onClick={handleResearch}
+                        disabled={researching || generating}
+                        title="Find similar live projects via Exa + Olostep"
+                        className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md border border-cyan-300 dark:border-cyan-700 text-cyan-700 dark:text-cyan-300 bg-cyan-50 dark:bg-cyan-900/20 hover:bg-cyan-100 dark:hover:bg-cyan-900/40 disabled:opacity-50 transition-colors"
+                      >
+                        {researching ? (
+                          <><Spinner /> Researching...</>
+                        ) : (
+                          <>
+                            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z" />
+                            </svg>
+                            Research
+                          </>
+                        )}
+                      </button>
+                      <button
                         onClick={handleGenerateAll}
                         disabled={generating}
                         className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md bg-brand-600 text-white hover:bg-brand-700 disabled:opacity-50 transition-colors"
@@ -1651,6 +1700,67 @@ export default function Inbox() {
                       </button>
                     </div>
                   </div>
+                  {/* Research Results Panel */}
+                  {researchResults && (
+                    <div className={`px-5 py-3 border-b ${researchResults.error ? 'bg-red-50 dark:bg-red-900/10 border-red-200 dark:border-red-800' : 'bg-cyan-50 dark:bg-cyan-900/10 border-cyan-200 dark:border-cyan-800'}`}>
+                      {researchResults.error ? (
+                        <div className="flex items-start gap-2">
+                          <svg className="w-4 h-4 text-red-500 flex-shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z" />
+                          </svg>
+                          <div>
+                            <p className="text-xs font-medium text-red-700 dark:text-red-400">Research Failed</p>
+                            <p className="text-xs text-red-600 dark:text-red-500 mt-0.5">{researchResults.error}</p>
+                          </div>
+                        </div>
+                      ) : researchResults.examples.length === 0 ? (
+                        <div className="flex items-start gap-2">
+                          <svg className="w-4 h-4 text-amber-500 flex-shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z" />
+                          </svg>
+                          <p className="text-xs text-amber-700 dark:text-amber-400">
+                            No similar examples found. Discovered {researchResults.rawResultCount} URLs, scraped {researchResults.scrapedCount}, but none qualified after verification.
+                          </p>
+                        </div>
+                      ) : (
+                        <div>
+                          <div className="flex items-center justify-between mb-2">
+                            <p className="text-xs font-medium text-cyan-800 dark:text-cyan-300 flex items-center gap-1.5">
+                              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                              </svg>
+                              {researchResults.exampleCount} verified example{researchResults.exampleCount !== 1 ? 's' : ''} found
+                              <span className="text-gray-400 font-normal">({researchResults.rawResultCount} discovered, {researchResults.scrapedCount} scraped)</span>
+                            </p>
+                            <button
+                              onClick={() => setResearchResults(null)}
+                              className="text-xs text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"
+                            >
+                              Dismiss
+                            </button>
+                          </div>
+                          <div className="space-y-2">
+                            {researchResults.examples.map((ex, i) => (
+                              <div key={i} className="flex items-start gap-2 p-2 rounded-md bg-white dark:bg-gray-900/50 border border-cyan-100 dark:border-cyan-900/30">
+                                <span className="text-xs font-bold text-cyan-600 dark:text-cyan-400 mt-0.5">{i + 1}.</span>
+                                <div className="min-w-0 flex-1">
+                                  <p className="text-xs font-medium text-gray-800 dark:text-gray-200 truncate">{ex.name || 'Unnamed Project'}</p>
+                                  <a href={ex.url} target="_blank" rel="noopener noreferrer" className="text-xs text-cyan-600 dark:text-cyan-400 hover:underline break-all">{ex.url}</a>
+                                  {ex.pitch_angle && <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">{ex.pitch_angle}</p>}
+                                  {ex.key_features && ex.key_features.length > 0 && (
+                                    <p className="text-xs text-gray-400 dark:text-gray-500 mt-0.5">Features: {ex.key_features.join(', ')}</p>
+                                  )}
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                          <p className="text-xs text-cyan-700 dark:text-cyan-400 mt-2 italic">
+                            These examples will be auto-injected when you click Generate.
+                          </p>
+                        </div>
+                      )}
+                    </div>
+                  )}
                   <div className="p-5">
                     {killSwitch && (
                       <div className="flex items-start gap-3 p-3 mb-3 rounded-lg bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800">

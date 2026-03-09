@@ -599,11 +599,13 @@ router.post("/generate", requireAuth, async (req, res, next) => {
     }
 
     // ──────────────────────────────────────────────────────────
-    // Step 4c: Research similar examples (first contact only, non-blocking)
+    // Step 4c: Research similar examples (first contact + portfolio/proof signals, non-blocking)
     // ──────────────────────────────────────────────────────────
     let researchContextBlock = '';
     const isFirstContact = promptType === 'EMAIL_REPLY_V2' || promptType === 'PROPOSAL_V4';
-    if (isFirstContact && job) {
+    const needsPortfolioProof = objectionContext.hasProfileRequest || objectionContext.hasProofOfWorkRequest || objectionContext.isDueDiligence;
+    const shouldResearch = (isFirstContact || needsPortfolioProof) && job;
+    if (shouldResearch) {
       try {
         const [exaKey, olostepKey] = await Promise.all([
           getApiKey(req.user.id, 'exa'),
@@ -612,7 +614,8 @@ router.post("/generate", requireAuth, async (req, res, next) => {
         if (exaKey && olostepKey) {
           const projectDesc = job.job_heading || job.job_description?.substring(0, 200) || email.subject || '';
           if (projectDesc.length >= 5) {
-            console.log('research: Auto-research triggered for first contact');
+            const triggerReason = needsPortfolioProof ? 'portfolio/proof signal' : 'first contact';
+            console.log(`research: Auto-research triggered for ${triggerReason}`);
             const research = await researchSimilarExamples(projectDesc, anthropicKey, exaKey, olostepKey);
             researchContextBlock = research.contextBlock || '';
             if (research.examples.length > 0) {
