@@ -29,11 +29,11 @@ const WELL_KNOWN_DOMAINS = [
 ];
 
 // ────────────────────────────────────────────────────────────
-// 0. Refine project description into Exa search query via Haiku
+// 0. Refine project description into Exa search query via Sonnet
 // ────────────────────────────────────────────────────────────
 async function refineSearchQuery(projectDescription, anthropicKey) {
   const body = {
-    model: 'claude-3-5-haiku-20241022',
+    model: 'claude-sonnet-4-6',
     max_tokens: 200,
     messages: [{
       role: 'user',
@@ -60,7 +60,7 @@ Rules:
       body: JSON.stringify(body),
     });
 
-    if (!res.ok) throw new Error(`Haiku query refine failed: ${res.status}`);
+    if (!res.ok) throw new Error(`Sonnet query refine failed: ${res.status}`);
     const data = await res.json();
     const text = data.content?.[0]?.text || '';
     const queries = text.split('\n').map(q => q.trim()).filter(q => q.length > 5);
