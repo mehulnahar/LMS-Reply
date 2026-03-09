@@ -112,8 +112,11 @@ router.get("/events", requireAuth, async (req, res) => {
     );
 
     if (!accounts.length) {
+      console.log(`[Calls] No connected accounts for user ${req.user.id}`);
       return res.json({ events: [] });
     }
+
+    console.log(`[Calls] ${accounts.length} account(s) found. timeMin=${start} timeMax=${end}`);
 
     const seen = new Set();
     const events = [];
@@ -122,7 +125,10 @@ router.get("/events", requireAuth, async (req, res) => {
     for (const account of accounts) {
       try {
         const cal = await getCalendarClient(account, req.user.id);
-        if (!cal) continue;
+        if (!cal) {
+          console.log(`[Calls] No OAuth client for ${account.email}`);
+          continue;
+        }
 
         const response = await cal.events.list({
           calendarId: "primary",
@@ -132,6 +138,8 @@ router.get("/events", requireAuth, async (req, res) => {
           orderBy: "startTime",
           maxResults: 100,
         });
+
+        console.log(`[Calls] ${account.email}: ${response.data.items?.length || 0} events returned`);
 
         for (const evt of response.data.items || []) {
           if (seen.has(evt.id)) continue;
