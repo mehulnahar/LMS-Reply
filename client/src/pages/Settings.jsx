@@ -111,6 +111,7 @@ export default function Settings() {
   const [connecting, setConnecting] = useState(false);
   const [syncing, setSyncing] = useState(null);
   const [disconnecting, setDisconnecting] = useState(null);
+  const [verifying, setVerifying] = useState(null); // serviceId being verified
 
   // Confirmation dialog for disconnect
   const [disconnectDialog, setDisconnectDialog] = useState(null); // { id, email, emailCount, replyCount }
@@ -127,6 +128,7 @@ export default function Settings() {
 
   // Timers ref for cleanup
   const timerRef = useRef(null);
+  const notifRef = useRef(null);
 
   const clearNotifications = useCallback(() => {
     if (timerRef.current) clearTimeout(timerRef.current);
@@ -139,6 +141,7 @@ export default function Settings() {
     setSuccess(msg);
     if (timerRef.current) clearTimeout(timerRef.current);
     timerRef.current = setTimeout(() => setSuccess(""), duration);
+    setTimeout(() => notifRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" }), 50);
   }, []);
 
   const showError = useCallback((msg, duration = 6000) => {
@@ -146,6 +149,7 @@ export default function Settings() {
     setError(msg);
     if (timerRef.current) clearTimeout(timerRef.current);
     timerRef.current = setTimeout(() => setError(""), duration);
+    setTimeout(() => notifRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" }), 50);
   }, []);
 
   /* ============================================================
@@ -364,15 +368,18 @@ export default function Settings() {
 
   const handleVerify = async (serviceId) => {
     clearNotifications();
+    setVerifying(serviceId);
     try {
       const result = await api.verifyKey(serviceId);
       if (result.status === "verified") {
-        showSuccess(`${serviceId} key verified — encryption intact`);
+        showSuccess(result.message || `${serviceId} key verified`);
       } else {
-        showError(`${serviceId} key verification failed`);
+        showError(result.message || `${serviceId} key verification failed`);
       }
     } catch (err) {
       showError(err.message);
+    } finally {
+      setVerifying(null);
     }
   };
 
@@ -493,6 +500,7 @@ export default function Settings() {
       {/* ================================================================ */}
       {/* Global Notifications                                             */}
       {/* ================================================================ */}
+      <div ref={notifRef} />
       {error && (
         <div className="mb-6 p-3 rounded-lg bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 flex items-start gap-2">
           <svg className="w-4 h-4 text-red-500 flex-shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
@@ -980,8 +988,8 @@ export default function Settings() {
                         <div className="flex items-center gap-2 flex-shrink-0">
                           {existing && (
                             <>
-                              <button onClick={() => handleVerify(service.id)} className="btn-secondary text-xs px-3 py-1.5">
-                                Verify
+                              <button onClick={() => handleVerify(service.id)} disabled={verifying === service.id} className="btn-secondary text-xs px-3 py-1.5">
+                                {verifying === service.id ? <><Spinner /> Verifying...</> : "Verify"}
                               </button>
                               <button onClick={() => handleDelete(service.id)} className="btn-danger text-xs px-3 py-1.5">
                                 Remove
