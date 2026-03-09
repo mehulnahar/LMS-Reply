@@ -73,7 +73,7 @@ async function enrichEventWithClient(userId, attendeeEmails) {
   const { rows } = await pool.query(
     `SELECT
        e.id, e.from_name, e.from_email, e.lead_score, e.has_phone,
-       e.has_urgency, e.hot_signal_flagged, e.intent, e.body AS email_body,
+       e.has_urgency, e.hot_signal_flagged, e.intent, e.body_text AS email_body,
        e.received_at,
        j.id AS job_id, j.job_heading, j.job_description, j.country,
        j.match_status, j.prompt_type_used AS stage, j.follow_up_count,
