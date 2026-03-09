@@ -1693,7 +1693,7 @@ export default function Inbox() {
                         ))}
                       </select>
                       <button
-                        onClick={handleResearch}
+                        onClick={() => handleResearch()}
                         disabled={researching || generating}
                         title="Find similar live projects via Exa + Olostep"
                         className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md border border-cyan-300 dark:border-cyan-700 text-cyan-700 dark:text-cyan-300 bg-cyan-50 dark:bg-cyan-900/20 hover:bg-cyan-100 dark:hover:bg-cyan-900/40 disabled:opacity-50 transition-colors"
