@@ -379,11 +379,22 @@ async function researchSimilarExamples(projectDescription, anthropicKey, exaKey,
   // Step 4: Build context block for reply prompt injection
   const contextBlock = buildSimilarExamplesBlock(examples);
 
+  // Debug info: include search queries and scraped URLs for troubleshooting
+  const debug = {
+    searchQueries,
+    scrapedUrls: scrapedResults.map(r => ({
+      url: r.url,
+      success: r.success,
+      title: r.pageTitle || r.reason || '',
+    })),
+  };
+
   return {
     examples: examples.slice(0, 5),
     rawResultCount: uniqueResults.length,
     scrapedCount: successCount,
     contextBlock,
+    debug,
   };
 }
 

@@ -124,6 +124,7 @@ router.post('/examples', requireAuth, async (req, res, next) => {
       scrapedCount: result.scrapedCount,
       exampleCount: result.examples.length,
       contextBlock: result.contextBlock,
+      debug: result.debug,
     });
   } catch (err) {
     next(err);

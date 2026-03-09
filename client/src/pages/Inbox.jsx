@@ -1714,13 +1714,32 @@ export default function Inbox() {
                           </div>
                         </div>
                       ) : researchResults.examples.length === 0 ? (
-                        <div className="flex items-start gap-2">
-                          <svg className="w-4 h-4 text-amber-500 flex-shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
-                            <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z" />
-                          </svg>
-                          <p className="text-xs text-amber-700 dark:text-amber-400">
-                            No similar examples found. Discovered {researchResults.rawResultCount} URLs, scraped {researchResults.scrapedCount}, but none qualified after verification.
-                          </p>
+                        <div className="space-y-2">
+                          <div className="flex items-start gap-2">
+                            <svg className="w-4 h-4 text-amber-500 flex-shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
+                              <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z" />
+                            </svg>
+                            <p className="text-xs text-amber-700 dark:text-amber-400">
+                              No similar examples found. Discovered {researchResults.rawResultCount} URLs, scraped {researchResults.scrapedCount}, but none qualified after verification.
+                            </p>
+                          </div>
+                          {researchResults.debug && (
+                            <details className="text-xs text-gray-500 dark:text-gray-400">
+                              <summary className="cursor-pointer hover:text-gray-700 dark:hover:text-gray-300">Debug info</summary>
+                              <div className="mt-1 p-2 bg-gray-100 dark:bg-gray-800 rounded text-[10px] font-mono space-y-1 max-h-48 overflow-y-auto">
+                                <p className="font-semibold">Queries:</p>
+                                {(researchResults.debug.searchQueries || []).map((q, i) => (
+                                  <p key={i} className="pl-2">{i+1}. {q}</p>
+                                ))}
+                                <p className="font-semibold mt-1">Scraped URLs:</p>
+                                {(researchResults.debug.scrapedUrls || []).map((s, i) => (
+                                  <p key={i} className="pl-2 truncate" title={s.url}>
+                                    {s.success ? '\u2705' : '\u274c'} {s.url} {s.title ? `- ${s.title}` : ''}
+                                  </p>
+                                ))}
+                              </div>
+                            </details>
+                          )}
                         </div>
                       ) : (
                         <div>
