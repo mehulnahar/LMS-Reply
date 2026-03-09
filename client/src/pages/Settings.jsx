@@ -20,6 +20,20 @@ const API_SERVICES = [
     icon: "L",
     placeholder: "email:password or auth token",
   },
+  {
+    id: "exa",
+    name: "Exa",
+    description: "AI-powered search for discovering similar live projects",
+    icon: "E",
+    placeholder: "0ac44f98-...",
+  },
+  {
+    id: "olostep",
+    name: "Olostep",
+    description: "Web scraping to verify and extract content from discovered sites",
+    icon: "O",
+    placeholder: "your-olostep-api-key",
+  },
 ];
 
 const GOOGLE_CREDS = [
