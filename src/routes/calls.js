@@ -82,7 +82,7 @@ async function enrichEventWithClient(userId, attendeeEmails) {
      FROM emails e
      LEFT JOIN jobs j ON j.email_id = e.id
      LEFT JOIN LATERAL (
-       SELECT reply_text, created_at FROM replies
+       SELECT COALESCE(edited_text, generated_text) AS reply_text, created_at FROM replies
        WHERE job_id = j.id
        ORDER BY created_at DESC LIMIT 1
      ) r ON true
