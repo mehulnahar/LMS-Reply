@@ -421,7 +421,7 @@ export default function Inbox() {
     setResearching(true);
     setResearchResults(null);
     try {
-      const result = await api.researchExamples(detail.email.id);
+      const result = await api.researchExamples(detail.email.id, detail.job?.jobHeading || '');
       setResearchResults({
         examples: result.examples || [],
         rawResultCount: result.rawResultCount || 0,

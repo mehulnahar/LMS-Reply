@@ -52,13 +52,29 @@ router.post('/examples', requireAuth, async (req, res, next) => {
     let enrichedDescription = (projectDescription || '').trim();
     if (emailId) {
       try {
-        const { rows } = await pool.query(
-          `SELECT e.subject, j.job_heading, j.job_description
+        // First try direct job link on this email
+        let { rows } = await pool.query(
+          `SELECT e.subject, e.thread_id, j.job_heading, j.job_description
            FROM emails e
            LEFT JOIN jobs j ON j.id = e.job_id
            WHERE e.id = $1 AND e.user_id = $2`,
           [emailId, req.user.id]
         );
+        // If no job found on this email, search the thread for any email with a job
+        if (rows.length && !rows[0].job_heading && rows[0].thread_id) {
+          const threadResult = await pool.query(
+            `SELECT j.job_heading, j.job_description
+             FROM emails e
+             JOIN jobs j ON j.id = e.job_id
+             WHERE e.thread_id = $1 AND e.user_id = $2 AND e.job_id IS NOT NULL
+             LIMIT 1`,
+            [rows[0].thread_id, req.user.id]
+          );
+          if (threadResult.rows.length) {
+            rows[0].job_heading = threadResult.rows[0].job_heading;
+            rows[0].job_description = threadResult.rows[0].job_description;
+          }
+        }
         if (rows.length) {
           const jobHeading = rows[0].job_heading || '';
           const jobDesc = rows[0].job_description ? rows[0].job_description.substring(0, 200) : '';
@@ -86,7 +102,7 @@ router.post('/examples', requireAuth, async (req, res, next) => {
     console.log(`research: Found ${result.examples.length} verified examples from ${result.rawResultCount} discovered, ${result.scrapedCount} scraped`);
 
     res.json({
-      projectDescription: projectDescription.trim(),
+      projectDescription: (projectDescription || '').trim(),
       examples: result.examples,
       rawResultCount: result.rawResultCount,
       scrapedCount: result.scrapedCount,
