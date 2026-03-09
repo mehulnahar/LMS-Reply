@@ -167,13 +167,17 @@ router.get("/events", requireAuth, async (req, res) => {
         }
       } catch (accountErr) {
         const msg = accountErr.message || "";
-        const isScope = accountErr.code === 403 ||
-          msg.includes("insufficient") ||
-          msg.includes("calendar") ||
-          msg.includes("scope") ||
-          msg.includes("insufficientPermissions");
+        const status = accountErr.response?.status || accountErr.code;
+        const reason = accountErr.response?.data?.error?.errors?.[0]?.reason || "";
+        const googleMsg = accountErr.response?.data?.error?.message || "";
+        console.error(`[Calls] Calendar fetch error for ${account.email}: status=${status} reason=${reason} msg=${googleMsg || msg}`);
+
+        const isScope =
+          reason === "insufficientPermissions" ||
+          googleMsg.toLowerCase().includes("insufficient") ||
+          msg.toLowerCase().includes("insufficient") ||
+          msg.toLowerCase().includes("scope");
         if (isScope) needsReauth = true;
-        console.error(`[Calls] Calendar fetch error for ${account.email}:`, msg);
       }
     }
 
