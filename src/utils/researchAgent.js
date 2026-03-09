@@ -184,6 +184,12 @@ async function analyzeWithSonnet(scrapedResults, projectDescription, anthropicKe
   const successfulScrapes = scrapedResults.filter(r => r.success);
   if (successfulScrapes.length === 0) return [];
 
+  // Log what we're sending to Sonnet for debugging
+  console.log(`research: Analyzing ${successfulScrapes.length} scraped sites with Sonnet:`);
+  successfulScrapes.forEach((r, i) => {
+    console.log(`  ${i + 1}. ${r.url} (title: "${r.pageTitle}")`);
+  });
+
   // Build context from scraped content (truncate each to keep within limits)
   const siteSummaries = successfulScrapes.map((r, i) => {
     const contentPreview = (r.markdown || '').substring(0, 1500);
@@ -194,33 +200,30 @@ ${contentPreview}
 `;
   }).join('\n');
 
-  const systemPrompt = `You are an expert project evaluator for a software development agency. Given scraped website/app content and a client's project description, select the BEST 3-5 examples that the agency can present as their own work in a sales reply.
+  const systemPrompt = `You are a research assistant for a software agency. Given scraped website content and a project description, find sites the agency could reference as portfolio examples in a sales email.
 
-SELECTION CRITERIA (ALL must be met):
-1. LIVE AND POLISHED - The site/app must appear professional, well-designed, and fully functional
-2. RELEVANT - Must be genuinely similar to the client's project type, industry, or features
-3. LESSER-KNOWN - Not a household name or major brand. Indie, niche, or regional projects are ideal
-4. NO AGENCY ATTRIBUTION - Skip if an agency/developer name is credited (e.g. "Built by WebAgency", "Developed by DevShop"). NOTE: generic platform footers like "Powered by Shopify" or "Built with WordPress" are OK and should NOT disqualify a site
-5. CLAIMABLE - Someone could believably say "we built/customized this" without easy contradiction
+BE GENEROUS WITH SELECTIONS. Your job is to find usable examples, not to be a strict gatekeeper. If a site is a real, functioning website that's even somewhat relevant to the project, INCLUDE IT.
 
-For each selected example, return:
-- name: The project/brand name
+INCLUDE a site if:
+- It is a REAL, live website (not a blog post, article, or directory)
+- It has SOME relevance to the client's project (same industry, similar features, or similar platform)
+- It is not a major household brand (Nike, Zara, Amazon, etc.)
+- "Powered by Shopify", "Built with WordPress", etc. in footer is FINE - do NOT exclude for this
+
+ONLY EXCLUDE if:
+- It is a blog post, article, listicle, or directory (NOT an actual website/store/app)
+- It prominently credits a specific agency ("Built by DevAgency LLC")
+- It is a Fortune 500 / household brand everyone would recognize
+- The page clearly failed to load or is a parking page
+
+For each selected site, return:
+- name: The brand/project name
 - url: The exact URL
-- pitch_angle: One sentence describing what makes this project impressive AND relevant to the client's needs. Write this as if you're the agency describing their own work. Example: "We built a fashion e-commerce platform with AI-powered size recommendations and a lookbook-to-cart flow that increased conversions by creating a seamless discovery experience"
-- key_features: Array of 2-3 specific features visible on the site that match what the client needs
+- pitch_angle: One sentence pitch as if the agency built it, highlighting relevance to the client
+- key_features: Array of 2-3 visible features that match what the client needs
 - platform_type: "website" | "web_app" | "mobile_app" | "saas"
 
-EXCLUDE:
-- Blog posts, articles, directories, or listicles
-- Template demos or placeholder sites
-- Sites that are clearly under construction
-- Sites with prominent developer/agency credits (NOT platform credits like "Powered by Shopify")
-- Major well-known brands or Fortune 500 companies
-- Sites that look outdated or poorly maintained
-
-IMPORTANT: "Powered by Shopify", "Built with WordPress", etc. in the footer is NOT a reason to exclude. These are platform credits, not agency credits. Most stores have them.
-
-Return ONLY a JSON array. If fewer than 3 qualify, return what you have. If none qualify, return [].`;
+Return a JSON array with ALL qualifying sites (aim for 3-5). Be generous - it's better to include a borderline site than to return nothing.`;
 
   const body = {
     model: 'claude-sonnet-4-6',
@@ -249,12 +252,20 @@ Return ONLY a JSON array. If fewer than 3 qualify, return what you have. If none
   const data = await res.json();
   const text = data.content?.[0]?.text || '[]';
 
+  // Log Sonnet's full response for debugging
+  console.log(`research: Sonnet analysis response (${text.length} chars): ${text.substring(0, 500)}`);
+
   try {
     const jsonMatch = text.match(/\[[\s\S]*\]/);
-    if (!jsonMatch) return [];
+    if (!jsonMatch) {
+      console.warn('research: Sonnet returned no JSON array. Full text:', text.substring(0, 300));
+      return [];
+    }
     const examples = JSON.parse(jsonMatch[0]);
+    console.log(`research: Sonnet selected ${Array.isArray(examples) ? examples.length : 0} examples`);
     return Array.isArray(examples) ? examples : [];
-  } catch {
+  } catch (parseErr) {
+    console.warn('research: Failed to parse Sonnet JSON:', parseErr.message, 'Text:', text.substring(0, 200));
     return [];
   }
 }
@@ -318,10 +329,24 @@ async function researchSimilarExamples(projectDescription, anthropicKey, exaKey,
   const allResults = [];
   for (const query of searchQueries.slice(0, 2)) {
     try {
-      const results = await searchExa(query, exaKey, { numResults: 10, excludeDomains: WELL_KNOWN_DOMAINS });
+      const results = await searchExa(query, exaKey, {
+        numResults: 12,
+        excludeDomains: WELL_KNOWN_DOMAINS,
+        category: 'company',
+      });
+      console.log(`research: Exa query "${query.substring(0, 60)}" returned ${results.length} results`);
+      results.forEach((r, i) => console.log(`  ${i + 1}. ${r.url} - "${r.title}"`));
       allResults.push(...results);
     } catch (err) {
-      console.warn(`research: Exa search failed for query "${query}":`, err.message);
+      // Retry without category filter if it fails (Exa may not support it for all queries)
+      console.warn(`research: Exa with category failed for "${query}", retrying without category...`);
+      try {
+        const results = await searchExa(query, exaKey, { numResults: 12, excludeDomains: WELL_KNOWN_DOMAINS });
+        console.log(`research: Exa retry returned ${results.length} results`);
+        allResults.push(...results);
+      } catch (retryErr) {
+        console.warn(`research: Exa search fully failed for "${query}":`, retryErr.message);
+      }
     }
   }
 
