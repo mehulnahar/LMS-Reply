@@ -1744,7 +1744,7 @@ export default function Inbox() {
                               {CLASSIFICATION_LABELS[researchResults.classification].label}
                             </span>
                           )}
-                          {researchResults.tags?.projectType && PROJECT_TYPE_LABELS[researchResults.tags.projectType] && (
+                          {researchResults.classification === 'BUILD' && researchResults.tags?.projectType && PROJECT_TYPE_LABELS[researchResults.tags.projectType] && (
                             <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-medium ${PROJECT_TYPE_LABELS[researchResults.tags.projectType].color}`}>
                               {PROJECT_TYPE_LABELS[researchResults.tags.projectType].label}
                             </span>
@@ -1754,7 +1754,7 @@ export default function Inbox() {
                               {researchResults.tags.industry}
                             </span>
                           )}
-                          {(researchResults.tags?.technologies || []).map((tech) => (
+                          {researchResults.classification === 'BUILD' && (researchResults.tags?.technologies || []).map((tech) => (
                             <span key={tech} className="text-[10px] px-1.5 py-0.5 rounded-full font-medium bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400">
                               {tech}
                             </span>
