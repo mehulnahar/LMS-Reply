@@ -304,10 +304,9 @@ router.post('/sync', requireAuth, async (req, res) => {
       // Fetch transcript
       let transcript = await fetchTldvTranscript(meetingId, tldvKey);
 
-      // Detect no-show by duration only — transcript absence just means TLDV bot
-      // couldn't capture it, not that the client didn't attend.
-      // < 8 min = likely no-show or too brief to be meaningful
-      const isNoShow = durationMin < 8;
+      // No-show = no transcript (client didn't attend/speak).
+      // If TLDV captured any transcript content, it was a real call regardless of duration.
+      const isNoShow = !transcript || transcript.trim().length === 0;
       const status = isNoShow ? 'no_show' : 'prospect';
       if (isNoShow) noShows++;
 
@@ -354,11 +353,12 @@ router.post('/sync', requireAuth, async (req, res) => {
       }
     }
 
-    // Repair any existing records wrongly classified as no_show due to missing transcript.
-    // Any call >= 8 min that is still 'no_show' should be 'prospect'.
+    // Repair any existing records wrongly classified as no_show.
+    // If a transcript exists and has content, the client attended — flip to prospect.
     const { rowCount: repaired } = await pool.query(
       `UPDATE client_calls SET status = 'prospect', updated_at = NOW()
-       WHERE user_id = $1 AND status = 'no_show' AND duration >= 8`,
+       WHERE user_id = $1 AND status = 'no_show'
+         AND transcript IS NOT NULL AND length(trim(transcript)) > 0`,
       [req.user.id]
     );
 
