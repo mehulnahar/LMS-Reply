@@ -330,18 +330,21 @@ router.post('/sync', requireAuth, async (req, res) => {
         }
       }
 
-      // Insert into DB
-      await pool.query(
+      // Insert into DB — ON CONFLICT DO NOTHING prevents duplicate key errors
+      // if sync is triggered twice concurrently
+      const { rowCount } = await pool.query(
         `INSERT INTO client_calls
            (id, user_id, meeting_name, duration, call_date, invitee_emails,
             transcript, status, gmail_thread_id, gmail_thread_subject,
             gmail_email_count, gmail_last_email_date)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)`,
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
+         ON CONFLICT (id) DO NOTHING`,
         [meetingId, req.user.id, meetingName, durationMin, callDate,
          invitees, transcript, status, gmailThreadId, gmailSubject,
          gmailEmailCount, gmailLastDate]
       );
 
+      if (rowCount === 0) { synced++; continue; }
       newCalls++;
 
       // Auto-analyze if we have transcript + anthropic key (non-blocking, best-effort)
