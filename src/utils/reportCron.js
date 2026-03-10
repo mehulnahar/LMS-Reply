@@ -1,8 +1,10 @@
 /**
  * Morning Report Cron
  *
- * Fires at 7:00 AM IST daily = 01:30 UTC
- * Cron: 30 1 * * *
+ * Flow:
+ * 1. 7:00 AM IST (01:30 UTC) - sync all Gmail accounts first
+ * 2. Then generate morning report with fresh data
+ * 3. Send via WhatsApp
  *
  * Fetches all users with a whatsapp_config entry and sends report
  */
@@ -11,11 +13,12 @@ const cron = require('node-cron');
 const pool = require('../config/db');
 const { sendMessage, getStatus } = require('./whatsapp');
 const { generateMorningReport } = require('./morningReport');
+const { syncAllAccounts } = require('./emailSync');
 
 let cronJob = null;
 
 async function runMorningReport() {
-  console.log('[ReportCron] Running morning report...');
+  console.log('[ReportCron] Starting morning report pipeline...');
   try {
     const { rows: configs } = await pool.query(
       'SELECT user_id, phone_number FROM whatsapp_config WHERE is_active = true'
@@ -28,7 +31,16 @@ async function runMorningReport() {
 
     for (const config of configs) {
       try {
+        // Step 1: Sync all email accounts to get fresh data
+        console.log(`[ReportCron] Syncing emails for user ${config.user_id}...`);
+        const syncResult = await syncAllAccounts(config.user_id);
+        const totalSynced = syncResult.results.reduce((sum, r) => sum + (r.synced || 0), 0);
+        console.log(`[ReportCron] Sync complete: ${totalSynced} new emails across ${syncResult.results.length} accounts`);
+
+        // Step 2: Generate report with fresh data
         const report = await generateMorningReport(config.user_id);
+
+        // Step 3: Send via WhatsApp
         if (getStatus() !== 'ready') {
           console.error('[ReportCron] WhatsApp not ready, skipping send');
           return;

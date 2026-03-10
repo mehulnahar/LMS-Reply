@@ -612,35 +612,18 @@ router.delete("/", requireAuth, async (req, res, next) => {
 // ============================================================
 router.post("/sync-all", requireAuth, async (req, res, next) => {
   try {
-    const { rows: accounts } = await pool.query(
-      "SELECT * FROM email_accounts WHERE user_id = $1 AND status != 'disconnected'",
-      [req.user.id]
-    );
+    const { syncAllAccounts } = require("../utils/emailSync");
+    const { results } = await syncAllAccounts(req.user.id);
+    return res.json({ results });
+  } catch (err) {
+    next(err);
+  }
+});
 
-    if (accounts.length === 0) {
-      return res.json({ message: "No connected accounts", results: [] });
-    }
+// (Legacy sync-all inlined code removed - now uses ../utils/emailSync.js)
+// See src/utils/emailSync.js for the shared sync logic
 
-    const results = [];
-
-    // Get Anthropic key once for AI analysis
-    const anthropicKey = await getAnthropicKey(req.user.id);
-
-    const redirectUri = `${req.protocol}://${req.get("host")}/api/gmail/callback`;
-
-    for (const account of accounts) {
-      try {
-        const oauth2 = await getOAuth2ClientForUser(req.user.id, redirectUri);
-        if (!oauth2) {
-          results.push({ account: account.email, synced: 0, status: "error", error: "Google OAuth not configured" });
-          continue;
-        }
-
-        oauth2.setCredentials({
-          access_token: account.access_token,
-          refresh_token: account.refresh_token,
-          expiry_date: account.token_expiry ? new Date(account.token_expiry).getTime() : null,
-        });
+/*
 
         // Refresh if needed
         try {
@@ -773,11 +756,7 @@ router.post("/sync-all", requireAuth, async (req, res, next) => {
       }
     }
 
-    res.json({ results });
-  } catch (err) {
-    next(err);
-  }
-});
+*/
 
 // ============================================================
 // POST /api/emails/reanalyze — Re-analyze all emails with AI
