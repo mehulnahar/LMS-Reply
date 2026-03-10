@@ -22,21 +22,37 @@ class PgSessionStore {
   }
 
   async save({ session, data }) {
-    await pool.query(
-      `INSERT INTO whatsapp_sessions (id, session_data, updated_at)
-       VALUES ($1, $2, NOW())
-       ON CONFLICT (id) DO UPDATE SET session_data = $2, updated_at = NOW()`,
-      [session, JSON.stringify(data)]
-    );
+    if (data == null) {
+      console.log('[WhatsApp] PgSessionStore.save called with null data - skipping');
+      return;
+    }
+    try {
+      const serialised = JSON.stringify(data);
+      await pool.query(
+        `INSERT INTO whatsapp_sessions (id, session_data, updated_at)
+         VALUES ($1, $2, NOW())
+         ON CONFLICT (id) DO UPDATE SET session_data = $2, updated_at = NOW()`,
+        [session, serialised]
+      );
+      console.log(`[WhatsApp] Session saved (${Math.round(serialised.length / 1024)}KB)`);
+    } catch (e) {
+      console.error('[WhatsApp] Session save error:', e.message);
+    }
   }
 
   async extract({ session }) {
-    const { rows } = await pool.query(
-      'SELECT session_data FROM whatsapp_sessions WHERE id = $1',
-      [session]
-    );
-    if (!rows.length) return null;
-    return JSON.parse(rows[0].session_data);
+    try {
+      const { rows } = await pool.query(
+        'SELECT session_data FROM whatsapp_sessions WHERE id = $1',
+        [session]
+      );
+      if (!rows.length || !rows[0].session_data) return null;
+      console.log('[WhatsApp] Session restored from DB');
+      return JSON.parse(rows[0].session_data);
+    } catch (e) {
+      console.error('[WhatsApp] Session extract error:', e.message);
+      return null;
+    }
   }
 
   async delete({ session }) {
