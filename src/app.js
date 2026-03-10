@@ -18,6 +18,7 @@ const researchRoutes = require("./routes/research");
 const whatsappRoutes = require("./routes/whatsapp");
 const callsRoutes = require("./routes/calls");
 const analyticsRoutes = require("./routes/analytics");
+const clientCallsRoutes = require("./routes/clientCalls");
 
 const app = express();
 
@@ -71,6 +72,7 @@ app.use("/api/research", researchRoutes);
 app.use("/api/whatsapp", whatsappRoutes);
 app.use("/api/calls", callsRoutes);
 app.use("/api/analytics", analyticsRoutes);
+app.use("/api/client-calls", clientCallsRoutes);
 
 // ---------------------------------------------------------------------------
 // API root (keep for health probes)

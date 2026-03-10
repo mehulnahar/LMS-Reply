@@ -164,6 +164,26 @@ export const api = {
   sendWhatsAppTest: () => request('/api/whatsapp/test', { method: 'POST' }),
   sendWhatsAppReport: () => request('/api/whatsapp/report', { method: 'POST' }),
 
+  // Client Calls (TLDV)
+  getClientCalls: (params = {}) => {
+    const qs = new URLSearchParams(params).toString();
+    return request(`/api/client-calls${qs ? `?${qs}` : ''}`);
+  },
+  syncClientCalls: () => request('/api/client-calls/sync', { method: 'POST' }),
+  getClientCall: (id) => request(`/api/client-calls/${id}`),
+  updateClientCallStatus: (id, status) =>
+    request(`/api/client-calls/${id}/status`, { method: 'PUT', body: JSON.stringify({ status }) }),
+  analyzeClientCall: (id) =>
+    request(`/api/client-calls/${id}/analyze`, { method: 'POST' }),
+  researchClientCall: (id) =>
+    request(`/api/client-calls/${id}/research`, { method: 'POST' }),
+  draftClientCallReply: (id) =>
+    request(`/api/client-calls/${id}/draft-reply`, { method: 'POST' }),
+  draftClientCallFollowUp: (id, fuNumber) =>
+    request(`/api/client-calls/${id}/draft-followup`, { method: 'POST', body: JSON.stringify({ fuNumber }) }),
+  draftClientCallRebook: (id, rebookNumber) =>
+    request(`/api/client-calls/${id}/draft-rebook`, { method: 'POST', body: JSON.stringify({ rebookNumber }) }),
+
   // Health
   health: () => request("/api/health"),
 };

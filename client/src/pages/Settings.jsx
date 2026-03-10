@@ -34,6 +34,13 @@ const API_SERVICES = [
     icon: "O",
     placeholder: "your-olostep-api-key",
   },
+  {
+    id: "tldv",
+    name: "TLDV",
+    description: "Sync client call recordings, transcripts, and highlights from TLDV",
+    icon: "T",
+    placeholder: "a9573a21-xxxx-xxxx-xxxx-xxxxxxxxxxxx",
+  },
 ];
 
 const GOOGLE_CREDS = [

@@ -3,7 +3,7 @@
 
 CREATE TABLE IF NOT EXISTS call_prep (
   id SERIAL PRIMARY KEY,
-  user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   google_event_id VARCHAR(1024) NOT NULL,
   client_name VARCHAR(255),
   client_email VARCHAR(255),

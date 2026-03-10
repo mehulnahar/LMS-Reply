@@ -1,0 +1,645 @@
+/**
+ * Client Calls Routes - TLDV Integration
+ *
+ * GET  /api/client-calls                    - List all calls (filtered)
+ * POST /api/client-calls/sync               - Sync from TLDV + match Gmail threads
+ * GET  /api/client-calls/:id                - Single call detail
+ * PUT  /api/client-calls/:id/status         - Manual status override
+ * POST /api/client-calls/:id/analyze        - Run Claude analysis on transcript
+ * POST /api/client-calls/:id/research       - Run Exa+Olostep research
+ * POST /api/client-calls/:id/draft-reply    - Generate post-call reply draft
+ * POST /api/client-calls/:id/draft-followup - Generate FU1/2/3 draft
+ * POST /api/client-calls/:id/draft-rebook   - Generate no-show re-book email
+ */
+
+const express = require('express');
+const { google } = require('googleapis');
+const pool = require('../config/db');
+const { requireAuth } = require('../middleware/auth');
+const { decrypt } = require('../utils/encryption');
+const { appendSignatureBlock } = require('../utils/promptEnhancements');
+const { researchSimilarExamples } = require('../utils/researchAgent');
+
+const router = express.Router();
+
+const TLDV_BASE = 'https://pasta.tldv.io';
+
+// Internal meeting filters
+const INTERNAL_TITLE_KEYWORDS = [
+  'sync up', 'sync-up', 'standup', 'stand-up', 'daily', 'internal',
+  'multimodal', 'cloudflare', 'team meeting', 'hype', 'mindcrew',
+  'check-in', 'check in', 'debrief', 'retrospective', 'retro',
+];
+const INTERNAL_EMAIL_DOMAINS = [
+  'hiphype.co', 'mindcrewtech.com', 'hypeops.art',
+  'srijanamindcrew', 'madhuri.mindcrew', 'yashdeepmindcrew', 'sanjana.mouryamindcrew',
+];
+
+// ────────────────────────────────────────────────────────────
+// Helpers
+// ────────────────────────────────────────────────────────────
+
+async function getApiKey(userId, service) {
+  const { rows } = await pool.query(
+    'SELECT encrypted_key, iv, auth_tag FROM api_keys WHERE user_id = $1 AND service = $2',
+    [userId, service]
+  );
+  if (!rows.length) return null;
+  return decrypt(rows[0].encrypted_key, rows[0].iv, rows[0].auth_tag);
+}
+
+async function callClaudeHelper(systemPrompt, userMessage, apiKey, maxTokens = 1024) {
+  const body = {
+    model: 'claude-sonnet-4-6',
+    max_tokens: maxTokens,
+    messages: [{ role: 'user', content: userMessage }],
+  };
+  if (systemPrompt) body.system = systemPrompt;
+  const res = await fetch('https://api.anthropic.com/v1/messages', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'x-api-key': apiKey,
+      'anthropic-version': '2023-06-01',
+    },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) throw new Error(`Claude API error: ${res.status}`);
+  const data = await res.json();
+  return data.content?.[0]?.text || '';
+}
+
+function isInternalMeeting(name, invitees = []) {
+  const lowerName = (name || '').toLowerCase();
+  if (INTERNAL_TITLE_KEYWORDS.some(kw => lowerName.includes(kw))) return true;
+  if (invitees.every(email =>
+    INTERNAL_EMAIL_DOMAINS.some(domain => email.toLowerCase().includes(domain))
+  )) return true;
+  return false;
+}
+
+async function fetchTldvMeetings(apiKey) {
+  const meetings = [];
+  let pageToken = null;
+
+  do {
+    const url = `${TLDV_BASE}/v1alpha1/meetings${pageToken ? `?pageToken=${pageToken}` : ''}`;
+    const res = await fetch(url, { headers: { 'x-api-key': apiKey } });
+    if (!res.ok) throw new Error(`TLDV API error: ${res.status}`);
+    const data = await res.json();
+    if (Array.isArray(data.meetings)) meetings.push(...data.meetings);
+    pageToken = data.nextPageToken || null;
+  } while (pageToken);
+
+  return meetings;
+}
+
+async function fetchTldvTranscript(meetingId, apiKey) {
+  try {
+    const res = await fetch(`${TLDV_BASE}/v1alpha1/meetings/${meetingId}/transcript`, {
+      headers: { 'x-api-key': apiKey },
+    });
+    if (!res.ok) return null;
+    const data = await res.json();
+    if (!data.transcript) return null;
+    // Concatenate all segments into plain text
+    const segments = data.transcript.segments || data.transcript;
+    if (Array.isArray(segments)) {
+      return segments.map(s => `${s.speaker || 'Speaker'}: ${s.text || s.content || ''}`).join('\n');
+    }
+    return typeof data.transcript === 'string' ? data.transcript : null;
+  } catch {
+    return null;
+  }
+}
+
+async function getGmailClientForUser(userId) {
+  // Get Google OAuth credentials
+  let clientId = process.env.GOOGLE_CLIENT_ID;
+  let clientSecret = process.env.GOOGLE_CLIENT_SECRET;
+
+  const { rows: keyRows } = await pool.query(
+    "SELECT service, encrypted_key, iv, auth_tag FROM api_keys WHERE user_id = $1 AND service IN ('google_client_id', 'google_client_secret')",
+    [userId]
+  );
+  for (const row of keyRows) {
+    try {
+      const val = decrypt(row.encrypted_key, row.iv, row.auth_tag);
+      if (row.service === 'google_client_id') clientId = val;
+      if (row.service === 'google_client_secret') clientSecret = val;
+    } catch { /* ignore */ }
+  }
+
+  if (!clientId || !clientSecret) return null;
+
+  // Get first connected Gmail account tokens
+  const { rows: accounts } = await pool.query(
+    'SELECT access_token, refresh_token, token_expiry FROM email_accounts WHERE user_id = $1 LIMIT 1',
+    [userId]
+  );
+  if (!accounts.length) return null;
+
+  const oauth2 = new google.auth.OAuth2(clientId, clientSecret);
+  oauth2.setCredentials({
+    access_token: accounts[0].access_token,
+    refresh_token: accounts[0].refresh_token,
+    expiry_date: accounts[0].token_expiry ? new Date(accounts[0].token_expiry).getTime() : null,
+  });
+
+  return google.gmail({ version: 'v1', auth: oauth2 });
+}
+
+async function findGmailThreadForEmail(gmail, inviteeEmail) {
+  try {
+    const res = await gmail.users.threads.list({
+      userId: 'me',
+      q: `from:${inviteeEmail} OR to:${inviteeEmail}`,
+      maxResults: 1,
+    });
+    const threads = res.data.threads || [];
+    if (!threads.length) return null;
+
+    const threadId = threads[0].id;
+    const thread = await gmail.users.threads.get({ userId: 'me', id: threadId });
+    const messages = thread.data.messages || [];
+    const subject = messages[0]?.payload?.headers?.find(h => h.name === 'Subject')?.value || '';
+    const lastMsg = messages[messages.length - 1];
+    const lastDate = lastMsg?.payload?.headers?.find(h => h.name === 'Date')?.value;
+
+    return {
+      thread_id: threadId,
+      subject,
+      email_count: messages.length,
+      last_date: lastDate ? new Date(lastDate).toISOString().split('T')[0] : null,
+    };
+  } catch {
+    return null;
+  }
+}
+
+// ────────────────────────────────────────────────────────────
+// GET /api/client-calls
+// ────────────────────────────────────────────────────────────
+router.get('/', requireAuth, async (req, res) => {
+  try {
+    const { status, search, limit = 50, offset = 0 } = req.query;
+    let where = 'WHERE user_id = $1';
+    const params = [req.user.id];
+
+    if (status && status !== 'all') {
+      params.push(status);
+      where += ` AND status = $${params.length}`;
+    }
+    if (search) {
+      params.push(`%${search}%`);
+      where += ` AND (meeting_name ILIKE $${params.length} OR analysis->>'client_name' ILIKE $${params.length} OR analysis->>'company' ILIKE $${params.length})`;
+    }
+
+    params.push(parseInt(limit), parseInt(offset));
+    const { rows } = await pool.query(
+      `SELECT id, meeting_name, duration, call_date, invitee_emails, status,
+              analysis, gmail_thread_id, gmail_thread_subject, gmail_email_count,
+              gmail_last_email_date, reply_draft, fu1_draft, fu2_draft, fu3_draft,
+              rebook_draft, rebook_fu1_draft, analyzed_at,
+              reply_sent_at, fu1_sent_at, fu2_sent_at, fu3_sent_at
+       FROM client_calls
+       ${where}
+       ORDER BY call_date DESC
+       LIMIT $${params.length - 1} OFFSET $${params.length}`,
+      params
+    );
+
+    const { rows: countRows } = await pool.query(
+      `SELECT COUNT(*) FROM client_calls WHERE user_id = $1`,
+      [req.user.id]
+    );
+
+    res.json({ calls: rows, total: parseInt(countRows[0].count) });
+  } catch (err) {
+    console.error('GET /client-calls error:', err);
+    res.status(500).json({ error: 'Failed to fetch client calls' });
+  }
+});
+
+// ────────────────────────────────────────────────────────────
+// POST /api/client-calls/sync
+// ────────────────────────────────────────────────────────────
+router.post('/sync', requireAuth, async (req, res) => {
+  try {
+    const tldvKey = await getApiKey(req.user.id, 'tldv');
+    if (!tldvKey) {
+      return res.status(400).json({ error: 'TLDV API key not configured. Add it in Settings.' });
+    }
+
+    const anthropicKey = await getApiKey(req.user.id, 'anthropic');
+    const gmail = await getGmailClientForUser(req.user.id);
+
+    // Fetch all meetings from TLDV
+    const allMeetings = await fetchTldvMeetings(tldvKey);
+
+    // Filter to client meetings only
+    const clientMeetings = allMeetings.filter(m => {
+      const dur = (m.duration || 0) / 60; // TLDV returns duration in seconds
+      if (dur < 4) return false;
+      const invitees = (m.invitees || []).map(i => i.email || i).filter(Boolean);
+      if (isInternalMeeting(m.name || m.title, invitees)) return false;
+      return true;
+    });
+
+    let synced = 0;
+    let newCalls = 0;
+    let noShows = 0;
+    let matchedThreads = 0;
+
+    for (const mtg of clientMeetings) {
+      const meetingId = mtg.id;
+      const meetingName = mtg.name || mtg.title || 'Untitled Meeting';
+      const durationMin = (mtg.duration || 0) / 60;
+      const callDate = mtg.startedAt ? new Date(mtg.startedAt).toISOString().split('T')[0] : null;
+      const invitees = (mtg.invitees || []).map(i => i.email || i).filter(Boolean);
+
+      // Check if already synced
+      const { rows: existing } = await pool.query(
+        'SELECT id, status FROM client_calls WHERE id = $1',
+        [meetingId]
+      );
+
+      if (existing.length) {
+        synced++;
+        continue;
+      }
+
+      // Fetch transcript
+      let transcript = await fetchTldvTranscript(meetingId, tldvKey);
+      const wordCount = transcript ? transcript.split(/\s+/).length : 0;
+
+      // Detect no-show
+      const isNoShow = durationMin < 3 || wordCount < 50;
+      const status = isNoShow ? 'no_show' : 'prospect';
+      if (isNoShow) noShows++;
+
+      // Gmail thread matching
+      let gmailThreadId = null;
+      let gmailSubject = null;
+      let gmailEmailCount = 0;
+      let gmailLastDate = null;
+
+      if (gmail && invitees.length) {
+        for (const email of invitees) {
+          const thread = await findGmailThreadForEmail(gmail, email);
+          if (thread) {
+            gmailThreadId = thread.thread_id;
+            gmailSubject = thread.subject;
+            gmailEmailCount = thread.email_count;
+            gmailLastDate = thread.last_date;
+            matchedThreads++;
+            break;
+          }
+        }
+      }
+
+      // Insert into DB
+      await pool.query(
+        `INSERT INTO client_calls
+           (id, user_id, meeting_name, duration, call_date, invitee_emails,
+            transcript, status, gmail_thread_id, gmail_thread_subject,
+            gmail_email_count, gmail_last_email_date)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)`,
+        [meetingId, req.user.id, meetingName, durationMin, callDate,
+         invitees, transcript, status, gmailThreadId, gmailSubject,
+         gmailEmailCount, gmailLastDate]
+      );
+
+      newCalls++;
+
+      // Auto-analyze if we have transcript + anthropic key (non-blocking, best-effort)
+      if (!isNoShow && transcript && anthropicKey) {
+        analyzeCallInBackground(meetingId, meetingName, durationMin, transcript, anthropicKey);
+      }
+    }
+
+    res.json({
+      message: 'Sync complete',
+      total_meetings_from_tldv: allMeetings.length,
+      client_meetings_filtered: clientMeetings.length,
+      already_synced: synced,
+      new_calls: newCalls,
+      no_shows: noShows,
+      gmail_threads_matched: matchedThreads,
+    });
+  } catch (err) {
+    console.error('POST /client-calls/sync error:', err);
+    res.status(500).json({ error: err.message || 'Sync failed' });
+  }
+});
+
+// Fire-and-forget background analysis
+function analyzeCallInBackground(meetingId, meetingName, duration, transcript, anthropicKey) {
+  runCallAnalysis(meetingId, meetingName, duration, transcript, anthropicKey).catch(err => {
+    console.error(`Background analysis failed for ${meetingId}:`, err.message);
+  });
+}
+
+async function runCallAnalysis(meetingId, meetingName, duration, transcript, anthropicKey) {
+  const systemPrompt = `You are analyzing a sales call transcript for a software development agency (HipHype Tech / MyCodeWorks). Extract key information as valid JSON only. No markdown, no explanation, just the JSON object.`;
+
+  const userMessage = `Meeting: "${meetingName}"
+Duration: ${Math.round(duration)} minutes
+Transcript:
+${transcript.slice(0, 8000)}
+
+Extract this JSON:
+{
+  "client_name": "client first name only",
+  "company": "company name or null",
+  "meeting_type": "discovery|demo|strategy|delivery|no_show",
+  "summary": "2-3 sentence summary of what was discussed",
+  "promise": "what Ashish committed to deliver/send after this call (be specific)",
+  "open_questions": ["unanswered question 1", "unanswered question 2"],
+  "signals": {
+    "budget_discussed": true,
+    "timeline_mentioned": false,
+    "urgency": false,
+    "asked_for_examples": false,
+    "asked_for_proposal": false
+  }
+}`;
+
+  const raw = await callClaudeHelper(systemPrompt, userMessage, anthropicKey, 1024);
+
+  // Extract JSON from response
+  const jsonMatch = raw.match(/\{[\s\S]*\}/);
+  if (!jsonMatch) return;
+
+  const analysis = JSON.parse(jsonMatch[0]);
+
+  await pool.query(
+    'UPDATE client_calls SET analysis = $1, analyzed_at = NOW(), updated_at = NOW() WHERE id = $2',
+    [JSON.stringify(analysis), meetingId]
+  );
+}
+
+// ────────────────────────────────────────────────────────────
+// GET /api/client-calls/:id
+// ────────────────────────────────────────────────────────────
+router.get('/:id', requireAuth, async (req, res) => {
+  try {
+    const { rows } = await pool.query(
+      'SELECT * FROM client_calls WHERE id = $1 AND user_id = $2',
+      [req.params.id, req.user.id]
+    );
+    if (!rows.length) return res.status(404).json({ error: 'Call not found' });
+    res.json(rows[0]);
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to fetch call' });
+  }
+});
+
+// ────────────────────────────────────────────────────────────
+// PUT /api/client-calls/:id/status
+// ────────────────────────────────────────────────────────────
+router.put('/:id/status', requireAuth, async (req, res) => {
+  const VALID_STATUSES = ['hot_lead', 'no_show', 'delivery', 'prospect', 'lost', 're_engaging'];
+  const { status } = req.body;
+  if (!VALID_STATUSES.includes(status)) {
+    return res.status(400).json({ error: `Invalid status. Must be one of: ${VALID_STATUSES.join(', ')}` });
+  }
+  try {
+    const { rows } = await pool.query(
+      'UPDATE client_calls SET status = $1, updated_at = NOW() WHERE id = $2 AND user_id = $3 RETURNING id, status',
+      [status, req.params.id, req.user.id]
+    );
+    if (!rows.length) return res.status(404).json({ error: 'Call not found' });
+    res.json(rows[0]);
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to update status' });
+  }
+});
+
+// ────────────────────────────────────────────────────────────
+// POST /api/client-calls/:id/analyze
+// ────────────────────────────────────────────────────────────
+router.post('/:id/analyze', requireAuth, async (req, res) => {
+  try {
+    const { rows } = await pool.query(
+      'SELECT * FROM client_calls WHERE id = $1 AND user_id = $2',
+      [req.params.id, req.user.id]
+    );
+    if (!rows.length) return res.status(404).json({ error: 'Call not found' });
+    const call = rows[0];
+
+    if (!call.transcript) {
+      return res.status(400).json({ error: 'No transcript available for this call' });
+    }
+
+    const anthropicKey = await getApiKey(req.user.id, 'anthropic');
+    if (!anthropicKey) return res.status(400).json({ error: 'Anthropic API key not configured' });
+
+    await runCallAnalysis(call.id, call.meeting_name, call.duration, call.transcript, anthropicKey);
+
+    const { rows: updated } = await pool.query(
+      'SELECT analysis, analyzed_at FROM client_calls WHERE id = $1',
+      [req.params.id]
+    );
+    res.json({ analysis: updated[0].analysis, analyzed_at: updated[0].analyzed_at });
+  } catch (err) {
+    console.error('POST /analyze error:', err);
+    res.status(500).json({ error: 'Analysis failed: ' + err.message });
+  }
+});
+
+// ────────────────────────────────────────────────────────────
+// POST /api/client-calls/:id/research
+// ────────────────────────────────────────────────────────────
+router.post('/:id/research', requireAuth, async (req, res) => {
+  try {
+    const { rows } = await pool.query(
+      'SELECT * FROM client_calls WHERE id = $1 AND user_id = $2',
+      [req.params.id, req.user.id]
+    );
+    if (!rows.length) return res.status(404).json({ error: 'Call not found' });
+    const call = rows[0];
+
+    const analysis = call.analysis || {};
+    const projectDescription = analysis.summary || call.meeting_name;
+
+    const exaKey = await getApiKey(req.user.id, 'exa');
+    const olostepKey = await getApiKey(req.user.id, 'olostep');
+    const anthropicKey = await getApiKey(req.user.id, 'anthropic');
+
+    if (!exaKey || !olostepKey) {
+      return res.status(400).json({ error: 'Exa and Olostep API keys required for research' });
+    }
+
+    const result = await researchSimilarExamples(projectDescription, {
+      exaApiKey: exaKey,
+      olostepApiKey: olostepKey,
+      anthropicApiKey: anthropicKey,
+    });
+
+    await pool.query(
+      'UPDATE client_calls SET research = $1, updated_at = NOW() WHERE id = $2',
+      [JSON.stringify(result), req.params.id]
+    );
+
+    res.json({ research: result });
+  } catch (err) {
+    console.error('POST /research error:', err);
+    res.status(500).json({ error: 'Research failed: ' + err.message });
+  }
+});
+
+// ────────────────────────────────────────────────────────────
+// POST /api/client-calls/:id/draft-reply
+// ────────────────────────────────────────────────────────────
+router.post('/:id/draft-reply', requireAuth, async (req, res) => {
+  try {
+    const { rows } = await pool.query(
+      'SELECT * FROM client_calls WHERE id = $1 AND user_id = $2',
+      [req.params.id, req.user.id]
+    );
+    if (!rows.length) return res.status(404).json({ error: 'Call not found' });
+    const call = rows[0];
+
+    const anthropicKey = await getApiKey(req.user.id, 'anthropic');
+    if (!anthropicKey) return res.status(400).json({ error: 'Anthropic API key not configured' });
+
+    const analysis = call.analysis || {};
+    const research = call.research;
+
+    const researchBlock = research?.examples?.length
+      ? `\n\nSimilar projects we have built:\n${research.examples.map(e => `- ${e.url}: ${e.description || e.title}`).join('\n')}`
+      : '';
+
+    const systemPrompt = `You are Ashish Pawar, Business Development Manager at HipHype Tech, writing a post-call follow-up email to a client. Write in first person, conversational, value-focused. Under 200 words. No em dashes.`;
+
+    const userMessage = `Write a post-call follow-up email.
+
+Client: ${analysis.client_name || 'the client'}${analysis.company ? ` from ${analysis.company}` : ''}
+Call summary: ${analysis.summary || call.meeting_name}
+What I promised: ${analysis.promise || 'to follow up with next steps'}
+Open questions to address: ${(analysis.open_questions || []).join(', ') || 'none'}${researchBlock}
+
+Write a warm, professional follow-up that references the call, delivers on the promise, and ends with a clear next step.`;
+
+    const draft = await callClaudeHelper(systemPrompt, userMessage, anthropicKey, 1024);
+    const withSignature = appendSignatureBlock(draft);
+
+    await pool.query(
+      'UPDATE client_calls SET reply_draft = $1, updated_at = NOW() WHERE id = $2',
+      [withSignature, req.params.id]
+    );
+
+    res.json({ draft: withSignature });
+  } catch (err) {
+    console.error('POST /draft-reply error:', err);
+    res.status(500).json({ error: 'Draft generation failed: ' + err.message });
+  }
+});
+
+// ────────────────────────────────────────────────────────────
+// POST /api/client-calls/:id/draft-followup
+// ────────────────────────────────────────────────────────────
+router.post('/:id/draft-followup', requireAuth, async (req, res) => {
+  const { fuNumber } = req.body;
+  if (![1, 2, 3].includes(fuNumber)) {
+    return res.status(400).json({ error: 'fuNumber must be 1, 2, or 3' });
+  }
+
+  try {
+    const { rows } = await pool.query(
+      'SELECT * FROM client_calls WHERE id = $1 AND user_id = $2',
+      [req.params.id, req.user.id]
+    );
+    if (!rows.length) return res.status(404).json({ error: 'Call not found' });
+    const call = rows[0];
+
+    const anthropicKey = await getApiKey(req.user.id, 'anthropic');
+    if (!anthropicKey) return res.status(400).json({ error: 'Anthropic API key not configured' });
+
+    const analysis = call.analysis || {};
+    const wordLimits = { 1: 100, 2: 80, 3: 60 };
+    const tones = {
+      1: 'warm and direct - reference the call and your promise',
+      2: 'lighter nudge - brief, friendly, one clear question',
+      3: 'final check-in - leave door open, no pressure',
+    };
+
+    const systemPrompt = `You are Ashish Pawar from HipHype Tech writing a follow-up email. Be human, not salesy. Under ${wordLimits[fuNumber]} words. No em dashes.`;
+
+    const userMessage = `Write follow-up #${fuNumber} after our call.
+
+Client: ${analysis.client_name || 'the client'}${analysis.company ? ` from ${analysis.company}` : ''}
+We discussed: ${analysis.summary || call.meeting_name}
+What I promised: ${analysis.promise || 'to send next steps'}
+Tone: ${tones[fuNumber]}
+Word limit: ${wordLimits[fuNumber]} words max`;
+
+    const draft = await callClaudeHelper(systemPrompt, userMessage, anthropicKey, 512);
+    const withSignature = appendSignatureBlock(draft);
+
+    const column = `fu${fuNumber}_draft`;
+    await pool.query(
+      `UPDATE client_calls SET ${column} = $1, updated_at = NOW() WHERE id = $2`,
+      [withSignature, req.params.id]
+    );
+
+    res.json({ draft: withSignature, fuNumber });
+  } catch (err) {
+    console.error('POST /draft-followup error:', err);
+    res.status(500).json({ error: 'Follow-up draft failed: ' + err.message });
+  }
+});
+
+// ────────────────────────────────────────────────────────────
+// POST /api/client-calls/:id/draft-rebook
+// ────────────────────────────────────────────────────────────
+router.post('/:id/draft-rebook', requireAuth, async (req, res) => {
+  const { rebookNumber = 1 } = req.body;
+  if (![1, 2].includes(rebookNumber)) {
+    return res.status(400).json({ error: 'rebookNumber must be 1 or 2' });
+  }
+
+  try {
+    const { rows } = await pool.query(
+      'SELECT * FROM client_calls WHERE id = $1 AND user_id = $2',
+      [req.params.id, req.user.id]
+    );
+    if (!rows.length) return res.status(404).json({ error: 'Call not found' });
+    const call = rows[0];
+
+    const anthropicKey = await getApiKey(req.user.id, 'anthropic');
+    if (!anthropicKey) return res.status(400).json({ error: 'Anthropic API key not configured' });
+
+    const tones = {
+      1: 'warm, understanding, no blame - they missed the call, offer to reschedule easily',
+      2: 'very brief, light touch - just checking if still interested, no pressure',
+    };
+
+    const systemPrompt = `You are Ashish Pawar from HipHype Tech. The client missed a scheduled call. Write a re-booking email. Under 80 words. Warm, no guilt-tripping. No em dashes.`;
+
+    const userMessage = `Write re-booking email #${rebookNumber} for a no-show.
+
+Meeting that was scheduled: ${call.meeting_name}
+Date: ${call.call_date}
+Tone: ${tones[rebookNumber]}
+
+Reference what the meeting was about (from the title), offer to reschedule at their convenience.`;
+
+    const draft = await callClaudeHelper(systemPrompt, userMessage, anthropicKey, 512);
+    const withSignature = appendSignatureBlock(draft);
+
+    const column = rebookNumber === 1 ? 'rebook_draft' : 'rebook_fu1_draft';
+    await pool.query(
+      `UPDATE client_calls SET ${column} = $1, updated_at = NOW() WHERE id = $2`,
+      [withSignature, req.params.id]
+    );
+
+    res.json({ draft: withSignature, rebookNumber });
+  } catch (err) {
+    console.error('POST /draft-rebook error:', err);
+    res.status(500).json({ error: 'Re-book draft failed: ' + err.message });
+  }
+});
+
+module.exports = router;
