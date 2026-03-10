@@ -150,6 +150,9 @@ export const api = {
       body: JSON.stringify(prepData),
     }),
 
+  // Analytics
+  getEmailAnalytics: (range = "30d") => request(`/api/analytics/emails?range=${range}`),
+
   // WhatsApp
   getWhatsAppStatus: () => request('/api/whatsapp/status'),
   getWhatsAppQR: () => request('/api/whatsapp/qr'),

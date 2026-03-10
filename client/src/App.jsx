@@ -35,7 +35,7 @@ export default function App() {
       <Route path="/login" element={<PublicRoute><Login /></PublicRoute>} />
       <Route path="/signup" element={<PublicRoute><Signup /></PublicRoute>} />
       <Route path="/inbox" element={<PrivateRoute><Layout fullWidth><Inbox /></Layout></PrivateRoute>} />
-      <Route path="/dashboard" element={<PrivateRoute><Layout><Dashboard /></Layout></PrivateRoute>} />
+      <Route path="/dashboard" element={<PrivateRoute><Layout fullWidth><Dashboard /></Layout></PrivateRoute>} />
       <Route path="/calls" element={<PrivateRoute><Layout fullWidth><Calls /></Layout></PrivateRoute>} />
       <Route path="/settings" element={<PrivateRoute><Layout><Settings /></Layout></PrivateRoute>} />
       <Route path="*" element={<Navigate to="/inbox" replace />} />
