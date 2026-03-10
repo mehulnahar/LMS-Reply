@@ -57,21 +57,29 @@ async function getLeadHackToken(userId) {
 
 // ============================================================
 // Match a single email to LeadHack job data
+// Options:
+//   force: true  - re-try even if previous status was no_match/error/needs_manual
+//   force: false - only try if no existing non-error job record (default)
 // Returns: { job, cached, status, warning? }
 // ============================================================
-async function matchSingleEmail(userId, email, token) {
-  // Check if already matched (skip if previous was error)
+async function matchSingleEmail(userId, email, token, { force = false } = {}) {
+  // Check if already matched
   const { rows: existingJobs } = await pool.query(
     "SELECT * FROM jobs WHERE email_id = $1",
     [email.id]
   );
 
-  if (existingJobs.length > 0 && existingJobs[0].match_status !== "error") {
-    return { job: existingJobs[0], cached: true, status: existingJobs[0].match_status };
-  }
-
-  // Delete old error records before retrying
-  if (existingJobs.length > 0 && existingJobs[0].match_status === "error") {
+  if (existingJobs.length > 0) {
+    const existing = existingJobs[0];
+    // If already successfully matched with real data, always skip
+    if (existing.match_status === 'matched' && existing.job_heading) {
+      return { job: existing, cached: true, status: existing.match_status };
+    }
+    // If not forcing, skip non-error records
+    if (!force && existing.match_status !== 'error') {
+      return { job: existing, cached: true, status: existing.match_status };
+    }
+    // Delete old records before retrying (error, no_match, needs_manual without data)
     await pool.query("DELETE FROM jobs WHERE email_id = $1", [email.id]);
   }
 
@@ -184,7 +192,8 @@ async function matchSingleEmail(userId, email, token) {
 
 // ============================================================
 // Bulk-match all unmatched emails for a user
-// Skips emails that already have a non-error job record
+// Finds emails with no job record, or with no_match/error/needs_manual status
+// (i.e. emails that never got real job data from LeadHack)
 // Returns: { matched, skipped, failed, noMatch, needsManual, total, errors }
 // ============================================================
 async function matchAllUnmatched(userId) {
@@ -193,11 +202,17 @@ async function matchAllUnmatched(userId) {
   // Get LeadHack token once for all requests
   const token = await getLeadHackToken(userId);
 
-  // Find all emails that don't have a job record (or only have error records)
+  // Find emails that either:
+  // 1. Have no job record at all, OR
+  // 2. Have a job record with no real data (no_match, error, needs_manual without job_heading)
   const { rows: emails } = await pool.query(
     `SELECT e.* FROM emails e
-     LEFT JOIN jobs j ON j.email_id = e.id AND j.match_status != 'error'
-     WHERE e.user_id = $1 AND j.id IS NULL
+     LEFT JOIN jobs j ON j.email_id = e.id
+     WHERE e.user_id = $1
+       AND (
+         j.id IS NULL
+         OR (j.match_status IN ('no_match', 'error', 'needs_manual') AND j.job_heading IS NULL)
+       )
      ORDER BY e.received_at DESC`,
     [userId]
   );
@@ -213,7 +228,7 @@ async function matchAllUnmatched(userId) {
 
   for (const email of emails) {
     try {
-      const result = await matchSingleEmail(userId, email, token);
+      const result = await matchSingleEmail(userId, email, token, { force: true });
 
       if (result.cached) {
         skipped++;
