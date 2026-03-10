@@ -698,10 +698,77 @@ router.get("/events", requireAuth, async (req, res) => {
 
     events.sort((a, b) => new Date(a.start) - new Date(b.start));
 
+    // Bulk-fetch call_prep overrides for all event IDs
+    const eventIds = events.map(e => e.id);
+    if (eventIds.length) {
+      const { rows: preps } = await pool.query(
+        "SELECT * FROM call_prep WHERE user_id = $1 AND google_event_id = ANY($2)",
+        [req.user.id, eventIds]
+      );
+      const prepMap = new Map(preps.map(p => [p.google_event_id, p]));
+      for (const evt of events) {
+        const prep = prepMap.get(evt.id);
+        if (prep) evt.prepOverrides = prep;
+      }
+    }
+
     res.json({ events, needsReauth });
   } catch (err) {
     console.error("[Calls] Error:", err.message);
     res.status(500).json({ error: "Failed to fetch calendar events" });
+  }
+});
+
+// ============================================================
+// PUT /api/calls/:eventId/prep - Save/update call prep overrides
+// ============================================================
+router.put("/:eventId/prep", requireAuth, async (req, res) => {
+  const { eventId } = req.params;
+  const {
+    client_name, client_email, lead_score, country,
+    job_heading, job_description, what_they_said,
+    our_last_reply, notes, has_phone, has_urgency,
+    hot_signal_flagged,
+  } = req.body;
+
+  try {
+    const { rows } = await pool.query(
+      `INSERT INTO call_prep (
+         user_id, google_event_id, client_name, client_email,
+         lead_score, country, job_heading, job_description,
+         what_they_said, our_last_reply, notes,
+         has_phone, has_urgency, hot_signal_flagged, updated_at
+       ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,NOW())
+       ON CONFLICT (user_id, google_event_id) DO UPDATE SET
+         client_name = $3,
+         client_email = $4,
+         lead_score = $5,
+         country = $6,
+         job_heading = $7,
+         job_description = $8,
+         what_they_said = $9,
+         our_last_reply = $10,
+         notes = $11,
+         has_phone = $12,
+         has_urgency = $13,
+         hot_signal_flagged = $14,
+         updated_at = NOW()
+       RETURNING *`,
+      [
+        req.user.id, eventId, client_name || null, client_email || null,
+        lead_score != null ? lead_score : null, country || null,
+        job_heading || null, job_description || null,
+        what_they_said || null, our_last_reply || null, notes || null,
+        has_phone != null ? has_phone : null,
+        has_urgency != null ? has_urgency : null,
+        hot_signal_flagged != null ? hot_signal_flagged : null,
+      ]
+    );
+
+    res.json({ prep: rows[0] });
+  } catch (err) {
+    console.error("[Calls] Save prep error:", err.message);
+    res.status(500).json({ error: "Failed to save call prep" });
   }
 });
 

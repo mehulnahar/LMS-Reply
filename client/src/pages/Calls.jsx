@@ -213,7 +213,14 @@ export default function Calls() {
 
       {/* ── Right: detail panel ── */}
       {selected && (
-        <DetailPanel event={selected} onClose={() => setSelected(null)} />
+        <DetailPanel
+          event={selected}
+          onClose={() => setSelected(null)}
+          onPrepSaved={(eventId, prep) => {
+            setEvents(prev => prev.map(e => e.id === eventId ? { ...e, prepOverrides: prep } : e));
+            setSelected(prev => prev && prev.id === eventId ? { ...prev, prepOverrides: prep } : prev);
+          }}
+        />
       )}
     </div>
   );
@@ -459,9 +466,92 @@ function ListView({ events, weekDates, selected, onSelect, needsReauth }) {
 /* ================================================================
    Detail Panel
    ================================================================ */
-function DetailPanel({ event, onClose }) {
+function mergeClientData(autoClient, prepOverrides, attendees) {
+  const defaultEmail = (attendees || []).filter(a => !a.self).map(a => a.email).join(", ");
+  const base = {
+    from_name: "", from_email: defaultEmail, lead_score: null, country: "",
+    job_heading: "", job_description: "", email_body: "", reply_text: "",
+    reply_date: null, has_phone: false, has_urgency: false, hot_signal_flagged: false,
+    follow_up_count: 0, kill_switch_active: false, stage: null, match_status: null,
+    gmail_fallback: false, gmail_threads_found: 0, gmail_subject: "", notes: "",
+  };
+  if (autoClient) {
+    for (const k of Object.keys(base)) {
+      if (autoClient[k] !== undefined && autoClient[k] !== null && autoClient[k] !== "") base[k] = autoClient[k];
+    }
+  }
+  if (prepOverrides) {
+    if (prepOverrides.client_name) base.from_name = prepOverrides.client_name;
+    if (prepOverrides.client_email) base.from_email = prepOverrides.client_email;
+    if (prepOverrides.lead_score != null) base.lead_score = prepOverrides.lead_score;
+    if (prepOverrides.country) base.country = prepOverrides.country;
+    if (prepOverrides.job_heading) base.job_heading = prepOverrides.job_heading;
+    if (prepOverrides.job_description) base.job_description = prepOverrides.job_description;
+    if (prepOverrides.what_they_said) base.email_body = prepOverrides.what_they_said;
+    if (prepOverrides.our_last_reply) base.reply_text = prepOverrides.our_last_reply;
+    if (prepOverrides.has_phone != null) base.has_phone = prepOverrides.has_phone;
+    if (prepOverrides.has_urgency != null) base.has_urgency = prepOverrides.has_urgency;
+    if (prepOverrides.hot_signal_flagged != null) base.hot_signal_flagged = prepOverrides.hot_signal_flagged;
+    if (prepOverrides.notes) base.notes = prepOverrides.notes;
+  }
+  return base;
+}
+
+function DetailPanel({ event, onClose, onPrepSaved }) {
   const [copied, setCopied] = useState(false);
-  const { client } = event;
+  const [editing, setEditing] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [editData, setEditData] = useState(null);
+
+  const display = mergeClientData(event.client, event.prepOverrides, event.attendees);
+
+  const sourceLabel = event.client
+    ? event.client.gmail_fallback
+      ? `Gmail fallback${event.client.gmail_threads_found > 1 ? ` - ${event.client.gmail_threads_found} threads` : ""}`
+      : "DB match"
+    : "No auto-match";
+
+  const sourceColor = event.client
+    ? event.client.gmail_fallback
+      ? "bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-400"
+      : "bg-emerald-100 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-400"
+    : "bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400";
+
+  const d = editing ? editData : display;
+
+  const handleEdit = () => {
+    setEditData({ ...display });
+    setEditing(true);
+  };
+  const handleCancel = () => { setEditing(false); setEditData(null); };
+  const handleSave = async () => {
+    setSaving(true);
+    try {
+      const res = await api.saveCallPrep(event.id, {
+        client_name: editData.from_name || null,
+        client_email: editData.from_email || null,
+        lead_score: editData.lead_score,
+        country: editData.country || null,
+        job_heading: editData.job_heading || null,
+        job_description: editData.job_description || null,
+        what_they_said: editData.email_body || null,
+        our_last_reply: editData.reply_text || null,
+        notes: editData.notes || null,
+        has_phone: editData.has_phone,
+        has_urgency: editData.has_urgency,
+        hot_signal_flagged: editData.hot_signal_flagged,
+      });
+      if (onPrepSaved) onPrepSaved(event.id, res.prep);
+      setEditing(false);
+      setEditData(null);
+    } catch (err) {
+      console.error("Save call prep failed:", err);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const updateField = (field, value) => setEditData(prev => ({ ...prev, [field]: value }));
 
   const copyCallPrep = () => {
     const externalAttendees = (event.attendees || []).filter((a) => !a.self);
@@ -474,36 +564,34 @@ function DetailPanel({ event, onClose }) {
         ? `ATTENDEES: ${externalAttendees.map((a) => a.name && a.name !== a.email ? `${a.name} (${a.email})` : a.email).join(", ")}`
         : null,
       "",
-      client ? `CLIENT: ${client.from_name} (${client.from_email})` : null,
-      client ? `SCORE: ${client.lead_score}${client.country ? ` | ${client.country}` : ""}` : null,
+      d.from_name || d.from_email ? `CLIENT: ${d.from_name}${d.from_email ? ` (${d.from_email})` : ""}` : null,
+      d.lead_score ? `SCORE: ${d.lead_score}${d.country ? ` | ${d.country}` : ""}` : null,
       "",
-      client?.job_heading ? `PROJECT: ${client.job_heading}` : null,
+      d.job_heading ? `PROJECT: ${d.job_heading}` : null,
       "",
-      client?.job_description
-        ? `JOB DESCRIPTION:\n${client.job_description}`
-        : null,
+      d.job_description ? `JOB DESCRIPTION:\n${d.job_description}` : null,
       "",
-      client?.email_body
-        ? `WHAT THEY SAID:\n${client.email_body}`
-        : null,
+      d.email_body ? `WHAT THEY SAID:\n${d.email_body}` : null,
       "",
-      client?.reply_text
-        ? `OUR LAST REPLY (${client.reply_date ? new Date(client.reply_date).toLocaleDateString("en-US", { month: "short", day: "numeric" }) : "unknown"}):\n${client.reply_text}`
-        : null,
+      d.reply_text ? `OUR LAST REPLY:\n${d.reply_text}` : null,
       "",
-      client
-        ? `SIGNALS: ${[
-            client.has_phone && "Phone provided",
-            client.has_urgency && "Urgency detected",
-            client.hot_signal_flagged && "Hot prospect",
-          ].filter(Boolean).join(" | ") || "None"}`
-        : null,
+      d.notes ? `NOTES:\n${d.notes}` : null,
+      "",
+      `SIGNALS: ${[
+        d.has_phone && "Phone provided",
+        d.has_urgency && "Urgency detected",
+        d.hot_signal_flagged && "Hot prospect",
+      ].filter(Boolean).join(" | ") || "None"}`,
     ].filter((l) => l !== null);
 
     navigator.clipboard.writeText(parts.join("\n"));
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
   };
+
+  const inputCls = "w-full text-xs bg-transparent border border-gray-300 dark:border-gray-600 rounded-lg px-2.5 py-1.5 text-gray-900 dark:text-white placeholder-gray-400 dark:placeholder-gray-500 focus:outline-none focus:ring-1 focus:ring-brand-500 focus:border-brand-500";
+  const textareaCls = `${inputCls} resize-none`;
+  const placeholderText = "text-xs italic text-gray-300 dark:text-gray-600";
 
   return (
     <div className="w-[400px] flex-shrink-0 flex flex-col border-l border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-950 overflow-hidden">
@@ -518,14 +606,32 @@ function DetailPanel({ event, onClose }) {
             <span className="truncate">{event.calendarAccount}</span>
           </p>
         </div>
-        <button
-          onClick={onClose}
-          className="flex-shrink-0 mt-0.5 p-1 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"
-        >
-          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" strokeWidth={2.5} stroke="currentColor">
-            <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
-          </svg>
-        </button>
+        <div className="flex items-center gap-1 flex-shrink-0">
+          {editing ? (
+            <>
+              <button onClick={handleCancel} className="px-2.5 py-1 text-xs rounded-lg text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors">
+                Cancel
+              </button>
+              <button onClick={handleSave} disabled={saving} className="px-2.5 py-1 text-xs rounded-lg bg-brand-600 text-white hover:bg-brand-700 transition-colors disabled:opacity-50">
+                {saving ? "Saving..." : "Save"}
+              </button>
+            </>
+          ) : (
+            <button onClick={handleEdit} className="p-1.5 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors text-gray-400 hover:text-gray-600 dark:hover:text-gray-300" title="Edit">
+              <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L6.832 19.82a4.5 4.5 0 01-1.897 1.13l-2.685.8.8-2.685a4.5 4.5 0 011.13-1.897L16.863 4.487zm0 0L19.5 7.125" />
+              </svg>
+            </button>
+          )}
+          <button
+            onClick={onClose}
+            className="p-1.5 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"
+          >
+            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" strokeWidth={2.5} stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          </button>
+        </div>
       </div>
 
       {/* Scrollable body */}
@@ -546,100 +652,131 @@ function DetailPanel({ event, onClose }) {
           </a>
         )}
 
-        {client ? (
-          <>
-            {/* Client summary card */}
-            <div className="rounded-xl border border-gray-200 dark:border-gray-700 overflow-hidden">
-              <div className="px-4 py-3 bg-gray-50 dark:bg-gray-900/60">
+        {/* Client summary card */}
+        <div className="rounded-xl border border-gray-200 dark:border-gray-700 overflow-hidden">
+          <div className="px-4 py-3 bg-gray-50 dark:bg-gray-900/60">
+            {editing ? (
+              <div className="space-y-2">
+                <div className="grid grid-cols-2 gap-2">
+                  <input className={inputCls} value={editData.from_name} onChange={e => updateField("from_name", e.target.value)} placeholder="Client name" />
+                  <input className={inputCls} type="number" value={editData.lead_score ?? ""} onChange={e => updateField("lead_score", e.target.value ? parseInt(e.target.value) : null)} placeholder="Score" />
+                </div>
+                <input className={inputCls} value={editData.from_email} onChange={e => updateField("from_email", e.target.value)} placeholder="Client email" />
+                <input className={inputCls} value={editData.country} onChange={e => updateField("country", e.target.value)} placeholder="Country" />
+              </div>
+            ) : (
+              <>
                 <div className="flex items-start justify-between gap-2">
                   <div className="min-w-0">
-                    <p className="text-sm font-bold text-gray-900 dark:text-white truncate">{client.from_name}</p>
-                    <p className="text-xs text-gray-500 dark:text-gray-400 truncate">{client.from_email}</p>
+                    <p className="text-sm font-bold text-gray-900 dark:text-white truncate">
+                      {d.from_name || <span className={placeholderText}>No client name</span>}
+                    </p>
+                    <p className="text-xs text-gray-500 dark:text-gray-400 truncate">
+                      {d.from_email || <span className={placeholderText}>No email</span>}
+                    </p>
                   </div>
                   <div className="flex items-center gap-1.5 flex-shrink-0">
-                    <Signals client={client} />
-                    <ScoreBadge score={client.lead_score} />
+                    <Signals client={d} />
+                    <ScoreBadge score={d.lead_score} />
                   </div>
                 </div>
-
                 <div className="flex flex-wrap gap-1.5 mt-2.5">
-                  {client.country && <Tag>{client.country}</Tag>}
-                  {client.stage && <Tag>{client.stage.replace(/_/g, " ")}</Tag>}
-                  {client.follow_up_count > 0 && (
-                    <Tag>{client.follow_up_count} follow-up{client.follow_up_count !== 1 ? "s" : ""}</Tag>
+                  <span className={`text-xs px-2 py-0.5 rounded-full ${sourceColor}`}>{sourceLabel}</span>
+                  {d.country && <Tag>{d.country}</Tag>}
+                  {d.stage && <Tag>{d.stage.replace(/_/g, " ")}</Tag>}
+                  {d.follow_up_count > 0 && (
+                    <Tag>{d.follow_up_count} follow-up{d.follow_up_count !== 1 ? "s" : ""}</Tag>
                   )}
-                  {client.kill_switch_active && (
+                  {d.kill_switch_active && (
                     <Tag className="!text-red-600 dark:!text-red-400 !border-red-200 dark:!border-red-800 !bg-red-50 dark:!bg-red-900/20">
                       Kill switch
                     </Tag>
                   )}
                 </div>
-              </div>
-            </div>
-
-            {/* Gmail fallback indicator */}
-            {client.gmail_fallback && (
-              <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800">
-                <svg className="w-3.5 h-3.5 flex-shrink-0 text-amber-500" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M21.75 6.75v10.5a2.25 2.25 0 01-2.25 2.25h-15a2.25 2.25 0 01-2.25-2.25V6.75m19.5 0A2.25 2.25 0 0019.5 4.5h-15a2.25 2.25 0 00-2.25 2.25m19.5 0v.243a2.25 2.25 0 01-1.07 1.916l-7.5 4.615a2.25 2.25 0 01-2.36 0L3.32 8.91a2.25 2.25 0 01-1.07-1.916V6.75" />
-                </svg>
-                <span className="text-xs text-amber-700 dark:text-amber-400">
-                  Gmail fallback{client.gmail_threads_found > 1
-                    ? <span className="font-semibold"> - {client.gmail_threads_found} email threads found</span>
-                    : <span className="font-semibold"> - 1 email thread found</span>}
-                </span>
-              </div>
+              </>
             )}
-
-            {/* Job Description */}
-            {client.job_description && (
-              <InfoSection title="Job Description">
-                <p className="text-xs text-gray-600 dark:text-gray-400 leading-relaxed whitespace-pre-line">
-                  {client.job_description}
-                </p>
-              </InfoSection>
-            )}
-
-            {/* What they said */}
-            {client.email_body && (
-              <InfoSection title="What They Said">
-                <p className="text-xs text-gray-600 dark:text-gray-400 leading-relaxed whitespace-pre-line">
-                  {client.email_body}
-                </p>
-              </InfoSection>
-            )}
-
-            {/* Our last reply */}
-            {client.reply_text && (
-              <InfoSection
-                title={`Our Last Reply${client.reply_date
-                  ? ` · ${new Date(client.reply_date).toLocaleDateString("en-US", { month: "short", day: "numeric" })}`
-                  : ""}`}
-              >
-                <p className="text-xs text-gray-600 dark:text-gray-400 leading-relaxed whitespace-pre-line">
-                  {client.reply_text}
-                </p>
-              </InfoSection>
-            )}
-
-            {/* Key signals */}
-            <InfoSection title="Key Signals">
-              <div className="space-y-2">
-                <SignalRow active={client.has_phone} label="Phone number provided" />
-                <SignalRow active={client.has_urgency} label="Urgency language detected" />
-                <SignalRow active={client.hot_signal_flagged} label="Hot prospect flagged" />
-              </div>
-            </InfoSection>
-          </>
-        ) : (
-          <div className="flex flex-col items-center justify-center py-10 text-center">
-            <div className="text-3xl mb-3">🔍</div>
-            <p className="text-sm font-medium text-gray-600 dark:text-gray-400">No matching client found</p>
-            <p className="text-xs text-gray-400 dark:text-gray-500 mt-1 leading-relaxed">
-              Attendees: {event.attendees.filter((a) => !a.self).map((a) => a.name && a.name !== a.email ? `${a.name} (${a.email})` : a.email).join(", ") || "None"}
-            </p>
           </div>
-        )}
+        </div>
+
+        {/* Job Heading */}
+        <InfoSection title="Project">
+          {editing ? (
+            <input className={inputCls} value={editData.job_heading} onChange={e => updateField("job_heading", e.target.value)} placeholder="Project / job heading" />
+          ) : (
+            <p className="text-xs text-gray-600 dark:text-gray-400 leading-relaxed">
+              {d.job_heading || <span className={placeholderText}>No project heading</span>}
+            </p>
+          )}
+        </InfoSection>
+
+        {/* Job Description */}
+        <InfoSection title="Job Description">
+          {editing ? (
+            <textarea className={textareaCls} rows={4} value={editData.job_description} onChange={e => updateField("job_description", e.target.value)} placeholder="Job description..." />
+          ) : (
+            <p className="text-xs text-gray-600 dark:text-gray-400 leading-relaxed whitespace-pre-line">
+              {d.job_description || <span className={placeholderText}>No job description</span>}
+            </p>
+          )}
+        </InfoSection>
+
+        {/* What They Said */}
+        <InfoSection title="What They Said">
+          {editing ? (
+            <textarea className={textareaCls} rows={4} value={editData.email_body} onChange={e => updateField("email_body", e.target.value)} placeholder="Client's message..." />
+          ) : (
+            <p className="text-xs text-gray-600 dark:text-gray-400 leading-relaxed whitespace-pre-line">
+              {d.email_body || <span className={placeholderText}>No email content</span>}
+            </p>
+          )}
+        </InfoSection>
+
+        {/* Our Last Reply */}
+        <InfoSection title="Our Last Reply">
+          {editing ? (
+            <textarea className={textareaCls} rows={3} value={editData.reply_text} onChange={e => updateField("reply_text", e.target.value)} placeholder="Our reply..." />
+          ) : (
+            <p className="text-xs text-gray-600 dark:text-gray-400 leading-relaxed whitespace-pre-line">
+              {d.reply_text || <span className={placeholderText}>No reply sent</span>}
+            </p>
+          )}
+        </InfoSection>
+
+        {/* Notes */}
+        <InfoSection title="Notes">
+          {editing ? (
+            <textarea className={textareaCls} rows={3} value={editData.notes} onChange={e => updateField("notes", e.target.value)} placeholder="Your prep notes..." />
+          ) : (
+            <p className="text-xs text-gray-600 dark:text-gray-400 leading-relaxed whitespace-pre-line">
+              {d.notes || <span className={placeholderText}>No notes</span>}
+            </p>
+          )}
+        </InfoSection>
+
+        {/* Key Signals */}
+        <InfoSection title="Key Signals">
+          {editing ? (
+            <div className="space-y-2">
+              {[
+                { key: "has_phone", label: "Phone number provided" },
+                { key: "has_urgency", label: "Urgency language detected" },
+                { key: "hot_signal_flagged", label: "Hot prospect flagged" },
+              ].map(({ key, label }) => (
+                <label key={key} className="flex items-center gap-2 text-xs text-gray-700 dark:text-gray-300 cursor-pointer">
+                  <input type="checkbox" checked={!!editData[key]} onChange={e => updateField(key, e.target.checked)}
+                    className="w-3.5 h-3.5 rounded border-gray-300 dark:border-gray-600 text-brand-600 focus:ring-brand-500" />
+                  {label}
+                </label>
+              ))}
+            </div>
+          ) : (
+            <div className="space-y-2">
+              <SignalRow active={d.has_phone} label="Phone number provided" />
+              <SignalRow active={d.has_urgency} label="Urgency language detected" />
+              <SignalRow active={d.hot_signal_flagged} label="Hot prospect flagged" />
+            </div>
+          )}
+        </InfoSection>
 
         {/* Copy Call Prep */}
         <button

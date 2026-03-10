@@ -144,6 +144,11 @@ export const api = {
   // Calls (Google Calendar)
   getCallEvents: (start, end) =>
     request(`/api/calls/events?start=${encodeURIComponent(start)}&end=${encodeURIComponent(end)}`),
+  saveCallPrep: (eventId, prepData) =>
+    request(`/api/calls/${encodeURIComponent(eventId)}/prep`, {
+      method: "PUT",
+      body: JSON.stringify(prepData),
+    }),
 
   // WhatsApp
   getWhatsAppStatus: () => request('/api/whatsapp/status'),
