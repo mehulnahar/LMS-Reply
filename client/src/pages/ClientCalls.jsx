@@ -108,6 +108,23 @@ function SidePanel({ call, onClose, onUpdate }) {
       .finally(() => setContextLoading(false));
   }, [call.id]);
 
+  // Auto-analyze if call has a transcript but no analysis yet
+  useEffect(() => {
+    const c = localCall;
+    if (c.status !== 'no_show' && !c.analysis && !analyzing) {
+      setAnalyzing(true);
+      api.analyzeClientCall(c.id)
+        .then(res => {
+          const updated = { ...c, analysis: res.analysis, analyzed_at: res.analyzed_at };
+          setLocalCall(updated);
+          onUpdate(updated);
+        })
+        .catch(() => { /* silent - user can retry manually */ })
+        .finally(() => setAnalyzing(false));
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [call.id]);
+
   const analysis = localCall.analysis || {};
   const research = localCall.research;
   const isNoShow = localCall.status === "no_show";
@@ -201,7 +218,7 @@ function SidePanel({ call, onClose, onUpdate }) {
   const cfg = STATUS_CONFIG[localCall.status] || STATUS_CONFIG.prospect;
 
   return (
-    <div className="fixed inset-0 z-40 flex justify-end" onClick={onClose}>
+    <div className="fixed top-16 inset-x-0 bottom-0 z-40 flex justify-end" onClick={onClose}>
       <div
         className="relative w-full max-w-lg bg-white dark:bg-gray-900 h-full shadow-2xl overflow-y-auto border-l border-gray-200 dark:border-gray-800"
         onClick={e => e.stopPropagation()}
@@ -266,7 +283,7 @@ function SidePanel({ call, onClose, onUpdate }) {
                   disabled={analyzing}
                   className="text-xs px-2.5 py-1 rounded-lg border border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800 disabled:opacity-50 transition-colors"
                 >
-                  {analyzing ? "Analyzing..." : localCall.analyzed_at ? "Re-analyze" : "Analyze"}
+                  {analyzing ? "Analyzing..." : localCall.analyzed_at ? "Re-analyze" : "Run Analysis"}
                 </button>
               )}
             </div>
@@ -310,7 +327,11 @@ function SidePanel({ call, onClose, onUpdate }) {
               </div>
             ) : (
               <p className="text-sm text-gray-400 dark:text-gray-500 italic">
-                {isNoShow ? "No transcript - client did not attend." : "No analysis yet. Click Analyze to run AI analysis."}
+                {isNoShow
+                  ? "No transcript - client did not attend."
+                  : analyzing
+                    ? "Running AI analysis..."
+                    : "No analysis yet. Click Run Analysis above."}
               </p>
             )}
           </div>
