@@ -105,10 +105,9 @@ async function fetchTldvTranscript(meetingId, apiKey) {
     });
     if (!res.ok) return null;
     const data = await res.json();
-    if (!data.transcript) return null;
-    // Concatenate all segments into plain text
-    const segments = data.transcript.segments || data.transcript;
-    if (Array.isArray(segments)) {
+    // TLDV returns { id, meetingId, data: [{startTime, endTime, speaker, text}] }
+    const segments = data.data || data.transcript?.segments || data.transcript;
+    if (Array.isArray(segments) && segments.length > 0) {
       return segments.map(s => `${s.speaker || 'Speaker'}: ${s.text || s.content || ''}`).join('\n');
     }
     return typeof data.transcript === 'string' ? data.transcript : null;
@@ -353,14 +352,32 @@ router.post('/sync', requireAuth, async (req, res) => {
       }
     }
 
-    // Repair any existing records wrongly classified as no_show.
-    // If a transcript exists and has content, the client attended — flip to prospect.
-    const { rowCount: repaired } = await pool.query(
-      `UPDATE client_calls SET status = 'prospect', updated_at = NOW()
-       WHERE user_id = $1 AND status = 'no_show'
-         AND transcript IS NOT NULL AND length(trim(transcript)) > 0`,
+    // Back-fill transcripts for existing no_show records that have null transcript.
+    // Process up to 50 per sync to avoid timeout. Each sync gradually self-heals.
+    const { rows: needsTranscript } = await pool.query(
+      `SELECT id FROM client_calls
+       WHERE user_id = $1 AND status = 'no_show' AND transcript IS NULL
+       LIMIT 50`,
       [req.user.id]
     );
+
+    let repaired = 0;
+    for (const row of needsTranscript) {
+      const t = await fetchTldvTranscript(row.id, tldvKey);
+      if (t && t.trim().length > 0) {
+        await pool.query(
+          `UPDATE client_calls SET transcript = $1, status = 'prospect', updated_at = NOW() WHERE id = $2`,
+          [t, row.id]
+        );
+        repaired++;
+      } else if (t !== null) {
+        // API responded but empty — mark transcript as empty string so we don't retry
+        await pool.query(
+          `UPDATE client_calls SET transcript = '', updated_at = NOW() WHERE id = $1`,
+          [row.id]
+        );
+      }
+    }
 
     res.json({
       message: 'Sync complete',
