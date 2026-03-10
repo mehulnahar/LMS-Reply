@@ -93,9 +93,114 @@ async function getCalendarClient(account, userId) {
 }
 
 // ─────────────────────────────────────────
+// Get authed Gmail client for an account
+// ─────────────────────────────────────────
+async function getGmailClient(account, userId) {
+  const oauth2 = await getOAuth2ClientForUser(userId);
+  if (!oauth2) return null;
+
+  oauth2.setCredentials({
+    access_token: account.access_token,
+    refresh_token: account.refresh_token,
+    expiry_date: account.token_expiry ? new Date(account.token_expiry).getTime() : null,
+  });
+
+  try {
+    const { credentials } = await oauth2.refreshAccessToken();
+    if (credentials?.access_token) oauth2.setCredentials(credentials);
+  } catch {
+    // continue with existing token
+  }
+
+  return google.gmail({ version: "v1", auth: oauth2 });
+}
+
+// ─────────────────────────────────────────
+// Strategy 6: Gmail API fallback - search Gmail directly for attendee email
+// ─────────────────────────────────────────
+async function gmailFallbackSearch(attendeeEmails, account, userId) {
+  if (!attendeeEmails.length) return null;
+
+  try {
+    const gmail = await getGmailClient(account, userId);
+    if (!gmail) return null;
+
+    // Search for any email involving the attendee
+    const query = attendeeEmails.map(e => `{from:${e} to:${e}}`).join(' OR ');
+    const listRes = await gmail.users.messages.list({
+      userId: 'me',
+      q: query,
+      maxResults: 5,
+    });
+
+    const messages = listRes.data.messages || [];
+    if (!messages.length) return null;
+
+    // Fetch the most recent message to get context
+    const full = await gmail.users.messages.get({
+      userId: 'me',
+      id: messages[0].id,
+      format: 'metadata',
+      metadataHeaders: ['From', 'To', 'Subject', 'Cc'],
+    });
+
+    const headers = {};
+    for (const h of full.data.payload?.headers || []) {
+      headers[h.name] = h.value;
+    }
+
+    // Extract sender name from "Name <email>" format
+    const fromHeader = headers.From || '';
+    const nameMatch = fromHeader.match(/^(.+?)\s*<[^>]+>$/);
+    const fromName = nameMatch ? nameMatch[1].replace(/["']/g, '').trim() : fromHeader.split('@')[0];
+    const fromEmail = fromHeader.match(/<([^>]+)>/) ? fromHeader.match(/<([^>]+)>/)[1] : fromHeader;
+
+    // Also fetch the snippet for context (need full format for snippet)
+    const snippet = full.data.snippet || '';
+    const subject = headers.Subject || '';
+    const threadId = full.data.threadId;
+
+    // Get thread message count
+    let threadMessages = 1;
+    try {
+      const thread = await gmail.users.threads.get({ userId: 'me', id: threadId, format: 'minimal' });
+      threadMessages = thread.data.messages?.length || 1;
+    } catch { /* ignore */ }
+
+    // Build a client-like object matching the shape enrichEventWithClient returns
+    return {
+      from_name: fromName,
+      from_email: fromEmail,
+      lead_score: null,
+      has_phone: false,
+      has_urgency: false,
+      hot_signal_flagged: false,
+      intent: null,
+      email_body: snippet,
+      received_at: new Date(parseInt(full.data.internalDate)).toISOString(),
+      job_id: null,
+      job_heading: subject.replace(/^(Re:|Fwd:)\s*/gi, '').trim(),
+      job_description: null,
+      country: null,
+      match_status: null,
+      follow_up_count: 0,
+      kill_switch_active: false,
+      reply_text: null,
+      reply_date: null,
+      gmail_thread_count: threadMessages,
+      gmail_subject: subject,
+      gmail_fallback: true,
+    };
+  } catch (err) {
+    console.error(`[Calls:gmail-fallback] Error: ${err.message}`);
+    return null;
+  }
+}
+
+// ─────────────────────────────────────────
 // Enrich event with matching client context
 // ─────────────────────────────────────────
-async function enrichEventWithClient(userId, attendeeEmails, eventTitle) {
+async function enrichEventWithClient(userId, attendeeEmails, eventTitle, account) {
   if (!attendeeEmails.length && !eventTitle) return null;
 
   const emails = attendeeEmails.map((e) => e.toLowerCase());
@@ -249,7 +354,7 @@ async function enrichEventWithClient(userId, attendeeEmails, eventTitle) {
       .replace(/\s*-\s*$/, '')
       .trim()
       .split(/\s+/)
-      .filter(w => w.length >= 3 && !['the', 'and', 'for', 'with', 'sync', 'project', 'proposal', 'saas', 'lead', 'team', 'sales'].includes(w.toLowerCase()));
+      .filter(w => w.length >= 3 && !['the', 'and', 'for', 'with', 'sync', 'project'].includes(w.toLowerCase()));
     if (keywords.length >= 1) {
       // Try full multi-word pattern first (most specific) - only when 2+ keywords
       if (keywords.length >= 2) {
@@ -321,6 +426,17 @@ async function enrichEventWithClient(userId, attendeeEmails, eventTitle) {
     }
   }
 
+  // Strategy 6: Gmail API fallback - search Gmail directly for attendee email
+  if (account) {
+    console.log(`[Calls:enrich] Strategy 6: Gmail API fallback search`);
+    const gmailResult = await gmailFallbackSearch(attendeeEmails, account, userId);
+    if (gmailResult) {
+      console.log(`[Calls:enrich] Strategy 6 HIT: Gmail found "${gmailResult.gmail_subject}" from ${gmailResult.from_name}`);
+      return gmailResult;
+    }
+    console.log(`[Calls:enrich] Strategy 6 miss: no Gmail results`);
+  }
+
   console.log(`[Calls:enrich] ALL strategies failed for: ${emails.join(',')} / "${eventTitle || ''}"`);
   return null;
 }
@@ -380,7 +496,7 @@ router.get("/events", requireAuth, async (req, res) => {
             .map((a) => a.email)
             .filter((e) => e && e.toLowerCase() !== account.email.toLowerCase());
 
-          const client = await enrichEventWithClient(req.user.id, attendeeEmails, evt.summary);
+          const client = await enrichEventWithClient(req.user.id, attendeeEmails, evt.summary, account);
 
           events.push({
             id: evt.id,
