@@ -471,7 +471,7 @@ function DetailPanel({ event, onClose }) {
       event.location ? `LOCATION: ${event.location}` : null,
       event.meetLink ? `MEET: ${event.meetLink}` : null,
       externalAttendees.length
-        ? `ATTENDEES: ${externalAttendees.map((a) => a.name || a.email).join(", ")}`
+        ? `ATTENDEES: ${externalAttendees.map((a) => a.name && a.name !== a.email ? `${a.name} (${a.email})` : a.email).join(", ")}`
         : null,
       "",
       client ? `CLIENT: ${client.from_name} (${client.from_email})` : null,
