@@ -365,11 +365,20 @@ router.post('/sync', requireAuth, async (req, res) => {
     for (const row of needsTranscript) {
       const t = await fetchTldvTranscript(row.id, tldvKey);
       if (t && t.trim().length > 0) {
+        // Fetch the meeting name for analysis
+        const { rows: callRows } = await pool.query(
+          'SELECT meeting_name, duration FROM client_calls WHERE id = $1',
+          [row.id]
+        );
         await pool.query(
           `UPDATE client_calls SET transcript = $1, status = 'prospect', updated_at = NOW() WHERE id = $2`,
           [t, row.id]
         );
         repaired++;
+        // Kick off analysis for this newly-recovered record
+        if (anthropicKey && callRows.length) {
+          analyzeCallInBackground(row.id, callRows[0].meeting_name, callRows[0].duration, t, anthropicKey);
+        }
       } else if (t !== null) {
         // API responded but empty — mark transcript as empty string so we don't retry
         await pool.query(
@@ -379,6 +388,31 @@ router.post('/sync', requireAuth, async (req, res) => {
       }
     }
 
+    // Auto-analyze up to 5 unanalyzed prospects per sync (catches backlog from before analysis worked)
+    let autoAnalyzed = 0;
+    if (anthropicKey) {
+      const { rows: needsAnalysis } = await pool.query(
+        `SELECT id, meeting_name, duration, transcript FROM client_calls
+         WHERE user_id = $1 AND status != 'no_show' AND transcript IS NOT NULL
+           AND transcript != '' AND analysis IS NULL
+         LIMIT 5`,
+        [req.user.id]
+      );
+      for (const row of needsAnalysis) {
+        analyzeCallInBackground(row.id, row.meeting_name, row.duration, row.transcript, anthropicKey);
+        autoAnalyzed++;
+      }
+    }
+
+    // Count remaining records that still need repair or analysis
+    const { rows: remaining } = await pool.query(
+      `SELECT
+         COUNT(*) FILTER (WHERE status = 'no_show' AND transcript IS NULL) AS needs_repair,
+         COUNT(*) FILTER (WHERE status != 'no_show' AND transcript IS NOT NULL AND transcript != '' AND analysis IS NULL) AS needs_analysis
+       FROM client_calls WHERE user_id = $1`,
+      [req.user.id]
+    );
+
     res.json({
       message: 'Sync complete',
       total_meetings_from_tldv: allMeetings.length,
@@ -387,7 +421,10 @@ router.post('/sync', requireAuth, async (req, res) => {
       new_calls: newCalls,
       no_shows: noShows,
       repaired_status: repaired,
+      auto_analyzed: autoAnalyzed,
       gmail_threads_matched: matchedThreads,
+      still_needs_repair: parseInt(remaining[0].needs_repair),
+      still_needs_analysis: parseInt(remaining[0].needs_analysis),
     });
   } catch (err) {
     console.error('POST /client-calls/sync error:', err);
