@@ -303,10 +303,11 @@ router.post('/sync', requireAuth, async (req, res) => {
 
       // Fetch transcript
       let transcript = await fetchTldvTranscript(meetingId, tldvKey);
-      const wordCount = transcript ? transcript.split(/\s+/).length : 0;
 
-      // Detect no-show
-      const isNoShow = durationMin < 3 || wordCount < 50;
+      // Detect no-show by duration only — transcript absence just means TLDV bot
+      // couldn't capture it, not that the client didn't attend.
+      // < 8 min = likely no-show or too brief to be meaningful
+      const isNoShow = durationMin < 8;
       const status = isNoShow ? 'no_show' : 'prospect';
       if (isNoShow) noShows++;
 
@@ -353,6 +354,14 @@ router.post('/sync', requireAuth, async (req, res) => {
       }
     }
 
+    // Repair any existing records wrongly classified as no_show due to missing transcript.
+    // Any call >= 8 min that is still 'no_show' should be 'prospect'.
+    const { rowCount: repaired } = await pool.query(
+      `UPDATE client_calls SET status = 'prospect', updated_at = NOW()
+       WHERE user_id = $1 AND status = 'no_show' AND duration >= 8`,
+      [req.user.id]
+    );
+
     res.json({
       message: 'Sync complete',
       total_meetings_from_tldv: allMeetings.length,
@@ -360,6 +369,7 @@ router.post('/sync', requireAuth, async (req, res) => {
       already_synced: synced,
       new_calls: newCalls,
       no_shows: noShows,
+      repaired_status: repaired,
       gmail_threads_matched: matchedThreads,
     });
   } catch (err) {
