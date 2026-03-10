@@ -11,6 +11,7 @@ const { google } = require("googleapis");
 const pool = require("../config/db");
 const { requireAuth } = require("../middleware/auth");
 const { decrypt } = require("../utils/encryption");
+const { getAnthropicKey } = require("../utils/emailAnalysis");
 
 const router = express.Router();
 
@@ -116,9 +117,115 @@ async function getGmailClient(account, userId) {
 }
 
 // ─────────────────────────────────────────
+// Lightweight Claude API call for thread selection
+// ─────────────────────────────────────────
+async function callClaude(systemPrompt, userMessage, apiKey, maxTokens = 256) {
+  const body = {
+    model: "claude-sonnet-4-6",
+    max_tokens: maxTokens,
+    messages: [{ role: "user", content: userMessage }],
+  };
+  if (systemPrompt) body.system = systemPrompt;
+  const res = await fetch("https://api.anthropic.com/v1/messages", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "x-api-key": apiKey,
+      "anthropic-version": "2023-06-01",
+    },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) throw new Error(`Claude API error: ${res.status}`);
+  const data = await res.json();
+  return data.content?.[0]?.text || "";
+}
+
+// ─────────────────────────────────────────
+// Extract plain text body from Gmail full-format message payload
+// ─────────────────────────────────────────
+function extractEmailBody(payload) {
+  let bodyText = "";
+  let bodyHtml = "";
+  const extractParts = (part) => {
+    if (part.body?.data) {
+      const decoded = Buffer.from(part.body.data, "base64url").toString("utf8");
+      if (part.mimeType === "text/plain") bodyText = decoded;
+      if (part.mimeType === "text/html") bodyHtml = decoded;
+    }
+    if (part.parts) {
+      for (const p of part.parts) extractParts(p);
+    }
+  };
+  extractParts(payload);
+  if (bodyText) return bodyText;
+  if (bodyHtml) return bodyHtml.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
+  return "";
+}
+
+// ─────────────────────────────────────────
+// Select best thread from multiple Gmail threads (AI + heuristic fallback)
+// ─────────────────────────────────────────
+async function selectBestThread(threads, eventTitle, userId) {
+  function heuristicPick() {
+    // Filter out calendar invite threads
+    const nonCalendar = threads.filter(t =>
+      !t.subject.match(/^(Invitation|Updated invitation|Accepted|Declined|Tentative):/i)
+    );
+    const candidates = nonCalendar.length > 0 ? nonCalendar : threads;
+
+    if (eventTitle) {
+      const titleLower = eventTitle.toLowerCase()
+        .replace(/\s*(discussion|call|meeting|chat|sync|intro)\s*$/i, "")
+        .trim();
+      if (titleLower.length >= 3) {
+        const scored = candidates.map(t => {
+          const subjectLower = t.subject.toLowerCase();
+          const words = titleLower.split(/\s+/);
+          const matchCount = words.filter(w => subjectLower.includes(w)).length;
+          return { thread: t, score: matchCount / words.length };
+        });
+        scored.sort((a, b) => b.score - a.score);
+        if (scored[0].score > 0) return scored[0].thread;
+      }
+    }
+
+    candidates.sort((a, b) => b.newestDate - a.newestDate);
+    return candidates[0];
+  }
+
+  try {
+    const anthropicKey = await getAnthropicKey(userId);
+    if (!anthropicKey) return heuristicPick();
+
+    const threadSummaries = threads.map((t, i) =>
+      `[${i}] Subject: "${t.subject}" | Snippet: "${t.snippet.substring(0, 120)}" | Messages: ${t.messageCount}`
+    ).join("\n");
+
+    const response = await callClaude(
+      "You are a thread selector for a call preparation tool. Given a calendar event title and a list of email threads found for the same person, pick the thread that is most relevant for preparing for the call. Prefer actual email conversations over calendar invitations, meeting notifications, or automated messages. Return ONLY the index number (e.g., \"2\"), nothing else.",
+      `Calendar event: "${eventTitle || "Unknown"}"\n\nEmail threads found:\n${threadSummaries}\n\nWhich thread index is most relevant for call preparation?`,
+      anthropicKey,
+      32
+    );
+
+    const index = parseInt(response.trim(), 10);
+    if (!isNaN(index) && index >= 0 && index < threads.length) {
+      console.log(`[Calls:gmail-fallback] AI selected thread [${index}]: "${threads[index].subject}"`);
+      return threads[index];
+    }
+
+    console.log(`[Calls:gmail-fallback] AI returned invalid index "${response.trim()}", using heuristic`);
+    return heuristicPick();
+  } catch (err) {
+    console.log(`[Calls:gmail-fallback] AI selection failed (${err.message}), using heuristic`);
+    return heuristicPick();
+  }
+}
+
+// ─────────────────────────────────────────
 // Strategy 6: Gmail API fallback - search Gmail directly for attendee email
 // ─────────────────────────────────────────
-async function gmailFallbackSearch(attendeeEmails, account, userId) {
+async function gmailFallbackSearch(attendeeEmails, account, userId, eventTitle = "") {
   if (!attendeeEmails.length) return null;
 
   try {
@@ -126,48 +233,101 @@ async function gmailFallbackSearch(attendeeEmails, account, userId) {
     if (!gmail) return null;
 
     // Search for any email involving the attendee
-    const query = attendeeEmails.map(e => `{from:${e} to:${e}}`).join(' OR ');
+    const query = attendeeEmails.map(e => `{from:${e} to:${e}}`).join(" OR ");
     const listRes = await gmail.users.messages.list({
-      userId: 'me',
+      userId: "me",
       q: query,
-      maxResults: 5,
+      maxResults: 20,
     });
 
     const messages = listRes.data.messages || [];
     if (!messages.length) return null;
 
-    // Fetch the most recent message to get context
-    const full = await gmail.users.messages.get({
-      userId: 'me',
-      id: messages[0].id,
-      format: 'metadata',
-      metadataHeaders: ['From', 'To', 'Subject', 'Cc'],
-    });
+    // Fetch metadata for all messages in parallel
+    const metadataResults = await Promise.all(
+      messages.map(msg =>
+        gmail.users.messages.get({
+          userId: "me",
+          id: msg.id,
+          format: "metadata",
+          metadataHeaders: ["From", "To", "Subject", "Cc"],
+        })
+      )
+    );
 
-    const headers = {};
-    for (const h of full.data.payload?.headers || []) {
-      headers[h.name] = h.value;
+    // Group messages by threadId to get unique threads
+    const threadMap = new Map();
+    for (const result of metadataResults) {
+      const msg = result.data;
+      const threadId = msg.threadId;
+      const headers = {};
+      for (const h of msg.payload?.headers || []) {
+        headers[h.name] = h.value;
+      }
+      const date = parseInt(msg.internalDate);
+      const subject = headers.Subject || "";
+      const snippet = msg.snippet || "";
+
+      if (!threadMap.has(threadId)) {
+        threadMap.set(threadId, {
+          threadId,
+          subject,
+          snippet,
+          messageCount: 1,
+          newestDate: date,
+          newestMsgId: msg.id,
+          fromHeader: headers.From || "",
+        });
+      } else {
+        const existing = threadMap.get(threadId);
+        existing.messageCount++;
+        if (date > existing.newestDate) {
+          existing.newestDate = date;
+          existing.newestMsgId = msg.id;
+          existing.snippet = snippet;
+          existing.fromHeader = headers.From || "";
+        }
+      }
     }
 
-    // Extract sender name from "Name <email>" format
-    const fromHeader = headers.From || '';
-    const nameMatch = fromHeader.match(/^(.+?)\s*<[^>]+>$/);
-    const fromName = nameMatch ? nameMatch[1].replace(/["']/g, '').trim() : fromHeader.split('@')[0];
-    const fromEmail = fromHeader.match(/<([^>]+)>/) ? fromHeader.match(/<([^>]+)>/)[1] : fromHeader;
+    const threads = Array.from(threadMap.values());
+    const totalThreads = threads.length;
+    console.log(`[Calls:gmail-fallback] Found ${totalThreads} unique thread(s) for ${attendeeEmails.join(",")}`);
 
-    // Also fetch the snippet for context (need full format for snippet)
-    const snippet = full.data.snippet || '';
-    const subject = headers.Subject || '';
-    const threadId = full.data.threadId;
+    // Select best thread (AI + heuristic fallback)
+    let selectedThread;
+    if (threads.length === 1) {
+      selectedThread = threads[0];
+    } else {
+      selectedThread = await selectBestThread(threads, eventTitle, userId);
+    }
 
-    // Get thread message count
-    let threadMessages = 1;
+    // Fetch full body of selected thread's most recent message
+    const fullMsg = await gmail.users.messages.get({
+      userId: "me",
+      id: selectedThread.newestMsgId,
+      format: "full",
+    });
+    const emailBody = extractEmailBody(fullMsg.data.payload);
+
+    // Get actual thread message count from Gmail API
+    let threadMsgCount = selectedThread.messageCount;
     try {
-      const thread = await gmail.users.threads.get({ userId: 'me', id: threadId, format: 'minimal' });
-      threadMessages = thread.data.messages?.length || 1;
-    } catch { /* ignore */ }
+      const threadData = await gmail.users.threads.get({
+        userId: "me",
+        id: selectedThread.threadId,
+        format: "minimal",
+      });
+      threadMsgCount = threadData.data.messages?.length || threadMsgCount;
+    } catch { /* use our count */ }
 
-    // Build a client-like object matching the shape enrichEventWithClient returns
+    // Extract sender info
+    const fromHeader = selectedThread.fromHeader;
+    const nameMatch = fromHeader.match(/^(.+?)\s*<[^>]+>$/);
+    const fromName = nameMatch ? nameMatch[1].replace(/["']/g, "").trim() : fromHeader.split("@")[0];
+    const fromEmail = fromHeader.match(/<([^>]+)>/) ? fromHeader.match(/<([^>]+)>/)[1] : fromHeader;
+    const subject = selectedThread.subject;
+
     return {
       from_name: fromName,
       from_email: fromEmail,
@@ -176,10 +336,10 @@ async function gmailFallbackSearch(attendeeEmails, account, userId) {
       has_urgency: false,
       hot_signal_flagged: false,
       intent: null,
-      email_body: snippet,
-      received_at: new Date(parseInt(full.data.internalDate)).toISOString(),
+      email_body: emailBody || selectedThread.snippet,
+      received_at: new Date(selectedThread.newestDate).toISOString(),
       job_id: null,
-      job_heading: subject.replace(/^(Re:|Fwd:)\s*/gi, '').trim(),
+      job_heading: subject.replace(/^(Re:|Fwd:)\s*/gi, "").trim(),
       job_description: null,
       country: null,
       match_status: null,
@@ -187,7 +347,8 @@ async function gmailFallbackSearch(attendeeEmails, account, userId) {
       kill_switch_active: false,
       reply_text: null,
       reply_date: null,
-      gmail_thread_count: threadMessages,
+      gmail_thread_count: threadMsgCount,
+      gmail_threads_found: totalThreads,
       gmail_subject: subject,
       gmail_fallback: true,
     };
@@ -429,7 +590,7 @@ async function enrichEventWithClient(userId, attendeeEmails, eventTitle, account
   // Strategy 6: Gmail API fallback - search Gmail directly for attendee email
   if (account) {
     console.log(`[Calls:enrich] Strategy 6: Gmail API fallback search`);
-    const gmailResult = await gmailFallbackSearch(attendeeEmails, account, userId);
+    const gmailResult = await gmailFallbackSearch(attendeeEmails, account, userId, eventTitle);
     if (gmailResult) {
       console.log(`[Calls:enrich] Strategy 6 HIT: Gmail found "${gmailResult.gmail_subject}" from ${gmailResult.from_name}`);
       return gmailResult;

@@ -577,10 +577,24 @@ function DetailPanel({ event, onClose }) {
               </div>
             </div>
 
+            {/* Gmail fallback indicator */}
+            {client.gmail_fallback && (
+              <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800">
+                <svg className="w-3.5 h-3.5 flex-shrink-0 text-amber-500" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M21.75 6.75v10.5a2.25 2.25 0 01-2.25 2.25h-15a2.25 2.25 0 01-2.25-2.25V6.75m19.5 0A2.25 2.25 0 0019.5 4.5h-15a2.25 2.25 0 00-2.25 2.25m19.5 0v.243a2.25 2.25 0 01-1.07 1.916l-7.5 4.615a2.25 2.25 0 01-2.36 0L3.32 8.91a2.25 2.25 0 01-1.07-1.916V6.75" />
+                </svg>
+                <span className="text-xs text-amber-700 dark:text-amber-400">
+                  Gmail fallback{client.gmail_threads_found > 1
+                    ? <span className="font-semibold"> - {client.gmail_threads_found} email threads found</span>
+                    : <span className="font-semibold"> - 1 email thread found</span>}
+                </span>
+              </div>
+            )}
+
             {/* Job Description */}
             {client.job_description && (
               <InfoSection title="Job Description">
-                <p className="text-xs text-gray-600 dark:text-gray-400 leading-relaxed whitespace-pre-line line-clamp-10">
+                <p className="text-xs text-gray-600 dark:text-gray-400 leading-relaxed whitespace-pre-line">
                   {client.job_description}
                 </p>
               </InfoSection>
@@ -589,7 +603,7 @@ function DetailPanel({ event, onClose }) {
             {/* What they said */}
             {client.email_body && (
               <InfoSection title="What They Said">
-                <p className="text-xs text-gray-600 dark:text-gray-400 leading-relaxed line-clamp-8">
+                <p className="text-xs text-gray-600 dark:text-gray-400 leading-relaxed whitespace-pre-line">
                   {client.email_body}
                 </p>
               </InfoSection>
@@ -602,7 +616,7 @@ function DetailPanel({ event, onClose }) {
                   ? ` · ${new Date(client.reply_date).toLocaleDateString("en-US", { month: "short", day: "numeric" })}`
                   : ""}`}
               >
-                <p className="text-xs text-gray-600 dark:text-gray-400 leading-relaxed line-clamp-8">
+                <p className="text-xs text-gray-600 dark:text-gray-400 leading-relaxed whitespace-pre-line">
                   {client.reply_text}
                 </p>
               </InfoSection>
