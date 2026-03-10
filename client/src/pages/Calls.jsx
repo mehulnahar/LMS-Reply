@@ -622,7 +622,7 @@ function DetailPanel({ event, onClose }) {
             <div className="text-3xl mb-3">🔍</div>
             <p className="text-sm font-medium text-gray-600 dark:text-gray-400">No matching client found</p>
             <p className="text-xs text-gray-400 dark:text-gray-500 mt-1 leading-relaxed">
-              Attendees: {event.attendees.filter((a) => !a.self).map((a) => a.email).join(", ") || "None"}
+              Attendees: {event.attendees.filter((a) => !a.self).map((a) => a.name && a.name !== a.email ? `${a.name} (${a.email})` : a.email).join(", ") || "None"}
             </p>
           </div>
         )}
