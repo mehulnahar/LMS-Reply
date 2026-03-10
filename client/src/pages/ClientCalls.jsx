@@ -93,6 +93,9 @@ function SidePanel({ call, onClose, onUpdate }) {
   const [contextLoading, setContextLoading] = useState(false);
   const [jobExpanded, setJobExpanded] = useState(false);
   const [convExpanded, setConvExpanded] = useState(false);
+  const [transcriptExpanded, setTranscriptExpanded] = useState(false);
+  const [transcriptDraft, setTranscriptDraft] = useState("");
+  const [savingTranscript, setSavingTranscript] = useState(false);
 
   useEffect(() => { setLocalCall(call); }, [call]);
 
@@ -215,6 +218,40 @@ function SidePanel({ call, onClose, onUpdate }) {
     }
   };
 
+  const handleSaveTranscript = async () => {
+    if (!transcriptDraft.trim()) return;
+    setSavingTranscript(true);
+    try {
+      await api.saveClientCallTranscript(localCall.id, transcriptDraft.trim());
+      // Update local state — status may have changed from no_show → prospect
+      const updated = {
+        ...localCall,
+        transcript: transcriptDraft.trim(),
+        status: localCall.status === 'no_show' ? 'prospect' : localCall.status,
+        analysis: null,
+        analyzed_at: null,
+      };
+      setLocalCall(updated);
+      onUpdate(updated);
+      setTranscriptExpanded(false);
+      setTranscriptDraft("");
+      // Auto-analyze now that we have a transcript
+      setAnalyzing(true);
+      api.analyzeClientCall(localCall.id)
+        .then(res => {
+          const analyzed = { ...updated, analysis: res.analysis, analyzed_at: res.analyzed_at };
+          setLocalCall(analyzed);
+          onUpdate(analyzed);
+        })
+        .catch(() => {})
+        .finally(() => setAnalyzing(false));
+    } catch (err) {
+      alert(err.message);
+    } finally {
+      setSavingTranscript(false);
+    }
+  };
+
   const cfg = STATUS_CONFIG[localCall.status] || STATUS_CONFIG.prospect;
 
   return (
@@ -324,20 +361,104 @@ function SidePanel({ call, onClose, onUpdate }) {
                     {analysis.signals.timeline_mentioned && <span className="text-xs px-2 py-0.5 rounded-full bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400">Timeline set</span>}
                   </div>
                 )}
+
+                {/* Edit transcript inline (for calls already analyzed) */}
+                <div className="border border-dashed border-gray-200 dark:border-gray-700 rounded-lg overflow-hidden">
+                  <button
+                    onClick={() => {
+                      setTranscriptExpanded(v => !v);
+                      if (!transcriptExpanded) setTranscriptDraft(localCall.transcript || "");
+                    }}
+                    className="w-full flex items-center justify-between px-3 py-2 text-left hover:bg-gray-50 dark:hover:bg-gray-800/50 transition-colors"
+                  >
+                    <span className="text-xs text-gray-400 dark:text-gray-500">Replace transcript</span>
+                    <span className="text-gray-400 text-xs">{transcriptExpanded ? "▲" : "▼"}</span>
+                  </button>
+                  {transcriptExpanded && (
+                    <div className="px-3 pb-3 space-y-2 border-t border-gray-100 dark:border-gray-800">
+                      <textarea
+                        value={transcriptDraft}
+                        onChange={e => setTranscriptDraft(e.target.value)}
+                        placeholder="Paste replacement transcript..."
+                        rows={6}
+                        className="w-full mt-2 text-xs text-gray-700 dark:text-gray-300 bg-gray-50 dark:bg-gray-800 rounded-lg p-2.5 border border-gray-200 dark:border-gray-700 resize-y focus:outline-none focus:ring-2 focus:ring-brand-500 font-mono leading-relaxed"
+                      />
+                      <div className="flex items-center justify-end gap-2">
+                        <button onClick={() => { setTranscriptExpanded(false); setTranscriptDraft(""); }}
+                          className="text-xs px-2.5 py-1 rounded-lg border border-gray-200 dark:border-gray-700 text-gray-500 hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors">
+                          Cancel
+                        </button>
+                        <button onClick={handleSaveTranscript} disabled={savingTranscript || !transcriptDraft.trim()}
+                          className="text-xs px-3 py-1 rounded-lg bg-brand-600 text-white hover:bg-brand-700 disabled:opacity-50 transition-colors">
+                          {savingTranscript ? "Saving..." : "Save & Re-analyze"}
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </div>
               </div>
             ) : (
-              <p className="text-sm text-gray-400 dark:text-gray-500 italic">
-                {isNoShow
-                  ? "No transcript - client did not attend."
-                  : analyzing
+              <div className="space-y-3">
+                <p className="text-sm text-gray-400 dark:text-gray-500 italic">
+                  {analyzing
                     ? "Running AI analysis..."
-                    : "No analysis yet. Click Run Analysis above."}
-              </p>
+                    : isNoShow
+                      ? "No transcript captured by TLDV."
+                      : "No analysis yet."}
+                </p>
+
+                {/* Manual transcript input */}
+                <div className="border border-dashed border-gray-200 dark:border-gray-700 rounded-lg overflow-hidden">
+                  <button
+                    onClick={() => {
+                      setTranscriptExpanded(v => !v);
+                      if (!transcriptExpanded && localCall.transcript) setTranscriptDraft(localCall.transcript);
+                    }}
+                    className="w-full flex items-center justify-between px-3 py-2.5 text-left hover:bg-gray-50 dark:hover:bg-gray-800/50 transition-colors"
+                  >
+                    <span className="text-xs font-medium text-gray-500 dark:text-gray-400">
+                      {localCall.transcript ? "Edit transcript" : "Paste transcript manually"}
+                    </span>
+                    <span className="text-gray-400 text-xs">{transcriptExpanded ? "▲" : "▼"}</span>
+                  </button>
+                  {transcriptExpanded && (
+                    <div className="px-3 pb-3 space-y-2 border-t border-gray-100 dark:border-gray-800">
+                      <textarea
+                        value={transcriptDraft}
+                        onChange={e => setTranscriptDraft(e.target.value)}
+                        placeholder="Paste the full call transcript here (Speaker: text format or plain text)..."
+                        rows={8}
+                        className="w-full mt-2 text-xs text-gray-700 dark:text-gray-300 bg-gray-50 dark:bg-gray-800 rounded-lg p-2.5 border border-gray-200 dark:border-gray-700 resize-y focus:outline-none focus:ring-2 focus:ring-brand-500 font-mono leading-relaxed"
+                      />
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="text-xs text-gray-400">
+                          {transcriptDraft.trim().split(/\s+/).filter(Boolean).length} words
+                        </span>
+                        <div className="flex gap-2">
+                          <button
+                            onClick={() => { setTranscriptExpanded(false); setTranscriptDraft(""); }}
+                            className="text-xs px-2.5 py-1 rounded-lg border border-gray-200 dark:border-gray-700 text-gray-500 hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors"
+                          >
+                            Cancel
+                          </button>
+                          <button
+                            onClick={handleSaveTranscript}
+                            disabled={savingTranscript || !transcriptDraft.trim()}
+                            className="text-xs px-3 py-1 rounded-lg bg-brand-600 text-white hover:bg-brand-700 disabled:opacity-50 transition-colors"
+                          >
+                            {savingTranscript ? "Saving..." : "Save & Analyze"}
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
             )}
           </div>
 
           {/* Research */}
-          {!isNoShow && (
+          {(!isNoShow || localCall.transcript) && (
             <div className="space-y-3">
               <div className="flex items-center justify-between">
                 <h3 className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide">Research</h3>

@@ -582,6 +582,46 @@ router.get('/:id/context', requireAuth, async (req, res) => {
 });
 
 // ────────────────────────────────────────────────────────────
+// PUT /api/client-calls/:id/transcript
+// Manually save (or replace) a transcript, then auto-analyze
+// ────────────────────────────────────────────────────────────
+router.put('/:id/transcript', requireAuth, async (req, res) => {
+  const { transcript } = req.body;
+  if (!transcript || !transcript.trim()) {
+    return res.status(400).json({ error: 'Transcript text is required' });
+  }
+
+  try {
+    // Save transcript + upgrade from no_show → prospect + clear stale analysis
+    const { rows } = await pool.query(
+      `UPDATE client_calls
+       SET transcript = $1,
+           status = CASE WHEN status = 'no_show' THEN 'prospect' ELSE status END,
+           analysis = NULL,
+           analyzed_at = NULL,
+           updated_at = NOW()
+       WHERE id = $2 AND user_id = $3
+       RETURNING id, meeting_name, duration, status, transcript`,
+      [transcript.trim(), req.params.id, req.user.id]
+    );
+    if (!rows.length) return res.status(404).json({ error: 'Call not found' });
+
+    const call = rows[0];
+
+    // Kick off analysis immediately (fire-and-forget)
+    const anthropicKey = await getApiKey(req.user.id, 'anthropic');
+    if (anthropicKey) {
+      analyzeCallInBackground(call.id, call.meeting_name, call.duration, call.transcript, anthropicKey);
+    }
+
+    res.json({ success: true, status: call.status });
+  } catch (err) {
+    console.error('PUT /transcript error:', err);
+    res.status(500).json({ error: 'Failed to save transcript' });
+  }
+});
+
+// ────────────────────────────────────────────────────────────
 // PUT /api/client-calls/:id/status
 // ────────────────────────────────────────────────────────────
 router.put('/:id/status', requireAuth, async (req, res) => {

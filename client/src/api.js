@@ -184,6 +184,8 @@ export const api = {
   draftClientCallRebook: (id, rebookNumber) =>
     request(`/api/client-calls/${id}/draft-rebook`, { method: 'POST', body: JSON.stringify({ rebookNumber }) }),
   getClientCallContext: (id) => request(`/api/client-calls/${id}/context`),
+  saveClientCallTranscript: (id, transcript) =>
+    request(`/api/client-calls/${id}/transcript`, { method: 'PUT', body: JSON.stringify({ transcript }) }),
 
   // Health
   health: () => request("/api/health"),
