@@ -81,16 +81,19 @@ function isInternalMeeting(name, invitees = []) {
 
 async function fetchTldvMeetings(apiKey) {
   const meetings = [];
-  let pageToken = null;
+  let page = 1;
+  let totalPages = 1;
 
   do {
-    const url = `${TLDV_BASE}/v1alpha1/meetings${pageToken ? `?pageToken=${pageToken}` : ''}`;
+    const url = `${TLDV_BASE}/v1alpha1/meetings?page=${page}&pageSize=50`;
     const res = await fetch(url, { headers: { 'x-api-key': apiKey } });
     if (!res.ok) throw new Error(`TLDV API error: ${res.status}`);
     const data = await res.json();
-    if (Array.isArray(data.meetings)) meetings.push(...data.meetings);
-    pageToken = data.nextPageToken || null;
-  } while (pageToken);
+    // TLDV returns { page, pageSize, pages, total, results: [...] }
+    if (Array.isArray(data.results)) meetings.push(...data.results);
+    totalPages = Math.min(data.pages || 1, 10); // cap at 10 pages (500 meetings) for performance
+    page++;
+  } while (page <= totalPages);
 
   return meetings;
 }
@@ -282,8 +285,8 @@ router.post('/sync', requireAuth, async (req, res) => {
       if (rawDur > 3600) durationMin = rawDur / 60000;
       else if (rawDur > 60) durationMin = rawDur / 60;
       else durationMin = rawDur;
-      const callDate = (mtg.startedAt || mtg.date || mtg.createdAt)
-        ? new Date(mtg.startedAt || mtg.date || mtg.createdAt).toISOString().split('T')[0] : null;
+      const callDate = (mtg.happenedAt || mtg.startedAt || mtg.date || mtg.createdAt)
+        ? new Date(mtg.happenedAt || mtg.startedAt || mtg.date || mtg.createdAt).toISOString().split('T')[0] : null;
       const invitees = (mtg.invitees || mtg.attendees || mtg.participants || [])
         .map(i => i.email || i).filter(Boolean);
 
