@@ -89,8 +89,24 @@ function SidePanel({ call, onClose, onUpdate }) {
   const [analyzing, setAnalyzing] = useState(false);
   const [localCall, setLocalCall] = useState(call);
   const [statusChanging, setStatusChanging] = useState(false);
+  const [context, setContext] = useState(null);
+  const [contextLoading, setContextLoading] = useState(false);
+  const [jobExpanded, setJobExpanded] = useState(false);
+  const [convExpanded, setConvExpanded] = useState(false);
 
   useEffect(() => { setLocalCall(call); }, [call]);
+
+  // Load job + conversation context when a call is selected
+  useEffect(() => {
+    setContext(null);
+    setJobExpanded(false);
+    setConvExpanded(false);
+    setContextLoading(true);
+    api.getClientCallContext(call.id)
+      .then(d => setContext(d))
+      .catch(() => setContext({ job: null, conversation: [] }))
+      .finally(() => setContextLoading(false));
+  }, [call.id]);
 
   const analysis = localCall.analysis || {};
   const research = localCall.research;
@@ -336,25 +352,102 @@ function SidePanel({ call, onClose, onUpdate }) {
             </div>
           )}
 
-          {/* Gmail Thread */}
-          {localCall.gmail_thread_id && (
-            <div>
-              <h3 className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-2">Email Thread</h3>
-              <div className="flex items-center gap-3 p-3 rounded-lg bg-gray-50 dark:bg-gray-800/50 border border-gray-100 dark:border-gray-700">
-                <div className="w-8 h-8 rounded-full bg-brand-100 dark:bg-brand-900/30 flex items-center justify-center flex-shrink-0">
-                  <svg className="w-4 h-4 text-brand-600 dark:text-brand-400" fill="none" stroke="currentColor" strokeWidth={1.5} viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M21.75 6.75v10.5a2.25 2.25 0 01-2.25 2.25h-15a2.25 2.25 0 01-2.25-2.25V6.75m19.5 0A2.25 2.25 0 0019.5 4.5h-15a2.25 2.25 0 00-2.25 2.25m19.5 0v.243a2.25 2.25 0 01-1.07 1.916l-7.5 4.615a2.25 2.25 0 01-2.36 0L3.32 8.91a2.25 2.25 0 01-1.07-1.916V6.75" />
-                  </svg>
+          {/* Job Post */}
+          <div className="border border-gray-100 dark:border-gray-800 rounded-xl overflow-hidden">
+            <button
+              onClick={() => setJobExpanded(v => !v)}
+              className="w-full flex items-center justify-between px-4 py-3 text-left hover:bg-gray-50 dark:hover:bg-gray-800/50 transition-colors"
+            >
+              <h3 className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide">Job Post</h3>
+              <span className="text-gray-400 dark:text-gray-500 text-xs">
+                {contextLoading ? "Loading..." : context?.job ? (jobExpanded ? "▲" : "▼") : "Not found"}
+              </span>
+            </button>
+            {jobExpanded && context?.job && (
+              <div className="px-4 pb-4 space-y-3 border-t border-gray-100 dark:border-gray-800">
+                <div className="pt-3">
+                  <p className="text-sm font-semibold text-gray-800 dark:text-gray-200 leading-snug">{context.job.job_heading}</p>
+                  {context.job.upwork_link && (
+                    <a href={context.job.upwork_link} target="_blank" rel="noopener noreferrer"
+                      className="text-xs text-brand-600 dark:text-brand-400 hover:underline">
+                      View on Upwork →
+                    </a>
+                  )}
                 </div>
-                <div className="min-w-0 flex-1">
-                  <p className="text-sm font-medium truncate">{localCall.gmail_thread_subject || "Email thread"}</p>
-                  <p className="text-xs text-gray-500 dark:text-gray-400">
-                    {localCall.gmail_email_count} emails · Last: {fmtDate(localCall.gmail_last_email_date)}
-                  </p>
+                {/* Budget / meta row */}
+                <div className="flex flex-wrap gap-2">
+                  {context.job.payment_type && (
+                    <span className="text-xs px-2 py-0.5 rounded-full bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400">
+                      {context.job.payment_type}
+                      {context.job.amount ? ` · $${context.job.amount}` : ""}
+                      {context.job.hourly_budget_min ? ` · $${context.job.hourly_budget_min}–${context.job.hourly_budget_max}/hr` : ""}
+                    </span>
+                  )}
+                  {context.job.workload && (
+                    <span className="text-xs px-2 py-0.5 rounded-full bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400">
+                      {context.job.workload}
+                    </span>
+                  )}
+                  {(context.job.city || context.job.country) && (
+                    <span className="text-xs px-2 py-0.5 rounded-full bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400">
+                      {[context.job.city, context.job.country].filter(Boolean).join(", ")}
+                    </span>
+                  )}
+                  {context.job.total_jobs_posted && (
+                    <span className="text-xs px-2 py-0.5 rounded-full bg-blue-50 dark:bg-blue-900/20 text-blue-600 dark:text-blue-400">
+                      {context.job.total_jobs_posted} jobs posted · {context.job.total_jobs_with_hires} hired
+                    </span>
+                  )}
+                  {context.job.is_payment_verified === "true" && (
+                    <span className="text-xs px-2 py-0.5 rounded-full bg-green-50 dark:bg-green-900/20 text-green-600 dark:text-green-400">✓ Payment verified</span>
+                  )}
                 </div>
+                {/* Description */}
+                {context.job.job_description && (
+                  <div className="bg-gray-50 dark:bg-gray-800/50 rounded-lg p-3 max-h-56 overflow-y-auto">
+                    <p className="text-xs text-gray-600 dark:text-gray-400 whitespace-pre-wrap leading-relaxed">
+                      {context.job.job_description}
+                    </p>
+                  </div>
+                )}
               </div>
-            </div>
-          )}
+            )}
+          </div>
+
+          {/* Conversation */}
+          <div className="border border-gray-100 dark:border-gray-800 rounded-xl overflow-hidden">
+            <button
+              onClick={() => setConvExpanded(v => !v)}
+              className="w-full flex items-center justify-between px-4 py-3 text-left hover:bg-gray-50 dark:hover:bg-gray-800/50 transition-colors"
+            >
+              <h3 className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide">
+                Conversation {context?.conversation?.length > 0 ? `(${context.conversation.length})` : ""}
+              </h3>
+              <span className="text-gray-400 dark:text-gray-500 text-xs">
+                {contextLoading ? "Loading..." : context?.conversation?.length > 0 ? (convExpanded ? "▲" : "▼") : "No emails"}
+              </span>
+            </button>
+            {convExpanded && context?.conversation?.length > 0 && (
+              <div className="border-t border-gray-100 dark:border-gray-800 divide-y divide-gray-100 dark:divide-gray-800">
+                {context.conversation.map((msg, i) => (
+                  <div key={msg.id || i} className="px-4 py-3 space-y-1">
+                    <div className="flex items-center justify-between gap-2">
+                      <p className="text-xs font-semibold text-gray-700 dark:text-gray-300 truncate">{msg.from}</p>
+                      <p className="text-xs text-gray-400 flex-shrink-0">{msg.date ? new Date(msg.date).toLocaleDateString("en-US", { month: "short", day: "numeric" }) : ""}</p>
+                    </div>
+                    {msg.subject && (
+                      <p className="text-xs text-gray-500 dark:text-gray-400 truncate">{msg.subject}</p>
+                    )}
+                    {msg.body && (
+                      <p className="text-xs text-gray-600 dark:text-gray-400 whitespace-pre-wrap leading-relaxed max-h-32 overflow-y-auto bg-gray-50 dark:bg-gray-800/50 rounded p-2 mt-1">
+                        {msg.body}
+                      </p>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
 
           {/* Drafts */}
           <div className="space-y-4 border-t border-gray-100 dark:border-gray-800 pt-4">

@@ -458,6 +458,93 @@ router.get('/:id', requireAuth, async (req, res) => {
 });
 
 // ────────────────────────────────────────────────────────────
+// GET /api/client-calls/:id/context
+// Returns job post + full email conversation for this call
+// ────────────────────────────────────────────────────────────
+router.get('/:id/context', requireAuth, async (req, res) => {
+  try {
+    const { rows } = await pool.query(
+      'SELECT id, gmail_thread_id, invitee_emails FROM client_calls WHERE id = $1 AND user_id = $2',
+      [req.params.id, req.user.id]
+    );
+    if (!rows.length) return res.status(404).json({ error: 'Call not found' });
+    const call = rows[0];
+
+    let job = null;
+    let conversation = [];
+
+    // ── Job: match by client_email against invitee_emails ──
+    if (call.invitee_emails?.length) {
+      const { rows: jobs } = await pool.query(
+        `SELECT id, job_heading, job_description, client_first_name, client_last_name,
+                client_email, upwork_link, country, city, company, workload, duration,
+                payment_type, amount, hourly_budget_min, hourly_budget_max,
+                is_payment_verified, total_jobs_posted, total_jobs_with_hires,
+                avg_hourly_rate, buyer_history_amount, category, matched_at
+         FROM jobs
+         WHERE user_id = $1 AND client_email = ANY($2)
+         ORDER BY matched_at DESC LIMIT 1`,
+        [req.user.id, call.invitee_emails]
+      );
+      if (jobs.length) job = jobs[0];
+    }
+
+    // ── Conversation: fetch thread directly from Gmail API ──
+    if (call.gmail_thread_id) {
+      const gmail = await getGmailClientForUser(req.user.id);
+      if (gmail) {
+        try {
+          const thread = await gmail.users.threads.get({
+            userId: 'me',
+            id: call.gmail_thread_id,
+            format: 'full',
+          });
+          const messages = thread.data.messages || [];
+          conversation = messages.map(msg => {
+            const headers = msg.payload?.headers || [];
+            const get = name => headers.find(h => h.name.toLowerCase() === name.toLowerCase())?.value || '';
+
+            // Extract plain text body
+            let body = '';
+            const extractText = (parts) => {
+              if (!parts) return;
+              for (const part of parts) {
+                if (part.mimeType === 'text/plain' && part.body?.data) {
+                  body = Buffer.from(part.body.data, 'base64').toString('utf8');
+                  return;
+                }
+                if (part.parts) extractText(part.parts);
+              }
+            };
+            if (msg.payload?.body?.data) {
+              body = Buffer.from(msg.payload.body.data, 'base64').toString('utf8');
+            } else {
+              extractText(msg.payload?.parts);
+            }
+
+            return {
+              id: msg.id,
+              from: get('From'),
+              to: get('To'),
+              subject: get('Subject'),
+              date: get('Date'),
+              body: body.trim().slice(0, 3000), // cap at 3000 chars per email
+            };
+          });
+        } catch (gmailErr) {
+          console.error('Gmail thread fetch error:', gmailErr.message);
+        }
+      }
+    }
+
+    res.json({ job, conversation });
+  } catch (err) {
+    console.error('GET /client-calls/:id/context error:', err);
+    res.status(500).json({ error: 'Failed to fetch context' });
+  }
+});
+
+// ────────────────────────────────────────────────────────────
 // PUT /api/client-calls/:id/status
 // ────────────────────────────────────────────────────────────
 router.put('/:id/status', requireAuth, async (req, res) => {
