@@ -8,62 +8,18 @@
 const express = require("express");
 const pool = require("../config/db");
 const { requireAuth } = require("../middleware/auth");
-const { decrypt } = require("../utils/encryption");
 const { calculateReactivation } = require("../utils/reactivationLogic");
+const { matchSingleEmail, matchAllUnmatched, getLeadHackToken, sanitize } = require("../utils/jobMatcher");
 
 const router = express.Router();
 
 const LEADHACK_BASE = "https://app.leadhack.info:3000/api/admin";
 
 // ============================================================
-// Helper: Strip null bytes from strings (LeadHack data has encoding artifacts)
-// PostgreSQL rejects \0 in text columns
-// ============================================================
-function sanitize(val) {
-  if (typeof val !== "string") return val;
-  // eslint-disable-next-line no-control-regex
-  return val.replace(/\x00/g, "").replace(/[\x01-\x08\x0B\x0C\x0E-\x1F]/g, "");
-}
-
-// ============================================================
-// Helper: Get LeadHack auth token (optional — API works without auth)
-// ============================================================
-async function getLeadHackToken(userId) {
-  try {
-    const { rows } = await pool.query(
-      "SELECT encrypted_key, iv, auth_tag FROM api_keys WHERE user_id = $1 AND service = 'leadhack'",
-      [userId]
-    );
-
-    if (rows.length === 0) return null; // No key stored — that's fine, API works without auth
-
-    const apiKey = decrypt(rows[0].encrypted_key, rows[0].iv, rows[0].auth_tag);
-
-    // LeadHack uses email+password auth
-    if (apiKey.includes(":")) {
-      const [email, password] = apiKey.split(":");
-      const res = await fetch(`${LEADHACK_BASE}/getAuthToken`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email, password }),
-      });
-      const data = await res.json();
-      if (!data.token) return null;
-      return data.token;
-    }
-
-    return apiKey; // Assume it's a direct token
-  } catch {
-    return null; // Auth failed — continue without it
-  }
-}
-
-// ============================================================
 // POST /api/jobs/match/:emailId — Auto-match email to job
 // ============================================================
 router.post("/match/:emailId", requireAuth, async (req, res, next) => {
   try {
-    // Get the email
     const { rows: emailRows } = await pool.query(
       "SELECT * FROM emails WHERE id = $1 AND user_id = $2",
       [req.params.emailId, req.user.id]
@@ -73,151 +29,52 @@ router.post("/match/:emailId", requireAuth, async (req, res, next) => {
       return res.status(404).json({ error: "Email not found" });
     }
 
-    const email = emailRows[0];
-
-    // Check if already matched (skip cache if previous attempt was an error)
-    const { rows: existingJobs } = await pool.query(
-      "SELECT * FROM jobs WHERE email_id = $1",
-      [email.id]
-    );
-
-    if (existingJobs.length > 0 && existingJobs[0].match_status !== "error") {
-      return res.json({
-        job: formatJob(existingJobs[0]),
-        cached: true,
-      });
-    }
-
-    // Delete old error records before retrying
-    if (existingJobs.length > 0 && existingJobs[0].match_status === "error") {
-      await pool.query("DELETE FROM jobs WHERE email_id = $1", [email.id]);
-    }
-
-    // Query LeadHack API
     try {
       const token = await getLeadHackToken(req.user.id);
-
-      // Strip "Re: " and "Fwd: " prefixes from subject for better matching
-      const cleanSubject = email.subject.replace(/^(Re|Fwd|Fw):\s*/i, "").trim();
-
-      const headers = { "Content-Type": "application/json" };
-      if (token) headers.Authorization = `Bearer ${token}`;
-
-      const lhRes = await fetch(`${LEADHACK_BASE}/getJobDetails`, {
-        method: "POST",
-        headers,
-        body: JSON.stringify({
-          email_id: email.from_email,
-          email_subject: cleanSubject,
-        }),
+      const result = await matchSingleEmail(req.user.id, emailRows[0], token);
+      return res.json({
+        job: formatJob(result.job),
+        cached: result.cached,
       });
-
-      const lhData = await lhRes.json();
-
-      if (lhData.status && lhData.data && lhData.data.length > 0) {
-        const job = lhData.data[0];
-
-        // Call V2 for enriched data (location, budget, client history, etc.)
-        let v2 = null;
-        if (job.link) {
-          try {
-            const v2Res = await fetch(`${LEADHACK_BASE}/getJobDetailsV2`, {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ link: job.link }),
-            });
-            const v2Data = await v2Res.json();
-            if (v2Data.status && v2Data.data && v2Data.data.length > 0) {
-              v2 = v2Data.data[0];
-            }
-          } catch {
-            // V2 enrichment is best-effort — don't fail the whole match
-          }
-        }
-
-        const { rows: inserted } = await pool.query(
-          `INSERT INTO jobs (
-            user_id, email_id, leadhack_id, client_first_name, client_last_name, client_email,
-            email_subject, job_heading, job_description, match_status,
-            upwork_link, country, city, company, workload, duration, payment_type,
-            amount, hourly_budget_min, hourly_budget_max, hourly_budget_type,
-            is_payment_verified, is_enterprise, buyer_history_amount, avg_hourly_rate,
-            total_jobs_posted, total_jobs_with_hires, contractor_tier,
-            category, sub_category, industry, lead_id, v2_enriched_at
-          ) VALUES (
-            $1,$2,$3,$4,$5,$6,$7,$8,$9,'matched',
-            $10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,
-            $21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31,$32
-          ) RETURNING *`,
-          [
-            req.user.id, email.id, job.id?.toString(),
-            sanitize(job.first_name), sanitize(job.last_name), sanitize(job.email_id),
-            sanitize(job.email_subject), sanitize(job.job_heading), sanitize(job.job_description),
-            // V2 fields — use V2 data if available, else fall back to V1 link
-            sanitize(v2?.link || job.link || ""),
-            sanitize(v2?.country || ""),
-            sanitize(v2?.city || ""),
-            sanitize(v2?.company || ""),
-            sanitize(v2?.workload || ""),
-            sanitize(v2?.duration || ""),
-            sanitize(v2?.payment_type || ""),
-            sanitize(v2?.amount || ""),
-            sanitize(v2?.hourly_budget_min || ""),
-            sanitize(v2?.hourly_budget_max || ""),
-            sanitize(v2?.hourly_budget_type || ""),
-            sanitize(v2?.is_payment_verified || ""),
-            sanitize(v2?.is_enterprise_client || ""),
-            sanitize(v2?.buyer_history_amount || ""),
-            sanitize(v2?.avg_hourly_jobs_rate || ""),
-            sanitize(v2?.posted_count || ""),
-            sanitize(v2?.total_jobs_with_hires || ""),
-            sanitize(v2?.contractor_tier || ""),
-            sanitize(v2?.category || ""),
-            sanitize(v2?.sub_category || ""),
-            sanitize(v2?.industry || ""),
-            sanitize(v2?.lead_id || ""),
-            v2 ? new Date() : null,
-          ]
-        );
-
-        return res.json({ job: formatJob(inserted[0]), cached: false });
-      }
-
-      // Multiple matches — user must resolve manually with a link
-      if (!lhData.status && lhData.message && lhData.message.toLowerCase().includes("multiple")) {
-        const { rows: multiMatch } = await pool.query(
-          `INSERT INTO jobs (user_id, email_id, client_email, email_subject, match_status)
-           VALUES ($1, $2, $3, $4, 'needs_manual')
-           RETURNING *`,
-          [req.user.id, email.id, email.from_email, email.subject]
-        );
-        return res.json({ job: formatJob(multiMatch[0]), cached: false });
-      }
-
-      // No match found
-      const { rows: noMatch } = await pool.query(
-        `INSERT INTO jobs (user_id, email_id, client_email, email_subject, match_status)
-         VALUES ($1, $2, $3, $4, 'no_match')
-         RETURNING *`,
-        [req.user.id, email.id, email.from_email, email.subject]
-      );
-
-      return res.json({ job: formatJob(noMatch[0]), cached: false });
     } catch (err) {
-      // API error — still create a record
+      // API error - still create a record
       const { rows: errJob } = await pool.query(
         `INSERT INTO jobs (user_id, email_id, client_email, email_subject, match_status)
          VALUES ($1, $2, $3, $4, 'error')
+         ON CONFLICT DO NOTHING
          RETURNING *`,
-        [req.user.id, email.id, email.from_email, email.subject]
+        [req.user.id, emailRows[0].id, emailRows[0].from_email, emailRows[0].subject]
       );
 
+      if (errJob.length > 0) {
+        return res.json({
+          job: formatJob(errJob[0]),
+          cached: false,
+          warning: `LeadHack lookup failed: ${err.message}`,
+        });
+      }
+      // If ON CONFLICT hit, fetch the existing record
+      const { rows: existing } = await pool.query(
+        "SELECT * FROM jobs WHERE email_id = $1", [emailRows[0].id]
+      );
       return res.json({
-        job: formatJob(errJob[0]),
-        cached: false,
+        job: formatJob(existing[0]),
+        cached: true,
         warning: `LeadHack lookup failed: ${err.message}`,
       });
     }
+  } catch (err) {
+    next(err);
+  }
+});
+
+// ============================================================
+// POST /api/jobs/match-all — Bulk match all unmatched emails
+// ============================================================
+router.post("/match-all", requireAuth, async (req, res, next) => {
+  try {
+    const result = await matchAllUnmatched(req.user.id);
+    res.json(result);
   } catch (err) {
     next(err);
   }

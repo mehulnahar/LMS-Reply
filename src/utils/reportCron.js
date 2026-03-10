@@ -14,6 +14,7 @@ const pool = require('../config/db');
 const { sendMessage, getStatus } = require('./whatsapp');
 const { generateMorningReport } = require('./morningReport');
 const { syncAllAccounts } = require('./emailSync');
+const { matchAllUnmatched } = require('./jobMatcher');
 
 let cronJob = null;
 
@@ -36,6 +37,14 @@ async function runMorningReport() {
         const syncResult = await syncAllAccounts(config.user_id);
         const totalSynced = syncResult.results.reduce((sum, r) => sum + (r.synced || 0), 0);
         console.log(`[ReportCron] Sync complete: ${totalSynced} new emails across ${syncResult.results.length} accounts`);
+
+        // Step 1b: Auto-match unmatched emails to LeadHack jobs
+        try {
+          const matchResult = await matchAllUnmatched(config.user_id);
+          console.log(`[ReportCron] Job matching: ${matchResult.matched} matched, ${matchResult.noMatch} no match, ${matchResult.failed} failed out of ${matchResult.total} unmatched`);
+        } catch (matchErr) {
+          console.error(`[ReportCron] Job matching failed:`, matchErr.message);
+        }
 
         // Step 2: Generate report with fresh data
         const report = await generateMorningReport(config.user_id);

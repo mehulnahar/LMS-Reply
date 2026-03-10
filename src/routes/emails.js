@@ -613,8 +613,22 @@ router.delete("/", requireAuth, async (req, res, next) => {
 router.post("/sync-all", requireAuth, async (req, res, next) => {
   try {
     const { syncAllAccounts } = require("../utils/emailSync");
+    const { matchAllUnmatched } = require("../utils/jobMatcher");
+
     const { results } = await syncAllAccounts(req.user.id);
-    return res.json({ results });
+
+    // Auto-match any unmatched emails after sync
+    const totalSynced = results.reduce((sum, r) => sum + (r.synced || 0), 0);
+    let jobMatchResult = null;
+    if (totalSynced > 0) {
+      try {
+        jobMatchResult = await matchAllUnmatched(req.user.id);
+      } catch (matchErr) {
+        console.error('[emails/sync-all] Job matching failed:', matchErr.message);
+      }
+    }
+
+    return res.json({ results, jobMatchResult });
   } catch (err) {
     next(err);
   }
