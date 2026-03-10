@@ -65,10 +65,11 @@ async function getCalendarClient(account, userId) {
 // ─────────────────────────────────────────
 // Enrich event with matching client context
 // ─────────────────────────────────────────
-async function enrichEventWithClient(userId, attendeeEmails) {
-  if (!attendeeEmails.length) return null;
+async function enrichEventWithClient(userId, attendeeEmails, eventTitle) {
+  if (!attendeeEmails.length && !eventTitle) return null;
 
   const emails = attendeeEmails.map((e) => e.toLowerCase());
+  console.log(`[Calls:enrich] Trying to match: emails=${emails.join(',')} title="${eventTitle || ''}" userId=${userId}`);
 
   // Strategy 1: Match attendee email against emails.from_email (direct sender match)
   const { rows } = await pool.query(
@@ -93,7 +94,11 @@ async function enrichEventWithClient(userId, attendeeEmails) {
     [emails, userId]
   );
 
-  if (rows[0]) return rows[0];
+  if (rows[0]) {
+    console.log(`[Calls:enrich] Strategy 1 HIT: from_email match -> ${rows[0].from_email}`);
+    return rows[0];
+  }
+  console.log(`[Calls:enrich] Strategy 1 miss: no from_email match`);
 
   // Strategy 2: Match attendee email against jobs.client_email (LeadHack enrichment data)
   // Upwork clients often use a different email for calendar invites vs Upwork notifications
@@ -120,13 +125,14 @@ async function enrichEventWithClient(userId, attendeeEmails) {
   );
 
   if (jobRows[0]) {
+    console.log(`[Calls:enrich] Strategy 2 HIT: client_email match -> ${jobRows[0].client_email}`);
     const row = jobRows[0];
-    // Use client_first_name from jobs if from_name is an Upwork notification address
     if (row.client_first_name && (!row.from_name || row.from_name.includes('@'))) {
       row.from_name = row.client_first_name;
     }
     return row;
   }
+  console.log(`[Calls:enrich] Strategy 2 miss: no client_email match`);
 
   // Strategy 3: Fuzzy match - check if attendee name appears in email subject or from_name
   // This catches cases where the email is different but the person is the same
@@ -155,9 +161,93 @@ async function enrichEventWithClient(userId, attendeeEmails) {
        LIMIT 1`,
       [userId, hint, `%${hint}%`]
     );
-    if (fuzzyRows[0]) return fuzzyRows[0];
+    if (fuzzyRows[0]) {
+      console.log(`[Calls:enrich] Strategy 3 HIT: fuzzy name "${hint}" -> ${fuzzyRows[0].from_name}`);
+      return fuzzyRows[0];
+    }
+  }
+  console.log(`[Calls:enrich] Strategy 3 miss: no fuzzy name match (hints: ${nameHints.join(', ')})`);
+
+  // Strategy 4: Match event title against job_heading
+  // Calendar events often follow pattern "[Topic] Discussion" which maps to job headings
+  if (eventTitle) {
+    const cleanTitle = eventTitle
+      .replace(/\s*(Discussion|Call|Meeting|Chat|Sync|Intro)\s*$/i, '')
+      .trim();
+    if (cleanTitle.length >= 5) {
+      console.log(`[Calls:enrich] Strategy 4: searching job_heading for "${cleanTitle}"`);
+      const { rows: titleRows } = await pool.query(
+        `SELECT
+           e.id, e.from_name, e.from_email, e.lead_score, e.has_phone,
+           e.has_urgency, e.hot_signal_flagged, e.intent, e.body_text AS email_body,
+           e.received_at,
+           j.id AS job_id, j.job_heading, j.job_description, j.country,
+           j.match_status, j.follow_up_count, j.client_first_name,
+           j.kill_switch_at IS NOT NULL AS kill_switch_active,
+           r.reply_text, r.created_at AS reply_date
+         FROM jobs j
+         JOIN emails e ON e.id = j.email_id
+         LEFT JOIN LATERAL (
+           SELECT COALESCE(edited_text, generated_text) AS reply_text, created_at FROM replies
+           WHERE job_id = j.id
+           ORDER BY created_at DESC LIMIT 1
+         ) r ON true
+         WHERE e.user_id = $1
+           AND LOWER(j.job_heading) LIKE $2
+         ORDER BY e.received_at DESC
+         LIMIT 1`,
+        [userId, `%${cleanTitle.toLowerCase()}%`]
+      );
+      if (titleRows[0]) {
+        console.log(`[Calls:enrich] Strategy 4 HIT: title match -> "${titleRows[0].job_heading}"`);
+        return titleRows[0];
+      }
+      console.log(`[Calls:enrich] Strategy 4 miss: no job_heading match for "${cleanTitle}"`);
+    }
   }
 
+  // Strategy 5: Match event title keywords against email subject
+  // Upwork email subjects often contain the job topic
+  if (eventTitle) {
+    const keywords = eventTitle
+      .replace(/\s*(Discussion|Call|Meeting|Chat|Sync|Intro)\s*$/i, '')
+      .trim()
+      .split(/\s+/)
+      .filter(w => w.length >= 4);
+    if (keywords.length >= 1) {
+      const pattern = keywords.map(k => k.toLowerCase()).join('%');
+      console.log(`[Calls:enrich] Strategy 5: searching email subject for pattern "%${pattern}%"`);
+      const { rows: subjectRows } = await pool.query(
+        `SELECT
+           e.id, e.from_name, e.from_email, e.lead_score, e.has_phone,
+           e.has_urgency, e.hot_signal_flagged, e.intent, e.body_text AS email_body,
+           e.received_at, e.subject,
+           j.id AS job_id, j.job_heading, j.job_description, j.country,
+           j.match_status, j.follow_up_count, j.client_first_name,
+           j.kill_switch_at IS NOT NULL AS kill_switch_active,
+           r.reply_text, r.created_at AS reply_date
+         FROM emails e
+         LEFT JOIN jobs j ON j.email_id = e.id
+         LEFT JOIN LATERAL (
+           SELECT COALESCE(edited_text, generated_text) AS reply_text, created_at FROM replies
+           WHERE job_id = j.id
+           ORDER BY created_at DESC LIMIT 1
+         ) r ON true
+         WHERE e.user_id = $1
+           AND LOWER(e.subject) LIKE $2
+         ORDER BY e.received_at DESC
+         LIMIT 1`,
+        [userId, `%${pattern}%`]
+      );
+      if (subjectRows[0]) {
+        console.log(`[Calls:enrich] Strategy 5 HIT: subject match -> "${subjectRows[0].subject}"`);
+        return subjectRows[0];
+      }
+      console.log(`[Calls:enrich] Strategy 5 miss: no subject match`);
+    }
+  }
+
+  console.log(`[Calls:enrich] ALL strategies failed for: ${emails.join(',')} / "${eventTitle || ''}"`);
   return null;
 }
 
@@ -216,7 +306,7 @@ router.get("/events", requireAuth, async (req, res) => {
             .map((a) => a.email)
             .filter((e) => e && e.toLowerCase() !== account.email.toLowerCase());
 
-          const client = await enrichEventWithClient(req.user.id, attendeeEmails);
+          const client = await enrichEventWithClient(req.user.id, attendeeEmails, evt.summary);
 
           events.push({
             id: evt.id,
