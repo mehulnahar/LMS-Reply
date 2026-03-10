@@ -210,13 +210,16 @@ async function enrichEventWithClient(userId, attendeeEmails, eventTitle) {
   // Upwork email subjects often contain the job topic
   if (eventTitle) {
     const keywords = eventTitle
-      .replace(/\s*(Discussion|Call|Meeting|Chat|Sync|Intro)\s*$/i, '')
+      .replace(/\s*(Discussion|Call|Meeting|Chat|Sync|Intro|Demo|Updates?\s*Call|Process)\s*$/i, '')
+      .replace(/^\s*/, '')
+      .replace(/\s*-\s*$/, '')
       .trim()
       .split(/\s+/)
-      .filter(w => w.length >= 4);
+      .filter(w => w.length >= 3 && !['the', 'and', 'for', 'with', 'sync', 'project'].includes(w.toLowerCase()));
     if (keywords.length >= 1) {
-      const pattern = keywords.map(k => k.toLowerCase()).join('%');
-      console.log(`[Calls:enrich] Strategy 5: searching email subject for pattern "%${pattern}%"`);
+      // Try full multi-word pattern first (most specific)
+      const fullPattern = keywords.map(k => k.toLowerCase()).join('%');
+      console.log(`[Calls:enrich] Strategy 5a: full subject pattern "%${fullPattern}%"`);
       const { rows: subjectRows } = await pool.query(
         `SELECT
            e.id, e.from_name, e.from_email, e.lead_score, e.has_phone,
@@ -237,13 +240,45 @@ async function enrichEventWithClient(userId, attendeeEmails, eventTitle) {
            AND LOWER(e.subject) LIKE $2
          ORDER BY e.received_at DESC
          LIMIT 1`,
-        [userId, `%${pattern}%`]
+        [userId, `%${fullPattern}%`]
       );
       if (subjectRows[0]) {
-        console.log(`[Calls:enrich] Strategy 5 HIT: subject match -> "${subjectRows[0].subject}"`);
+        console.log(`[Calls:enrich] Strategy 5a HIT: subject match -> "${subjectRows[0].subject}"`);
         return subjectRows[0];
       }
-      console.log(`[Calls:enrich] Strategy 5 miss: no subject match`);
+
+      // Try matching from_name against attendee display names or event title words
+      console.log(`[Calls:enrich] Strategy 5b: searching from_name for title keywords`);
+      for (const kw of keywords) {
+        if (kw.length < 4) continue;
+        const { rows: nameRows } = await pool.query(
+          `SELECT
+             e.id, e.from_name, e.from_email, e.lead_score, e.has_phone,
+             e.has_urgency, e.hot_signal_flagged, e.intent, e.body_text AS email_body,
+             e.received_at, e.subject,
+             j.id AS job_id, j.job_heading, j.job_description, j.country,
+             j.match_status, j.follow_up_count, j.client_first_name,
+             j.kill_switch_at IS NOT NULL AS kill_switch_active,
+             r.reply_text, r.created_at AS reply_date
+           FROM emails e
+           LEFT JOIN jobs j ON j.email_id = e.id
+           LEFT JOIN LATERAL (
+             SELECT COALESCE(edited_text, generated_text) AS reply_text, created_at FROM replies
+             WHERE job_id = j.id
+             ORDER BY created_at DESC LIMIT 1
+           ) r ON true
+           WHERE e.user_id = $1
+             AND (LOWER(e.from_name) LIKE $2 OR LOWER(e.subject) LIKE $2)
+           ORDER BY e.lead_score DESC NULLS LAST, e.received_at DESC
+           LIMIT 1`,
+          [userId, `%${kw.toLowerCase()}%`]
+        );
+        if (nameRows[0]) {
+          console.log(`[Calls:enrich] Strategy 5b HIT: keyword "${kw}" -> from_name="${nameRows[0].from_name}" subject="${nameRows[0].subject}"`);
+          return nameRows[0];
+        }
+      }
+      console.log(`[Calls:enrich] Strategy 5 miss: no subject or name match`);
     }
   }
 
