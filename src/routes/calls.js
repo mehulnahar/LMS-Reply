@@ -70,6 +70,7 @@ async function enrichEventWithClient(userId, attendeeEmails) {
 
   const emails = attendeeEmails.map((e) => e.toLowerCase());
 
+  // Strategy 1: Match attendee email against emails.from_email (direct sender match)
   const { rows } = await pool.query(
     `SELECT
        e.id, e.from_name, e.from_email, e.lead_score, e.has_phone,
@@ -92,7 +93,72 @@ async function enrichEventWithClient(userId, attendeeEmails) {
     [emails, userId]
   );
 
-  return rows[0] || null;
+  if (rows[0]) return rows[0];
+
+  // Strategy 2: Match attendee email against jobs.client_email (LeadHack enrichment data)
+  // Upwork clients often use a different email for calendar invites vs Upwork notifications
+  const { rows: jobRows } = await pool.query(
+    `SELECT
+       e.id, e.from_name, e.from_email, e.lead_score, e.has_phone,
+       e.has_urgency, e.hot_signal_flagged, e.intent, e.body_text AS email_body,
+       e.received_at,
+       j.id AS job_id, j.job_heading, j.job_description, j.country,
+       j.match_status, j.follow_up_count, j.client_first_name, j.client_email,
+       j.kill_switch_at IS NOT NULL AS kill_switch_active,
+       r.reply_text, r.created_at AS reply_date
+     FROM jobs j
+     JOIN emails e ON e.id = j.email_id
+     LEFT JOIN LATERAL (
+       SELECT COALESCE(edited_text, generated_text) AS reply_text, created_at FROM replies
+       WHERE job_id = j.id
+       ORDER BY created_at DESC LIMIT 1
+     ) r ON true
+     WHERE LOWER(j.client_email) = ANY($1) AND e.user_id = $2
+     ORDER BY e.received_at DESC
+     LIMIT 1`,
+    [emails, userId]
+  );
+
+  if (jobRows[0]) {
+    const row = jobRows[0];
+    // Use client_first_name from jobs if from_name is an Upwork notification address
+    if (row.client_first_name && (!row.from_name || row.from_name.includes('@'))) {
+      row.from_name = row.client_first_name;
+    }
+    return row;
+  }
+
+  // Strategy 3: Fuzzy match - check if attendee name appears in email subject or from_name
+  // This catches cases where the email is different but the person is the same
+  const nameHints = attendeeEmails.map(e => e.split('@')[0].replace(/[._-]/g, ' ').toLowerCase());
+  for (const hint of nameHints) {
+    if (hint.length < 3) continue; // skip very short hints like "a" or "hi"
+    const { rows: fuzzyRows } = await pool.query(
+      `SELECT
+         e.id, e.from_name, e.from_email, e.lead_score, e.has_phone,
+         e.has_urgency, e.hot_signal_flagged, e.intent, e.body_text AS email_body,
+         e.received_at,
+         j.id AS job_id, j.job_heading, j.job_description, j.country,
+         j.match_status, j.follow_up_count, j.client_first_name,
+         j.kill_switch_at IS NOT NULL AS kill_switch_active,
+         r.reply_text, r.created_at AS reply_date
+       FROM jobs j
+       JOIN emails e ON e.id = j.email_id
+       LEFT JOIN LATERAL (
+         SELECT COALESCE(edited_text, generated_text) AS reply_text, created_at FROM replies
+         WHERE job_id = j.id
+         ORDER BY created_at DESC LIMIT 1
+       ) r ON true
+       WHERE e.user_id = $1
+         AND (LOWER(j.client_first_name) = $2 OR LOWER(e.from_name) LIKE $3)
+       ORDER BY e.received_at DESC
+       LIMIT 1`,
+      [userId, hint, `%${hint}%`]
+    );
+    if (fuzzyRows[0]) return fuzzyRows[0];
+  }
+
+  return null;
 }
 
 // ============================================================
