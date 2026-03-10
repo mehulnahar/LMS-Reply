@@ -701,14 +701,19 @@ router.get("/events", requireAuth, async (req, res) => {
     // Bulk-fetch call_prep overrides for all event IDs
     const eventIds = events.map(e => e.id);
     if (eventIds.length) {
-      const { rows: preps } = await pool.query(
-        "SELECT * FROM call_prep WHERE user_id = $1 AND google_event_id = ANY($2)",
-        [req.user.id, eventIds]
-      );
-      const prepMap = new Map(preps.map(p => [p.google_event_id, p]));
-      for (const evt of events) {
-        const prep = prepMap.get(evt.id);
-        if (prep) evt.prepOverrides = prep;
+      try {
+        const { rows: preps } = await pool.query(
+          "SELECT * FROM call_prep WHERE user_id = $1 AND google_event_id = ANY($2)",
+          [req.user.id, eventIds]
+        );
+        const prepMap = new Map(preps.map(p => [p.google_event_id, p]));
+        for (const evt of events) {
+          const prep = prepMap.get(evt.id);
+          if (prep) evt.prepOverrides = prep;
+        }
+      } catch (prepErr) {
+        // Table may not exist yet if migration hasn't run - continue without overrides
+        console.warn("[Calls] call_prep query skipped:", prepErr.message);
       }
     }
 
