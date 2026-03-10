@@ -480,15 +480,15 @@ function DetailPanel({ event, onClose }) {
       client?.job_heading ? `PROJECT: ${client.job_heading}` : null,
       "",
       client?.job_description
-        ? `JOB DESCRIPTION:\n${client.job_description.slice(0, 2000)}${client.job_description.length > 2000 ? "..." : ""}`
+        ? `JOB DESCRIPTION:\n${client.job_description}`
         : null,
       "",
       client?.email_body
-        ? `WHAT THEY SAID:\n${client.email_body.slice(0, 3000)}${client.email_body.length > 3000 ? "..." : ""}`
+        ? `WHAT THEY SAID:\n${client.email_body}`
         : null,
       "",
       client?.reply_text
-        ? `OUR LAST REPLY (${client.reply_date ? new Date(client.reply_date).toLocaleDateString("en-US", { month: "short", day: "numeric" }) : "unknown"}):\n${client.reply_text.slice(0, 2000)}${client.reply_text.length > 2000 ? "..." : ""}`
+        ? `OUR LAST REPLY (${client.reply_date ? new Date(client.reply_date).toLocaleDateString("en-US", { month: "short", day: "numeric" }) : "unknown"}):\n${client.reply_text}`
         : null,
       "",
       client
