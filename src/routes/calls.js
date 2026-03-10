@@ -15,6 +15,36 @@ const { decrypt } = require("../utils/encryption");
 const router = express.Router();
 
 // ─────────────────────────────────────────
+// Automated / no-reply email exclusion
+// These senders produce junk matches in fuzzy strategies
+// ─────────────────────────────────────────
+const AUTOMATED_SENDER_PATTERNS = [
+  /^no-?reply@/i,
+  /^noreply@/i,
+  /^notifications?@/i,
+  /^mailer-daemon@/i,
+  /^postmaster@/i,
+  /^do-?not-?reply@/i,
+  /^support@/i,
+  /^info@upwork\.com$/i,
+  /^donotreply@/i,
+  /@tldv\.io$/i,
+  /@calendly\.com$/i,
+  /@zoom\.us$/i,
+  /@meetingbird\.com$/i,
+];
+
+function isAutomatedSender(email) {
+  if (!email) return false;
+  const lower = email.toLowerCase();
+  return AUTOMATED_SENDER_PATTERNS.some(p => p.test(lower));
+}
+
+// Minimum lead_score for fuzzy strategies (3, 4, 5)
+// Prevents low-quality automated emails from being returned as client matches
+const FUZZY_MIN_LEAD_SCORE = 15;
+
+// ─────────────────────────────────────────
 // Build OAuth2 client for a user
 // ─────────────────────────────────────────
 async function getOAuth2ClientForUser(userId) {
@@ -136,6 +166,7 @@ async function enrichEventWithClient(userId, attendeeEmails, eventTitle) {
 
   // Strategy 3: Fuzzy match - check if attendee name appears in email subject or from_name
   // This catches cases where the email is different but the person is the same
+  // Filters out automated senders and requires minimum lead_score
   const nameHints = attendeeEmails.map(e => e.split('@')[0].replace(/[._-]/g, ' ').toLowerCase());
   for (const hint of nameHints) {
     if (hint.length < 3) continue; // skip very short hints like "a" or "hi"
@@ -157,12 +188,13 @@ async function enrichEventWithClient(userId, attendeeEmails, eventTitle) {
        ) r ON true
        WHERE e.user_id = $1
          AND (LOWER(j.client_first_name) = $2 OR LOWER(e.from_name) LIKE $3)
-       ORDER BY e.received_at DESC
+         AND COALESCE(e.lead_score, 0) >= $4
+       ORDER BY e.lead_score DESC NULLS LAST, e.received_at DESC
        LIMIT 1`,
-      [userId, hint, `%${hint}%`]
+      [userId, hint, `%${hint}%`, FUZZY_MIN_LEAD_SCORE]
     );
-    if (fuzzyRows[0]) {
-      console.log(`[Calls:enrich] Strategy 3 HIT: fuzzy name "${hint}" -> ${fuzzyRows[0].from_name}`);
+    if (fuzzyRows[0] && !isAutomatedSender(fuzzyRows[0].from_email)) {
+      console.log(`[Calls:enrich] Strategy 3 HIT: fuzzy name "${hint}" -> ${fuzzyRows[0].from_name} (score: ${fuzzyRows[0].lead_score})`);
       return fuzzyRows[0];
     }
   }
@@ -170,6 +202,7 @@ async function enrichEventWithClient(userId, attendeeEmails, eventTitle) {
 
   // Strategy 4: Match event title against job_heading
   // Calendar events often follow pattern "[Topic] Discussion" which maps to job headings
+  // Filters out automated senders
   if (eventTitle) {
     const cleanTitle = eventTitle
       .replace(/\s*(Discussion|Call|Meeting|Chat|Sync|Intro)\s*$/i, '')
@@ -194,12 +227,12 @@ async function enrichEventWithClient(userId, attendeeEmails, eventTitle) {
          ) r ON true
          WHERE e.user_id = $1
            AND LOWER(j.job_heading) LIKE $2
-         ORDER BY e.received_at DESC
+         ORDER BY e.lead_score DESC NULLS LAST, e.received_at DESC
          LIMIT 1`,
         [userId, `%${cleanTitle.toLowerCase()}%`]
       );
-      if (titleRows[0]) {
-        console.log(`[Calls:enrich] Strategy 4 HIT: title match -> "${titleRows[0].job_heading}"`);
+      if (titleRows[0] && !isAutomatedSender(titleRows[0].from_email)) {
+        console.log(`[Calls:enrich] Strategy 4 HIT: title match -> "${titleRows[0].job_heading}" (score: ${titleRows[0].lead_score})`);
         return titleRows[0];
       }
       console.log(`[Calls:enrich] Strategy 4 miss: no job_heading match for "${cleanTitle}"`);
@@ -208,6 +241,7 @@ async function enrichEventWithClient(userId, attendeeEmails, eventTitle) {
 
   // Strategy 5: Match event title keywords against email subject
   // Upwork email subjects often contain the job topic
+  // Filters out automated senders and requires minimum lead_score
   if (eventTitle) {
     const keywords = eventTitle
       .replace(/\s*(Discussion|Call|Meeting|Chat|Sync|Intro|Demo|Updates?\s*Call|Process)\s*$/i, '')
@@ -215,42 +249,46 @@ async function enrichEventWithClient(userId, attendeeEmails, eventTitle) {
       .replace(/\s*-\s*$/, '')
       .trim()
       .split(/\s+/)
-      .filter(w => w.length >= 3 && !['the', 'and', 'for', 'with', 'sync', 'project'].includes(w.toLowerCase()));
+      .filter(w => w.length >= 3 && !['the', 'and', 'for', 'with', 'sync', 'project', 'proposal', 'saas', 'lead', 'team', 'sales'].includes(w.toLowerCase()));
     if (keywords.length >= 1) {
-      // Try full multi-word pattern first (most specific)
-      const fullPattern = keywords.map(k => k.toLowerCase()).join('%');
-      console.log(`[Calls:enrich] Strategy 5a: full subject pattern "%${fullPattern}%"`);
-      const { rows: subjectRows } = await pool.query(
-        `SELECT
-           e.id, e.from_name, e.from_email, e.lead_score, e.has_phone,
-           e.has_urgency, e.hot_signal_flagged, e.intent, e.body_text AS email_body,
-           e.received_at, e.subject,
-           j.id AS job_id, j.job_heading, j.job_description, j.country,
-           j.match_status, j.follow_up_count, j.client_first_name,
-           j.kill_switch_at IS NOT NULL AS kill_switch_active,
-           r.reply_text, r.created_at AS reply_date
-         FROM emails e
-         LEFT JOIN jobs j ON j.email_id = e.id
-         LEFT JOIN LATERAL (
-           SELECT COALESCE(edited_text, generated_text) AS reply_text, created_at FROM replies
-           WHERE job_id = j.id
-           ORDER BY created_at DESC LIMIT 1
-         ) r ON true
-         WHERE e.user_id = $1
-           AND LOWER(e.subject) LIKE $2
-         ORDER BY e.received_at DESC
-         LIMIT 1`,
-        [userId, `%${fullPattern}%`]
-      );
-      if (subjectRows[0]) {
-        console.log(`[Calls:enrich] Strategy 5a HIT: subject match -> "${subjectRows[0].subject}"`);
-        return subjectRows[0];
+      // Try full multi-word pattern first (most specific) - only when 2+ keywords
+      if (keywords.length >= 2) {
+        const fullPattern = keywords.map(k => k.toLowerCase()).join('%');
+        console.log(`[Calls:enrich] Strategy 5a: full subject pattern "%${fullPattern}%"`);
+        const { rows: subjectRows } = await pool.query(
+          `SELECT
+             e.id, e.from_name, e.from_email, e.lead_score, e.has_phone,
+             e.has_urgency, e.hot_signal_flagged, e.intent, e.body_text AS email_body,
+             e.received_at, e.subject,
+             j.id AS job_id, j.job_heading, j.job_description, j.country,
+             j.match_status, j.follow_up_count, j.client_first_name,
+             j.kill_switch_at IS NOT NULL AS kill_switch_active,
+             r.reply_text, r.created_at AS reply_date
+           FROM emails e
+           LEFT JOIN jobs j ON j.email_id = e.id
+           LEFT JOIN LATERAL (
+             SELECT COALESCE(edited_text, generated_text) AS reply_text, created_at FROM replies
+             WHERE job_id = j.id
+             ORDER BY created_at DESC LIMIT 1
+           ) r ON true
+           WHERE e.user_id = $1
+             AND LOWER(e.subject) LIKE $2
+             AND COALESCE(e.lead_score, 0) >= $3
+           ORDER BY e.lead_score DESC NULLS LAST, e.received_at DESC
+           LIMIT 1`,
+          [userId, `%${fullPattern}%`, FUZZY_MIN_LEAD_SCORE]
+        );
+        if (subjectRows[0] && !isAutomatedSender(subjectRows[0].from_email)) {
+          console.log(`[Calls:enrich] Strategy 5a HIT: subject match -> "${subjectRows[0].subject}" (score: ${subjectRows[0].lead_score})`);
+          return subjectRows[0];
+        }
       }
 
-      // Try matching from_name against attendee display names or event title words
+      // Try matching from_name against event title words (subject match only, not body)
+      // Only match against from_name, NOT against subject (too loose - catches automated emails)
       console.log(`[Calls:enrich] Strategy 5b: searching from_name for title keywords`);
       for (const kw of keywords) {
-        if (kw.length < 4) continue;
+        if (kw.length < 5) continue; // require longer keywords for single-word fuzzy match
         const { rows: nameRows } = await pool.query(
           `SELECT
              e.id, e.from_name, e.from_email, e.lead_score, e.has_phone,
@@ -268,13 +306,14 @@ async function enrichEventWithClient(userId, attendeeEmails, eventTitle) {
              ORDER BY created_at DESC LIMIT 1
            ) r ON true
            WHERE e.user_id = $1
-             AND (LOWER(e.from_name) LIKE $2 OR LOWER(e.subject) LIKE $2)
+             AND LOWER(e.from_name) LIKE $2
+             AND COALESCE(e.lead_score, 0) >= $3
            ORDER BY e.lead_score DESC NULLS LAST, e.received_at DESC
            LIMIT 1`,
-          [userId, `%${kw.toLowerCase()}%`]
+          [userId, `%${kw.toLowerCase()}%`, FUZZY_MIN_LEAD_SCORE]
         );
-        if (nameRows[0]) {
-          console.log(`[Calls:enrich] Strategy 5b HIT: keyword "${kw}" -> from_name="${nameRows[0].from_name}" subject="${nameRows[0].subject}"`);
+        if (nameRows[0] && !isAutomatedSender(nameRows[0].from_email)) {
+          console.log(`[Calls:enrich] Strategy 5b HIT: keyword "${kw}" -> from_name="${nameRows[0].from_name}" (score: ${nameRows[0].lead_score})`);
           return nameRows[0];
         }
       }
