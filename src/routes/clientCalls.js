@@ -72,7 +72,8 @@ async function callClaudeHelper(systemPrompt, userMessage, apiKey, maxTokens = 1
 function isInternalMeeting(name, invitees = []) {
   const lowerName = (name || '').toLowerCase();
   if (INTERNAL_TITLE_KEYWORDS.some(kw => lowerName.includes(kw))) return true;
-  if (invitees.every(email =>
+  // Only flag as internal-by-domain if we actually have invitees AND all are internal
+  if (invitees.length > 0 && invitees.every(email =>
     INTERNAL_EMAIL_DOMAINS.some(domain => email.toLowerCase().includes(domain))
   )) return true;
   return false;
@@ -237,12 +238,34 @@ router.post('/sync', requireAuth, async (req, res) => {
     // Fetch all meetings from TLDV
     const allMeetings = await fetchTldvMeetings(tldvKey);
 
+    // Log first meeting shape for debugging
+    if (allMeetings.length > 0) {
+      console.log('[TLDV sync] Sample meeting keys:', Object.keys(allMeetings[0]));
+      console.log('[TLDV sync] Sample meeting:', JSON.stringify(allMeetings[0], null, 2).slice(0, 500));
+    } else {
+      console.log('[TLDV sync] No meetings returned from TLDV API');
+    }
+
     // Filter to client meetings only
     const clientMeetings = allMeetings.filter(m => {
-      const dur = (m.duration || 0) / 60; // TLDV returns duration in seconds
-      if (dur < 4) return false;
-      const invitees = (m.invitees || []).map(i => i.email || i).filter(Boolean);
-      if (isInternalMeeting(m.name || m.title, invitees)) return false;
+      // Duration: TLDV may return seconds, minutes, or ms - handle all cases
+      const rawDur = m.duration || m.durationMs || m.durationSeconds || 0;
+      // If > 1000, assume milliseconds; if > 60, assume seconds; else assume minutes
+      let dur;
+      if (rawDur > 3600) dur = rawDur / 60000; // ms -> minutes
+      else if (rawDur > 60) dur = rawDur / 60;  // seconds -> minutes
+      else dur = rawDur;                          // already minutes
+
+      if (dur < 4) {
+        console.log(`[TLDV filter] Skipping "${m.name || m.title}" - duration ${dur.toFixed(1)} min < 4`);
+        return false;
+      }
+      const invitees = (m.invitees || m.attendees || m.participants || [])
+        .map(i => i.email || i).filter(Boolean);
+      if (isInternalMeeting(m.name || m.title, invitees)) {
+        console.log(`[TLDV filter] Skipping "${m.name || m.title}" - internal meeting`);
+        return false;
+      }
       return true;
     });
 
@@ -254,9 +277,15 @@ router.post('/sync', requireAuth, async (req, res) => {
     for (const mtg of clientMeetings) {
       const meetingId = mtg.id;
       const meetingName = mtg.name || mtg.title || 'Untitled Meeting';
-      const durationMin = (mtg.duration || 0) / 60;
-      const callDate = mtg.startedAt ? new Date(mtg.startedAt).toISOString().split('T')[0] : null;
-      const invitees = (mtg.invitees || []).map(i => i.email || i).filter(Boolean);
+      const rawDur = mtg.duration || mtg.durationMs || mtg.durationSeconds || 0;
+      let durationMin;
+      if (rawDur > 3600) durationMin = rawDur / 60000;
+      else if (rawDur > 60) durationMin = rawDur / 60;
+      else durationMin = rawDur;
+      const callDate = (mtg.startedAt || mtg.date || mtg.createdAt)
+        ? new Date(mtg.startedAt || mtg.date || mtg.createdAt).toISOString().split('T')[0] : null;
+      const invitees = (mtg.invitees || mtg.attendees || mtg.participants || [])
+        .map(i => i.email || i).filter(Boolean);
 
       // Check if already synced
       const { rows: existing } = await pool.query(

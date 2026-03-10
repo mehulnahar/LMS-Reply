@@ -608,7 +608,7 @@ export default function ClientCalls() {
       {syncResult && (
         <div className="flex-shrink-0 bg-green-50 dark:bg-green-900/20 border-b border-green-200 dark:border-green-800 px-6 py-2.5 flex items-center justify-between">
           <p className="text-sm text-green-700 dark:text-green-400">
-            Sync complete — {syncResult.new_calls} new calls, {syncResult.no_shows} no-shows, {syncResult.gmail_threads_matched} Gmail threads matched
+            Sync complete — {syncResult.total_meetings_from_tldv} fetched from TLDV, {syncResult.client_meetings_filtered} passed filters, {syncResult.new_calls} new calls added, {syncResult.no_shows} no-shows, {syncResult.gmail_threads_matched} Gmail threads matched
           </p>
           <button onClick={() => setSyncResult(null)} className="text-green-500 hover:text-green-700 dark:hover:text-green-300">
             <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
