@@ -225,6 +225,47 @@ router.get('/', requireAuth, async (req, res) => {
 });
 
 // ────────────────────────────────────────────────────────────
+// GET /api/client-calls/ping-tldv
+// Quick connectivity + key validity check (no sync, no DB writes)
+// ────────────────────────────────────────────────────────────
+router.get('/ping-tldv', requireAuth, async (req, res) => {
+  try {
+    const tldvKey = await getApiKey(req.user.id, 'tldv');
+    if (!tldvKey) {
+      return res.status(400).json({ ok: false, error: 'TLDV API key not configured' });
+    }
+
+    const url = `${TLDV_BASE}/v1alpha1/meetings?page=1&pageSize=1`;
+    let status, body, networkError;
+
+    try {
+      const r = await fetch(url, { headers: { 'x-api-key': tldvKey }, signal: AbortSignal.timeout(10000) });
+      status = r.status;
+      body = await r.json().catch(() => null);
+    } catch (fetchErr) {
+      networkError = fetchErr.cause?.message || fetchErr.cause?.code || fetchErr.message;
+    }
+
+    if (networkError) {
+      return res.json({ ok: false, error: `Network error: ${networkError}` });
+    }
+    if (status === 401) {
+      return res.json({ ok: false, error: 'TLDV API key is invalid or expired (401)' });
+    }
+    if (status === 403) {
+      return res.json({ ok: false, error: 'TLDV API key forbidden (403)' });
+    }
+    if (status !== 200) {
+      return res.json({ ok: false, error: `TLDV returned HTTP ${status}`, body });
+    }
+
+    return res.json({ ok: true, message: 'TLDV connection healthy', total: body?.total ?? null });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+// ────────────────────────────────────────────────────────────
 // POST /api/client-calls/sync
 // ────────────────────────────────────────────────────────────
 router.post('/sync', requireAuth, async (req, res) => {
@@ -428,7 +469,9 @@ router.post('/sync', requireAuth, async (req, res) => {
     });
   } catch (err) {
     console.error('POST /client-calls/sync error:', err);
-    res.status(500).json({ error: err.message || 'Sync failed' });
+    // Include err.cause for network-level errors (e.g. "fetch failed" hides ECONNREFUSED/ETIMEDOUT)
+    const detail = err.cause?.message || err.cause?.code || err.message || 'Sync failed';
+    res.status(500).json({ error: detail });
   }
 });
 
