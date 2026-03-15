@@ -14,6 +14,7 @@
 
 const express = require('express');
 const { google } = require('googleapis');
+const { Agent } = require('undici');
 const pool = require('../config/db');
 const { requireAuth } = require('../middleware/auth');
 const { decrypt } = require('../utils/encryption');
@@ -23,6 +24,10 @@ const { researchSimilarExamples } = require('../utils/researchAgent');
 const router = express.Router();
 
 const TLDV_BASE = 'https://pasta.tldv.io';
+
+// Force IPv4 for all TLDV requests — Railway's network routes IPv6 incorrectly
+// causing ETIMEDOUT on native fetch. undici is built into Node.js 18+, no extra dep.
+const tldvDispatcher = new Agent({ connect: { family: 4 } });
 
 // Internal meeting filters
 const INTERNAL_TITLE_KEYWORDS = [
@@ -86,7 +91,7 @@ async function fetchTldvMeetings(apiKey) {
 
   do {
     const url = `${TLDV_BASE}/v1alpha1/meetings?page=${page}&pageSize=50`;
-    const res = await fetch(url, { headers: { 'x-api-key': apiKey } });
+    const res = await fetch(url, { headers: { 'x-api-key': apiKey }, dispatcher: tldvDispatcher });
     if (!res.ok) throw new Error(`TLDV API error: ${res.status}`);
     const data = await res.json();
     // TLDV returns { page, pageSize, pages, total, results: [...] }
@@ -102,6 +107,7 @@ async function fetchTldvTranscript(meetingId, apiKey) {
   try {
     const res = await fetch(`${TLDV_BASE}/v1alpha1/meetings/${meetingId}/transcript`, {
       headers: { 'x-api-key': apiKey },
+      dispatcher: tldvDispatcher,
     });
     if (!res.ok) return null;
     const data = await res.json();
@@ -239,7 +245,7 @@ router.get('/ping-tldv', requireAuth, async (req, res) => {
     let status, body, networkError;
 
     try {
-      const r = await fetch(url, { headers: { 'x-api-key': tldvKey }, signal: AbortSignal.timeout(10000) });
+      const r = await fetch(url, { headers: { 'x-api-key': tldvKey }, dispatcher: tldvDispatcher, signal: AbortSignal.timeout(10000) });
       status = r.status;
       body = await r.json().catch(() => null);
     } catch (fetchErr) {
